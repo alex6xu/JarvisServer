@@ -1,0 +1,82 @@
+package tui
+
+import "github.com/smallnest/pigo/internal/agentcore"
+
+// This file defines the tea.Msg types the event bridge (bridge.go) produces from
+// a run's AgentEvents (US-004, SPEC 5.1). Each raw runtime signal is converted to
+// exactly one of these value types so the Bubble Tea Update loop can dispatch on
+// them with a plain type switch, keeping all run-time state changes on the tea
+// goroutine (node #388 wires them into Model.Update). Every type is a value (not
+// a pointer) so it flows through the tea.Msg (any) channel without aliasing the
+// producer goroutine's state.
+
+// textDeltaMsg carries the newest suffix of streaming assistant text — the bytes
+// produced since the previous delta for the current turn (see DrainStream's
+// OnText contract).
+type textDeltaMsg struct{ delta string }
+
+// turnEndMsg fires once per completed turn with the final assistant message and
+// the tool results produced during it.
+type turnEndMsg struct {
+	msg     agentcore.AssistantMessage
+	results []agentcore.ToolResultMessage
+}
+
+// toolStartMsg is emitted before a tool runs. input holds the decoded call
+// arguments when they are a JSON object; it is nil otherwise (the raw Args are
+// an untyped any at the event layer).
+type toolStartMsg struct {
+	id    string
+	name  string
+	input map[string]any
+}
+
+// toolUpdateMsg carries a partial result streamed during a tool's execution.
+type toolUpdateMsg struct {
+	id      string
+	partial string
+}
+
+// toolEndMsg is emitted when a tool finishes. ok is false when the tool reported
+// an error; result is the tool's textual output.
+type toolEndMsg struct {
+	id     string
+	ok     bool
+	result string
+}
+
+// subagentProgressMsg carries a running sub-agent's structured progress
+// (translated from agentcore.SubAgentProgressEvent). id is the parent task
+// tool-call id (the row key, matching the task's toolStartMsg/toolEndMsg id);
+// desc is the task description (may be empty); activity is the current phase
+// ("Reading"/"Editing"/…, never empty); tokens is a coarse output estimate
+// (0 = unknown). Elapsed is NOT carried — the model computes it from the row's
+// start time so the panel stays live without an event per frame.
+type subagentProgressMsg struct {
+	id       string
+	desc     string
+	activity string
+	tokens   int
+}
+
+// telemetryMsg carries the run's end-of-run telemetry summary.
+type telemetryMsg struct{ ev agentcore.TelemetryEvent }
+
+// compactionStartMsg signals that the loop is about to compact the context
+// window. It pins the spinner to a "Compacting conversation…" label while the
+// summarization request is in flight; compactionMsg clears it.
+type compactionStartMsg struct{}
+
+// compactionMsg signals that the loop compacted the context window. The event's
+// details are not needed by the transcript, so it is a bare signal.
+type compactionMsg struct{}
+
+// runEndMsg is the final message: the run has fully drained. err is non-nil when
+// the run ended in error (or was interrupted).
+type runEndMsg struct{ err error }
+
+// remoteInputMsg carries a prompt submitted from the paired remote browser
+// (remote-control, #443). The listener Cmd (Model.waitRemoteInput) blocks on the
+// bridge's RemoteInput channel and emits one per submission, re-issued after each
+// so successive remote prompts keep arriving.
+type remoteInputMsg struct{ text string }

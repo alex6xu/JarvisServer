@@ -1,0 +1,203 @@
+// This file implements system-prompt assembly (US-021, #40), the pigo port of
+// pi's prompt construction. A run's system prompt is built from three layers,
+// in order:
+//
+//  1. a base instruction (who the agent is and how it should behave),
+//  2. an environment block (working directory, OS/arch, current date), and
+//  3. every AGENTS.md found on the path from a root directory down to the
+//     working directory, concatenated general-to-specific.
+//
+// The AGENTS.md ordering mirrors zero/pi's monorepo behavior: a repo-root
+// AGENTS.md states broad conventions, and a nested package's AGENTS.md refines
+// them, so the more specific file appears later and takes precedence in the
+// model's reading.
+package runtime
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"time"
+)
+
+// agentsFileName is the per-directory instruction file injected into the system
+// prompt, general-to-specific from the root down to the working directory.
+const agentsFileName = "AGENTS.md"
+
+// PromptConfig configures system-prompt assembly. The zero value is usable: it
+// produces the base instruction plus an environment block for the process
+// working directory, with no AGENTS.md injection.
+type PromptConfig struct {
+	// BaseInstruction is the leading text of the system prompt. When empty,
+	// DefaultBaseInstruction is used.
+	BaseInstruction string
+	// WorkingDir is the directory the run operates in. When empty, the process
+	// working directory (os.Getwd) is used. It anchors both the environment
+	// block and the lower bound of the AGENTS.md walk.
+	WorkingDir string
+	// Root bounds the AGENTS.md walk at its top. AGENTS.md files are injected for
+	// every directory from Root down to WorkingDir, inclusive. When empty, only
+	// WorkingDir's own AGENTS.md (if any) is considered — no ancestor walk.
+	Root string
+	// AppendInstructions are appended verbatim to the end of the assembled
+	// prompt, in order, each preceded by a blank line. This is the sink for
+	// --append-system-prompt (mirrors pi): extra guidance layered after the base
+	// instruction, environment block, and AGENTS.md. Empty entries are skipped.
+	AppendInstructions []string
+	// Now supplies the timestamp for the environment block. When nil, time.Now
+	// is used. Injected for deterministic tests.
+	Now func() time.Time
+	// ReadFile reads a file's contents. When nil, os.ReadFile is used. Injected
+	// for tests so AGENTS.md layout can be faked without touching disk.
+	ReadFile func(path string) ([]byte, error)
+	// Skills are the model-invocable skills to advertise in an <available_skills>
+	// block at the end of the prompt (mirrors pi's progressive disclosure). Only their
+	// name/description/location are injected; the model loads a skill's body with
+	// the read tool on demand. Skills flagged disable-model-invocation are
+	// filtered out by FormatSkillsForPrompt. Empty means no skills block.
+	Skills []*Skill
+	// ReadToolAvailable signals whether the read tool is in the current tool set.
+	// Skills are advertised only when it is true, since the model needs the read
+	// tool to load a skill's body; otherwise the block is omitted entirely.
+	ReadToolAvailable bool
+}
+
+// DefaultBaseInstruction is the leading system-prompt text used when
+// PromptConfig.BaseInstruction is empty.
+const DefaultBaseInstruction = "You are pigo, a helpful coding agent. " +
+	"Use the available tools to inspect files and accomplish the user's request precisely and concisely.\n\n" +
+	todoGuide + "\n\n" +
+	taskGuide
+
+// todoGuide instructs the model on how to drive the todo tool. It is appended to
+// the default base instruction so multi-step work is planned and its progress is
+// made visible to the user (US-011).
+const todoGuide = "When a task has multiple steps or is non-trivial, use the todo tool to plan " +
+	"and track your work. Submit the entire task list each call (it replaces the previous " +
+	"list); each item has a content string and a status of pending, in_progress, or completed. " +
+	"Keep exactly one item in_progress at a time, and mark an item completed as soon as it is " +
+	"done before starting the next. Skip the todo tool for trivial single-step requests."
+
+// taskGuide instructs the model on how to use the generic `task` tool (US-008,
+// #458). The task tool dispatches an independent sub-agent that runs its own
+// agent loop with a fresh context and returns its final report, so it is the
+// mechanism for delegation and fan-out. The key affordance advertised here is
+// that emitting MULTIPLE task calls in a single assistant message runs those
+// sub-agents in parallel, letting skills like /graph achieve real concurrency.
+const taskGuide = "When work splits into independent subtasks, delegate them with the task tool: each " +
+	"task call dispatches an independent sub-agent that completes its subtask on a fresh context and " +
+	"returns its final report. To fan out, emit MULTIPLE task calls in a single message — they run in " +
+	"parallel. Give each a complete, self-contained prompt, since a sub-agent shares none of this " +
+	"conversation's context. Do the work directly for a single, sequential, or trivial task."
+
+// BuildSystemPrompt assembles the full system prompt from cfg: base instruction,
+// environment block, then AGENTS.md files ordered general-to-specific from Root
+// down to WorkingDir. Missing AGENTS.md files are skipped silently; only a
+// present-but-unreadable file (a real I/O error other than not-exist) is
+// reported.
+func BuildSystemPrompt(cfg PromptConfig) (string, error) {
+	base := cfg.BaseInstruction
+	if base == "" {
+		base = DefaultBaseInstruction
+	}
+	wd := cfg.WorkingDir
+	if wd == "" {
+		if cwd, err := os.Getwd(); err == nil {
+			wd = cwd
+		}
+	}
+	now := cfg.Now
+	if now == nil {
+		now = time.Now
+	}
+	readFile := cfg.ReadFile
+	if readFile == nil {
+		readFile = os.ReadFile
+	}
+
+	var b strings.Builder
+	b.WriteString(base)
+
+	b.WriteString("\n\nEnvironment:\n")
+	fmt.Fprintf(&b, "- Working directory: %s\n", wd)
+	fmt.Fprintf(&b, "- OS: %s/%s\n", runtime.GOOS, runtime.GOARCH)
+	fmt.Fprintf(&b, "- Date: %s", now().Format("2006-01-02"))
+
+	dirs := agentsDirChain(cfg.Root, wd)
+	for _, dir := range dirs {
+		path := filepath.Join(dir, agentsFileName)
+		data, err := readFile(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return "", fmt.Errorf("read %s: %w", path, err)
+		}
+		content := strings.TrimSpace(string(data))
+		if content == "" {
+			continue
+		}
+		fmt.Fprintf(&b, "\n\n# Project instructions (%s)\n%s", path, content)
+	}
+
+	// Appended instructions (--append-system-prompt) come last so they layer on
+	// top of the base instruction, environment, and AGENTS.md. Each is separated
+	// by a blank line; empty entries are skipped.
+	for _, extra := range cfg.AppendInstructions {
+		extra = strings.TrimSpace(extra)
+		if extra == "" {
+			continue
+		}
+		b.WriteString("\n\n")
+		b.WriteString(extra)
+	}
+
+	// Advertise model-invocable skills last (progressive disclosure), but only
+	// when the read tool is available — the model needs it to load a skill's
+	// body. FormatSkillsForPrompt returns "" when no visible skill remains, so
+	// this leaves a skill-free prompt byte-for-byte unchanged.
+	if cfg.ReadToolAvailable {
+		b.WriteString(FormatSkillsForPrompt(cfg.Skills))
+	}
+
+	return b.String(), nil
+}
+
+// agentsDirChain returns the directories whose AGENTS.md should be injected, in
+// general-to-specific order (root first, working directory last). When root is
+// empty or is not an ancestor of wd, only wd is returned. When wd is empty, the
+// chain is empty.
+func agentsDirChain(root, wd string) []string {
+	if wd == "" {
+		return nil
+	}
+	wd = filepath.Clean(wd)
+	if root == "" {
+		return []string{wd}
+	}
+	root = filepath.Clean(root)
+
+	// Walk up from wd to root, collecting each directory, then reverse so the
+	// root comes first (general → specific). If root is never reached, wd is not
+	// under root, so fall back to wd alone.
+	var up []string
+	cur := wd
+	for {
+		up = append(up, cur)
+		if cur == root {
+			// Reverse in place: root-first.
+			for i, j := 0, len(up)-1; i < j; i, j = i+1, j-1 {
+				up[i], up[j] = up[j], up[i]
+			}
+			return up
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			// Reached filesystem root without hitting `root`: wd not under root.
+			return []string{wd}
+		}
+		cur = parent
+	}
+}
