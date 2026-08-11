@@ -1,0 +1,60 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/pigo
+/jarvis
+/bin/
+/dist/
+
+# Go build & test
+*.test
+*.out
+coverage.out
+coverage.html
+*.prof
+*.pprof
+
+# Go workspace
+go.work
+go.work.sum
+
+# Dependencies
+/vendor/
+
+# Frontend (web/)
+web/node_modules/
+web/dist/
+web/.vite/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Local cache & temp
+.cache/
+tmp/
+temp/
+*.log
+*.tmp
+*.swp
+*~
+
+# IDE & editors
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# OS
+.DS_Store
+.DS_Store?
+Thumbs.db
+Desktop.ini
+
+# Debug
+__debug_bin*
+debug
