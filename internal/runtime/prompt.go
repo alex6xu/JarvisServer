@@ -65,11 +65,31 @@ type PromptConfig struct {
 }
 
 // DefaultBaseInstruction is the leading system-prompt text used when
-// PromptConfig.BaseInstruction is empty.
-const DefaultBaseInstruction = "You are pigo, a helpful coding agent. " +
+// PromptConfig.BaseInstruction is empty. Gateway Coder mode and the CLI use
+// this coding-agent identity by default.
+const DefaultBaseInstruction = CodingBaseInstruction
+
+// PersonalBaseInstruction is the Chat-mode identity (helpful personal agent).
+const PersonalBaseInstruction = "You are Jarvis, a helpful personal AI agent. " +
+	"Assist the user precisely and concisely."
+
+// CodingBaseInstruction is the Coder-mode identity (helpful coding agent) plus
+// guidance for the todo and task tools.
+const CodingBaseInstruction = "You are Jarvis, a helpful coding AI agent. " +
 	"Use the available tools to inspect files and accomplish the user's request precisely and concisely.\n\n" +
 	todoGuide + "\n\n" +
 	taskGuide
+
+// BaseInstructionForMode returns the Jarvis base instruction for a gateway mode.
+// Unknown or empty mode defaults to personal (Chat).
+func BaseInstructionForMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "coder", "code":
+		return CodingBaseInstruction
+	default:
+		return PersonalBaseInstruction
+	}
+}
 
 // todoGuide instructs the model on how to drive the todo tool. It is appended to
 // the default base instruction so multi-step work is planned and its progress is

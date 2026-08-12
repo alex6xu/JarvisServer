@@ -5,6 +5,7 @@ import {
   mapRestoredMessages,
   readLocal,
   readSessionQueryParam,
+  segmentsFromContentAndTools,
   writeLocal,
   writeSessionQueryParam,
   type SessionRestorePayload,
@@ -111,6 +112,7 @@ export function useSessionRestore() {
               timestamp: new Date(),
               model: active.model,
               toolSteps: data.active_run_tool_steps || [],
+              segments: segmentsFromContentAndTools('', data.active_run_tool_steps || []),
             },
           ]
         } else {

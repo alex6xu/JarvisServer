@@ -128,6 +128,7 @@ export default function ChatPage() {
             body: JSON.stringify({
               message: text,
               session_id: sid || undefined,
+              mode: 'chat',
               stream: false,
             }),
           },
@@ -161,6 +162,7 @@ export default function ChatPage() {
           content: '',
           timestamp: new Date(),
           toolSteps: [],
+          segments: [],
         },
       ])
 

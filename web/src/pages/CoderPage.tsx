@@ -653,6 +653,7 @@ export default function CoderPage() {
         timestamp: new Date(),
         model: selectedModel || undefined,
         toolSteps: [],
+        segments: [],
       },
     ])
 

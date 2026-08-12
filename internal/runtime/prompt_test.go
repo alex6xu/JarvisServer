@@ -17,6 +17,27 @@ import (
 // fixedTime is a deterministic clock for the environment block.
 func fixedTime() time.Time { return time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC) }
 
+// TestBaseInstructionForMode verifies Chat vs Coder Jarvis identities.
+func TestBaseInstructionForMode(t *testing.T) {
+	personal := BaseInstructionForMode("chat")
+	if !strings.Contains(personal, "helpful personal AI agent") {
+		t.Fatalf("chat mode: %q", personal)
+	}
+	if strings.Contains(personal, "coding AI agent") {
+		t.Fatalf("chat mode should not be coding: %q", personal)
+	}
+	coder := BaseInstructionForMode("coder")
+	if !strings.Contains(coder, "helpful coding AI agent") {
+		t.Fatalf("coder mode: %q", coder)
+	}
+	if got := BaseInstructionForMode(""); got != PersonalBaseInstruction {
+		t.Fatalf("empty mode want personal, got %q", got)
+	}
+	if got := BaseInstructionForMode("CODE"); got != CodingBaseInstruction {
+		t.Fatalf("CODE alias want coding, got %q", got)
+	}
+}
+
 // TestBuildSystemPromptBaseAndEnv verifies the base instruction and environment
 // block (cwd, OS, date) are present, with no AGENTS.md when none exist.
 func TestBuildSystemPromptBaseAndEnv(t *testing.T) {

@@ -72,7 +72,18 @@ export function writeSessionQueryParam(sessionId: string) {
 
 export type ChatMessageRole = 'user' | 'assistant' | 'system'
 
-export type ToolStep = { tool: string; args: string; result: string }
+export type ToolStep = {
+  tool: string
+  args: string
+  result: string
+  id?: string
+  status?: 'running' | 'done' | 'error' | string
+}
+
+/** Chronological assistant timeline: text and tool calls in call order. */
+export type MessageSegment =
+  | { type: 'text'; content: string }
+  | { type: 'tool'; step: ToolStep }
 
 export type UiMessage = {
   id: string
@@ -81,6 +92,82 @@ export type UiMessage = {
   timestamp: Date
   model?: string
   toolSteps?: ToolStep[]
+  /** Preferred render path for assistants; falls back to content + toolSteps. */
+  segments?: MessageSegment[]
+}
+
+export function appendTextSegment(segments: MessageSegment[], text: string): MessageSegment[] {
+  if (!text) return segments
+  const next = segments.slice()
+  const last = next[next.length - 1]
+  if (last?.type === 'text') {
+    next[next.length - 1] = { type: 'text', content: last.content + text }
+  } else {
+    next.push({ type: 'text', content: text })
+  }
+  return next
+}
+
+export function appendToolSegment(segments: MessageSegment[], step: ToolStep): MessageSegment[] {
+  return [...segments, { type: 'tool', step }]
+}
+
+/** Insert or update a tool segment by step.id (start→end lifecycle). */
+export function upsertToolSegment(segments: MessageSegment[], step: ToolStep): MessageSegment[] {
+  if (step.id) {
+    const next = segments.slice()
+    for (let i = 0; i < next.length; i++) {
+      const seg = next[i]
+      if (seg.type === 'tool' && seg.step.id === step.id) {
+        next[i] = { type: 'tool', step: { ...seg.step, ...step } }
+        return next
+      }
+    }
+  }
+  return appendToolSegment(segments, step)
+}
+
+export function upsertToolStep(steps: ToolStep[], step: ToolStep): ToolStep[] {
+  if (step.id) {
+    const idx = steps.findIndex((s) => s.id === step.id)
+    if (idx >= 0) {
+      const next = steps.slice()
+      next[idx] = { ...next[idx], ...step }
+      return next
+    }
+  }
+  return [...steps, step]
+}
+
+/** Rebuild flat fields / fallback timeline when only content+tools are known. */
+export function segmentsFromContentAndTools(content: string, steps?: ToolStep[]): MessageSegment[] {
+  const segs: MessageSegment[] = []
+  if (content) segs.push({ type: 'text', content })
+  for (const step of steps || []) segs.push({ type: 'tool', step })
+  return segs
+}
+
+export function contentFromSegments(segments: MessageSegment[] | undefined): string {
+  if (!segments?.length) return ''
+  return segments
+    .filter((s): s is { type: 'text'; content: string } => s.type === 'text')
+    .map((s) => s.content)
+    .join('')
+}
+
+export function toolStepsFromSegments(segments: MessageSegment[] | undefined): ToolStep[] {
+  if (!segments?.length) return []
+  return segments.filter((s): s is { type: 'tool'; step: ToolStep } => s.type === 'tool').map((s) => s.step)
+}
+
+/** Merge final tool_steps (with results) onto existing tool segments by index. */
+export function syncToolResultsInSegments(segments: MessageSegment[], steps: ToolStep[]): MessageSegment[] {
+  let toolIdx = 0
+  return segments.map((seg) => {
+    if (seg.type !== 'tool') return seg
+    const updated = steps[toolIdx++]
+    return updated ? { type: 'tool' as const, step: updated } : seg
+  })
 }
 
 export type RestoredSessionMessage = {
@@ -118,27 +205,41 @@ export type SessionRestorePayload = {
 }
 
 export function mapRestoredMessages(messages: RestoredSessionMessage[] | undefined): UiMessage[] {
-  return (messages || []).map((m) => ({
-    id: m.id,
-    role: (m.role as ChatMessageRole) || 'assistant',
-    content: m.content || '',
-    timestamp: m.created_at ? new Date(m.created_at) : new Date(),
-    model: m.model,
-    toolSteps: m.tool_steps || m.toolSteps,
-  }))
+  return (messages || []).map((m) => {
+    const toolSteps = m.tool_steps || m.toolSteps
+    const content = m.content || ''
+    return {
+      id: m.id,
+      role: (m.role as ChatMessageRole) || 'assistant',
+      content,
+      timestamp: m.created_at ? new Date(m.created_at) : new Date(),
+      model: m.model,
+      toolSteps,
+      segments:
+        m.role === 'assistant' || (!m.role && content)
+          ? segmentsFromContentAndTools(content, toolSteps)
+          : undefined,
+    }
+  })
 }
 
 /** Attach tool steps from a finished/active run onto the last assistant message when missing. */
-export function attachToolStepsToMessages<T extends { id: string; role: string; toolSteps?: ToolStep[] }>(
-  messages: T[],
-  steps?: ToolStep[],
-): T[] {
+export function attachToolStepsToMessages<
+  T extends { id: string; role: string; content?: string; toolSteps?: ToolStep[]; segments?: MessageSegment[] },
+>(messages: T[], steps?: ToolStep[]): T[] {
   if (!steps?.length) return messages
   for (let i = messages.length - 1; i >= 0; i--) {
     if (messages[i].role === 'assistant') {
-      if (messages[i].toolSteps?.length) return messages
+      if (messages[i].toolSteps?.length || messages[i].segments?.some((s) => s.type === 'tool')) {
+        return messages
+      }
       const next = [...messages]
-      next[i] = { ...next[i], toolSteps: steps }
+      const content = messages[i].content || ''
+      next[i] = {
+        ...next[i],
+        toolSteps: steps,
+        segments: segmentsFromContentAndTools(content, steps),
+      }
       return next
     }
   }

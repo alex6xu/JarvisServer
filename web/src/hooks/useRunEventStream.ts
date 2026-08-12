@@ -1,6 +1,15 @@
 import { useCallback, useRef, type Dispatch, type SetStateAction } from 'react'
 import { apiFetch } from '../context/AccountContext'
-import type { AgentStreamEvent, ToolStep, UiMessage } from '../lib/sessionPersist'
+import {
+  appendTextSegment,
+  syncToolResultsInSegments,
+  upsertToolSegment,
+  upsertToolStep,
+  type AgentStreamEvent,
+  type MessageSegment,
+  type ToolStep,
+  type UiMessage,
+} from '../lib/sessionPersist'
 
 type ConsumeOpts = {
   accountId?: number
@@ -46,9 +55,19 @@ export function useRunEventStream() {
       let buffer = ''
       let fullText = ''
       const steps: ToolStep[] = []
+      let segments: MessageSegment[] = []
 
       const applyAssistant = (patch: Partial<UiMessage>) => {
         opts.setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, ...patch } : m)))
+      }
+
+      const publish = (model?: string) => {
+        applyAssistant({
+          content: fullText,
+          model: model || opts.fallbackModel,
+          toolSteps: steps.length ? [...steps] : undefined,
+          segments: [...segments],
+        })
       }
 
       try {
@@ -72,29 +91,44 @@ export function useRunEventStream() {
             if (ev.session_id) opts.onSessionId?.(ev.session_id)
             if (ev.type === 'delta' && ev.content) {
               fullText += ev.content
-              applyAssistant({ content: fullText, model: ev.model || opts.fallbackModel })
+              segments = appendTextSegment(segments, ev.content)
+              publish(ev.model)
             } else if (ev.type === 'tool_step' && ev.step) {
-              steps.push(ev.step)
-              const patch: Partial<UiMessage> = { toolSteps: [...steps] }
-              if (fullText) patch.content = fullText
-              applyAssistant(patch)
+              const merged = upsertToolStep(steps, ev.step)
+              steps.splice(0, steps.length, ...merged)
+              segments = upsertToolSegment(segments, ev.step)
+              publish(ev.model)
             } else if (ev.type === 'user_injected' && ev.content) {
               opts.onUserInjected?.(ev.content)
             } else if (ev.type === 'done') {
-              if (ev.content) fullText = ev.content
+              if (ev.content && !fullText) {
+                fullText = ev.content
+                if (!segments.some((s) => s.type === 'text')) {
+                  segments = appendTextSegment(segments, ev.content)
+                }
+              } else if (ev.content) {
+                fullText = ev.content
+              }
               if (ev.tool_steps?.length) {
                 steps.splice(0, steps.length, ...ev.tool_steps)
+                if (segments.some((s) => s.type === 'tool')) {
+                  segments = syncToolResultsInSegments(segments, steps)
+                } else {
+                  for (const step of steps) segments = upsertToolSegment(segments, step)
+                }
               }
-              applyAssistant({
-                content: fullText,
-                model: ev.model || opts.fallbackModel,
-                toolSteps: steps.length ? [...steps] : undefined,
-              })
+              publish(ev.model)
             } else if (ev.type === 'error') {
               const errText = ev.content || 'error'
-              if (fullText) fullText = `${fullText}\n\n⚠️ ${errText}`
-              else fullText = errText
-              applyAssistant({ content: fullText, toolSteps: steps.length ? [...steps] : undefined })
+              if (fullText) {
+                const note = `\n\n⚠️ ${errText}`
+                fullText = `${fullText}${note}`
+                segments = appendTextSegment(segments, note)
+              } else {
+                fullText = errText
+                segments = appendTextSegment(segments, errText)
+              }
+              publish()
             }
           }
         }
@@ -110,11 +144,10 @@ export function useRunEventStream() {
       }
 
       if (!fullText && steps.length === 0) {
-        applyAssistant({ content: 'No response' })
+        applyAssistant({ content: 'No response', segments: [{ type: 'text', content: 'No response' }] })
       } else if (fullText.includes('no available channel')) {
-        applyAssistant({
-          content: '⚠️ 暂无可用提供商。请先到 Providers 页面添加 API Provider。',
-        })
+        const msg = '⚠️ 暂无可用提供商。请先到 Providers 页面添加 API Provider。'
+        applyAssistant({ content: msg, segments: [{ type: 'text', content: msg }] })
       }
     },
     [abort],

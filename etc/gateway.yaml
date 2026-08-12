@@ -1,0 +1,27 @@
+Name: gateway
+Host: 0.0.0.0
+Port: 8080
+Timeout: 0
+Mode: dev
+Log:
+  Mode: console
+  Level: info
+
+# Disable default request timeout middleware so SSE / long polls are not cut.
+Middlewares:
+  Timeout: false
+
+Agent:
+  Model: openrouter/free
+  Approve: true
+  AuthMode: none
+  # Cwd: .
+  # BaseURL: ""
+  # Protocol: ""
+  # ProviderName: ""
+  # APIKey: ""
+  # ThinkingLevel: ""
+  # NoTools: false
+  # NoSkills: false
+  # WorkspacesRoot: ./workspaces
+  # APIToken: ""

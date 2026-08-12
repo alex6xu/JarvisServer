@@ -1,0 +1,215 @@
+package gateway
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"strings"
+)
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+func writeErr(w http.ResponseWriter, status int, msg string) {
+	writeJSON(w, status, ErrorBody{Error: msg})
+}
+
+func (s *Service) handleHealthz(w http.ResponseWriter, _ *http.Request) {
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.WriteString(w, "ok\n")
+}
+
+func (s *Service) handleModels(w http.ResponseWriter, _ *http.Request) {
+	seen := map[string]bool{}
+	var ids []string
+	add := func(id string) {
+		id = strings.TrimSpace(id)
+		if id == "" || seen[id] {
+			return
+		}
+		seen[id] = true
+		ids = append(ids, id)
+	}
+	for _, p := range s.Mem.listProviders() {
+		if p.Status == 0 {
+			continue
+		}
+		for _, m := range parseProviderModels(p.Models) {
+			add(m)
+		}
+	}
+	add(s.Opts.Model)
+	data := make([]map[string]string, 0, len(ids))
+	models := make([]map[string]string, 0, len(ids))
+	for _, id := range ids {
+		data = append(data, map[string]string{"id": id})
+		models = append(models, map[string]string{"id": id, "name": id})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"data":    data,
+		"models":  models,
+		"default": s.Opts.Model,
+	})
+}
+
+func (s *Service) handleChat(w http.ResponseWriter, r *http.Request) {
+	var req ChatRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	resp, err := s.StartChat(r.Context(), req)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) || isNotFound(err) {
+			writeErr(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Service) handleRunEvents(w http.ResponseWriter, r *http.Request) {
+	runID := pathParam(r, "runId")
+	st, ok := s.Runs.Get(runID)
+	if !ok {
+		writeErr(w, http.StatusNotFound, "run not found")
+		return
+	}
+	afterSeq := parseAfterSeq(r.URL.Query().Get("after_seq"))
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeErr(w, http.StatusInternalServerError, "streaming unsupported")
+		return
+	}
+
+	ch := st.Subscribe(afterSeq)
+	ctx := r.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ev, open := <-ch:
+			if !open {
+				fmt.Fprintf(w, "data: [DONE]\n\n")
+				flusher.Flush()
+				return
+			}
+			b, err := json.Marshal(ev.Payload)
+			if err != nil {
+				continue
+			}
+			fmt.Fprintf(w, "data: %s\n\n", b)
+			flusher.Flush()
+		}
+	}
+}
+
+func (s *Service) handleGetSession(w http.ResponseWriter, r *http.Request) {
+	id := pathParam(r, "sessionId")
+	resp, err := s.GetSession(id)
+	if err != nil {
+		if isNotFound(err) {
+			writeErr(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Service) handleListSessions(w http.ResponseWriter, _ *http.Request) {
+	resp, err := s.ListSessions()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Service) handleAuthMe(w http.ResponseWriter, r *http.Request) {
+	if !s.authOK(r) {
+		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	accts := s.Mem.listAccounts()
+	if len(accts) > 0 {
+		writeJSON(w, http.StatusOK, map[string]any{"account": accts[0]})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"account": stubAccount("dev")})
+}
+
+func (s *Service) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	token := s.Opts.APIToken
+	if token == "" {
+		token = "dev-token"
+	}
+	username := body.Username
+	if username == "" {
+		username = "dev"
+	}
+	// Prefer in-memory account when present.
+	acct := stubAccount(username)
+	for _, a := range s.Mem.listAccounts() {
+		if a.Username == username || username == "dev" {
+			acct = a
+			break
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"token":   token,
+		"account": acct,
+	})
+}
+
+func (s *Service) handleAuthRegister(w http.ResponseWriter, r *http.Request) {
+	s.handleAuthLogin(w, r)
+}
+
+func (s *Service) handleAuthLogout(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Service) authOK(r *http.Request) bool {
+	if s.Opts.AuthMode == "none" {
+		auth := r.Header.Get("Authorization")
+		return strings.HasPrefix(auth, "Bearer ") || auth == ""
+	}
+	want := s.Opts.APIToken
+	if want == "" {
+		return true
+	}
+	got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	got = strings.TrimSpace(got)
+	return got == want
+}
+
+func isNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "not found") || strings.Contains(msg, "no such")
+}
