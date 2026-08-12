@@ -2,14 +2,14 @@
 
 ## Introduction
 
-pigo 当前的交互式终端界面（`internal/tui`）基于 `charm.land/bubbletea/v2`，采用「单体 `Model` + 纯 `uiState` + `View()` 返回整串」的极简结构。它能跑通基本对话，但存在两个硬缺陷和一批体验短板：
+jarvis 当前的交互式终端界面（`internal/tui`）基于 `charm.land/bubbletea/v2`，采用「单体 `Model` + 纯 `uiState` + `View()` 返回整串」的极简结构。它能跑通基本对话，但存在两个硬缺陷和一批体验短板：
 
 1. **中文无法输入**：`handleKey` 的 `default` 分支只在 `len(s) == 1` 时把按键追加到输入行，多字节的 UTF-8（中文/CJK/emoji）会被静默丢弃——用户根本打不出中文。
 2. **无宽度感知渲染**：`View()` 把 transcript 和输入行拼成纯字符串，不区分中文双宽字符，换行、截断、光标对齐都会错位。
 
 参考项目 zero（Gitlawb/zero，同样基于 bubbletea v2）已经把这些做成熟：它用 bubbles 的 `textinput`/`spinner`、lipgloss 主题、`lipgloss.Width`（底层 go-runewidth）做宽度感知渲染，并有视口滚动、主题配色、流式动画、Markdown/代码块渲染等能力。
 
-本 PRD 的目标是「适度重构」pigo 的 TUI：引入 bubbles 组件与 lipgloss 主题层，彻底修复中文输入与双宽渲染，并对标 zero 补齐视口滚动、主题配色、流式状态指示、Markdown 渲染等体验，让 pigo 的交互界面在功能与观感上都接近 zero。
+本 PRD 的目标是「适度重构」jarvis 的 TUI：引入 bubbles 组件与 lipgloss 主题层，彻底修复中文输入与双宽渲染，并对标 zero 补齐视口滚动、主题配色、流式状态指示、Markdown 渲染等体验，让 jarvis 的交互界面在功能与观感上都接近 zero。
 
 ## Goals
 
@@ -19,12 +19,12 @@ pigo 当前的交互式终端界面（`internal/tui`）基于 `charm.land/bubble
 - transcript 中 user/assistant/tool/system 有清晰的颜色与样式区分，支持 dark/light 主题。
 - 运行中有 spinner 动画与状态提示，工具调用以卡片形式呈现。
 - assistant 输出以 Markdown（含代码块高亮）渲染，而非纯文本。
-- 观感对标 zero：主题、动画、卡片等尽量还原，同时保持 pigo 现有的 runID 陈旧守卫、steering 队列、两段式 Ctrl+C 等状态语义不变。
+- 观感对标 zero：主题、动画、卡片等尽量还原，同时保持 jarvis 现有的 runID 陈旧守卫、steering 队列、两段式 Ctrl+C 等状态语义不变。
 
 ## User Stories
 
 ### US-001: 引入 lipgloss 主题层
-**Description:** As a pigo 用户, I want TUI 有一套集中的主题/配色定义, so that 各类消息有一致且可切换的视觉风格。
+**Description:** As a jarvis 用户, I want TUI 有一套集中的主题/配色定义, so that 各类消息有一致且可切换的视觉风格。
 
 **Acceptance Criteria:**
 - [ ] 新增 `internal/tui/theme.go`，定义 `tuiTheme` 结构，持有 user/assistant/tool-call/tool-result/system/accent/error 等元素的 `lipgloss.Style`。

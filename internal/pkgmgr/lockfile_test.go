@@ -34,14 +34,14 @@ func TestSaveThenLoadRoundTrips(t *testing.T) {
 		Source:  "npm:pi-mcp-adapter",
 		Version: "1.2.3",
 		Types:   []PackageType{TypeExtension},
-		Files:   []string{"/home/u/.pigo/plugins/pi-mcp-adapter"},
+		Files:   []string{"/home/u/.jarvis/plugins/pi-mcp-adapter"},
 	})
 	lf.Set(InstalledPackage{
 		Name:    "pi-web-access",
 		Source:  "npm:pi-web-access",
 		Version: "0.1.0",
 		Types:   []PackageType{TypeExtension, TypeSkill},
-		Files:   []string{"/home/u/.pigo/plugins/pi-web-access"},
+		Files:   []string{"/home/u/.jarvis/plugins/pi-web-access"},
 	})
 	if err := lf.Save(); err != nil {
 		t.Fatalf("Save: %v", err)

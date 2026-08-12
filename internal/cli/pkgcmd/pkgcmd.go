@@ -1,5 +1,5 @@
-// Package pkgcmd wires pigo's package-management subcommands (#162, #163, #164)
-// into the CLI: `pigo install|list|uninstall|update ...`. These are positional
+// Package pkgcmd wires jarvis's package-management subcommands (#162, #163, #164)
+// into the CLI: `jarvis install|list|uninstall|update ...`. These are positional
 // subcommands, distinct from the flag-driven agent modes, so main() peels them
 // off before pflag parsing (the agent flags don't apply to package management).
 //
@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/smallnest/pigo/internal/pkgmgr"
+	"github.com/alex6xu/jarvisserver/internal/pkgmgr"
 )
 
 // Subcommands are the argv[1] values routed to Run.
@@ -38,17 +38,17 @@ func Run(cmd string, args []string, out, errOut io.Writer) int {
 	case "update":
 		return runUpdate(args, lockPath, out, errOut)
 	default:
-		fmt.Fprintf(errOut, "pigo: %q is not yet implemented\n", cmd)
+		fmt.Fprintf(errOut, "jarvis: %q is not yet implemented\n", cmd)
 		return 2
 	}
 }
 
-// runList handles `pigo list`: it prints one line per installed package
+// runList handles `jarvis list`: it prints one line per installed package
 // (name, version, types, source), or a friendly notice when none are installed.
 func runList(lockPath string, out, errOut io.Writer) int {
 	pkgs, err := pkgmgr.ListInstalled(lockPath)
 	if err != nil {
-		fmt.Fprintf(errOut, "pigo: %v\n", err)
+		fmt.Fprintf(errOut, "jarvis: %v\n", err)
 		return 1
 	}
 	if len(pkgs) == 0 {
@@ -61,18 +61,18 @@ func runList(lockPath string, out, errOut io.Writer) int {
 	return 0
 }
 
-// runUninstall handles `pigo uninstall <name> [more...]`. It removes each named
+// runUninstall handles `jarvis uninstall <name> [more...]`. It removes each named
 // package's files and lockfile entry, continuing past a failure so one bad name
 // does not abort the rest; the exit code is non-zero if any uninstall failed.
 func runUninstall(names []string, lockPath string, out, errOut io.Writer) int {
 	if len(names) == 0 {
-		fmt.Fprintln(errOut, "pigo: uninstall requires a package name, e.g. pigo uninstall pi-mcp-adapter")
+		fmt.Fprintln(errOut, "jarvis: uninstall requires a package name, e.g. jarvis uninstall pi-mcp-adapter")
 		return 2
 	}
 	failed := false
 	for _, name := range names {
 		if err := pkgmgr.Uninstall(name, lockPath, out); err != nil {
-			fmt.Fprintf(errOut, "pigo: uninstall %s failed: %v\n", name, err)
+			fmt.Fprintf(errOut, "jarvis: uninstall %s failed: %v\n", name, err)
 			failed = true
 			continue
 		}
@@ -84,17 +84,17 @@ func runUninstall(names []string, lockPath string, out, errOut io.Writer) int {
 	return 0
 }
 
-// runInstall handles `pigo install npm:<name>[@version] [more...]`. It requires
+// runInstall handles `jarvis install npm:<name>[@version] [more...]`. It requires
 // npm on PATH (checked once up front for a clear early failure) and installs
 // each reference in turn, continuing past a failure so one bad package does not
 // abort the rest; the exit code is non-zero if any install failed.
 func runInstall(refs []string, lockPath string, out, errOut io.Writer) int {
 	if len(refs) == 0 {
-		fmt.Fprintln(errOut, "pigo: install requires a package reference, e.g. pigo install npm:pi-mcp-adapter")
+		fmt.Fprintln(errOut, "jarvis: install requires a package reference, e.g. jarvis install npm:pi-mcp-adapter")
 		return 2
 	}
 	if err := pkgmgr.EnsureNPM(); err != nil {
-		fmt.Fprintf(errOut, "pigo: %v\n", err)
+		fmt.Fprintf(errOut, "jarvis: %v\n", err)
 		return 1
 	}
 
@@ -102,7 +102,7 @@ func runInstall(refs []string, lockPath string, out, errOut io.Writer) int {
 	for _, ref := range refs {
 		res, err := pkgmgr.Install(ref, lockPath, out)
 		if err != nil {
-			fmt.Fprintf(errOut, "pigo: install %s failed: %v\n", ref, err)
+			fmt.Fprintf(errOut, "jarvis: install %s failed: %v\n", ref, err)
 			failed = true
 			continue
 		}
@@ -115,20 +115,20 @@ func runInstall(refs []string, lockPath string, out, errOut io.Writer) int {
 	return 0
 }
 
-// runUpdate handles `pigo update <name> [more...]`: it updates each named
+// runUpdate handles `jarvis update <name> [more...]`: it updates each named
 // package, continuing past a failure so one bad package does not abort the rest.
-// The exit code is non-zero if any update failed. A no-name `pigo update` is
+// The exit code is non-zero if any update failed. A no-name `jarvis update` is
 // binary self-update, routed away by main() before pkgcmd is reached (US-003),
 // so here an empty name list is a usage error rather than an update-all.
 func runUpdate(names []string, lockPath string, out, errOut io.Writer) int {
 	if len(names) == 0 {
-		fmt.Fprintln(errOut, "pigo: update requires a package name, e.g. pigo update pi-mcp-adapter")
+		fmt.Fprintln(errOut, "jarvis: update requires a package name, e.g. jarvis update pi-mcp-adapter")
 		return 2
 	}
 	failed := false
 	for _, name := range names {
 		if _, err := pkgmgr.Update(name, lockPath, out); err != nil {
-			fmt.Fprintf(errOut, "pigo: update %s failed: %v\n", name, err)
+			fmt.Fprintf(errOut, "jarvis: update %s failed: %v\n", name, err)
 			failed = true
 			continue
 		}

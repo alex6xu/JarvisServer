@@ -18,8 +18,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/smallnest/pigo/internal/agentcore"
-	"github.com/smallnest/pigo/internal/memory"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/memory"
 )
 
 // memorySearchDefaultLimit is the result cap used when the caller omits limit or

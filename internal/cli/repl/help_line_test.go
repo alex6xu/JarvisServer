@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/smallnest/pigo/internal/cli"
-	"github.com/smallnest/pigo/internal/cli/prompts"
-	"github.com/smallnest/pigo/internal/runtime"
+	"github.com/alex6xu/jarvisserver/internal/cli"
+	"github.com/alex6xu/jarvisserver/internal/cli/prompts"
+	"github.com/alex6xu/jarvisserver/internal/runtime"
 )
 
 func TestFormatHelpLine(t *testing.T) {

@@ -13,12 +13,12 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/smallnest/pigo/internal/agentcore"
-	"github.com/smallnest/pigo/internal/cli"
-	"github.com/smallnest/pigo/internal/cli/ui"
-	"github.com/smallnest/pigo/internal/compaction"
-	"github.com/smallnest/pigo/internal/runtime"
-	"github.com/smallnest/pigo/internal/trust"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/cli"
+	"github.com/alex6xu/jarvisserver/internal/cli/ui"
+	"github.com/alex6xu/jarvisserver/internal/compaction"
+	"github.com/alex6xu/jarvisserver/internal/runtime"
+	"github.com/alex6xu/jarvisserver/internal/trust"
 )
 
 // RunStatus prints a colored multi-section status report to out using data

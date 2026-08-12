@@ -1,7 +1,7 @@
 // This file fetches a pi package's contents from npm (#156). Rather than
-// implement an npm registry client, pigo shells out to the user's installed
+// implement an npm registry client, jarvis shells out to the user's installed
 // `npm` — specifically `npm pack`, which downloads a package as a .tgz tarball
-// without running install scripts. pigo then extracts that tarball into a
+// without running install scripts. jarvis then extracts that tarball into a
 // temporary directory for the classify/distribute steps that follow.
 //
 // The fetch is deliberately side-effect-light: `npm pack` neither installs
@@ -49,7 +49,7 @@ var npmExecutable = "npm"
 // rather than deep inside a fetch.
 func EnsureNPM() error {
 	if _, err := exec.LookPath(npmExecutable); err != nil {
-		return fmt.Errorf("npm not found; install Node.js/npm to use pigo install")
+		return fmt.Errorf("npm not found; install Node.js/npm to use jarvis install")
 	}
 	return nil
 }
@@ -66,7 +66,7 @@ func Fetch(ref PackageRef) (FetchResult, error) {
 		return FetchResult{}, err
 	}
 
-	tmp, err := os.MkdirTemp("", "pigo-pkg-*")
+	tmp, err := os.MkdirTemp("", "jarvis-pkg-*")
 	if err != nil {
 		return FetchResult{}, fmt.Errorf("pkgmgr: create temp dir: %w", err)
 	}

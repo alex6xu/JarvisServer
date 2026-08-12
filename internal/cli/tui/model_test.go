@@ -8,7 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/smallnest/pigo/internal/cli/ui"
+	"github.com/alex6xu/jarvisserver/internal/cli/ui"
 )
 
 // TestModelQuitKeys verifies the root model returns tea.Quit on the standard
@@ -125,13 +125,13 @@ func TestModelCtrlCFallsBackToQuit(t *testing.T) {
 // submit so BuildUserContent attaches it as multimodal content.
 func TestModelImagePasteInsertsPlaceholder(t *testing.T) {
 	m := apply(t, NewModel(Options{}), tea.WindowSizeMsg{Width: 40, Height: 12})
-	next, _ := m.Update(clipboardImageMsg{path: "/tmp/pigo-clip-1.png", ok: true})
+	next, _ := m.Update(clipboardImageMsg{path: "/tmp/jarvis-clip-1.png", ok: true})
 	m = next.(Model)
 
 	if got, want := m.input.Value(), "[Image #1]"; got != want {
 		t.Errorf("composer showed %q, want placeholder %q", got, want)
 	}
-	if got := m.expandImages(m.input.Value()); got != "@image:/tmp/pigo-clip-1.png" {
+	if got := m.expandImages(m.input.Value()); got != "@image:/tmp/jarvis-clip-1.png" {
 		t.Errorf("expandImages = %q, want the @image reference", got)
 	}
 }

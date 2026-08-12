@@ -16,9 +16,9 @@ import (
 	"io"
 	"os"
 
-	"github.com/smallnest/pigo/internal/agentcore"
-	"github.com/smallnest/pigo/internal/hooks"
-	"github.com/smallnest/pigo/internal/runtime"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/hooks"
+	"github.com/alex6xu/jarvisserver/internal/runtime"
 )
 
 // HookDeps carries the run-scoped context a Dispatcher needs: the session id and

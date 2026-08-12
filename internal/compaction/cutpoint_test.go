@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
 )
 
 // bigUser builds a user message whose estimate is ~tokens tokens (4 chars each).

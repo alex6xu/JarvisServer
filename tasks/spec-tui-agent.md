@@ -6,7 +6,7 @@
 ## 1. Summary
 
 ### 1.1 What This SPEC Covers
-本 SPEC 描述如何为 pigo 新增一个基于 **Bubble Tea v2** 的全屏 TUI 交互界面，作为 TTY 下的默认交互模式，并保留行式 REPL 作为 `--no-tui` 与非 TTY 的 fallback。核心策略是**复用现有 agent 内核**：TUI 不重写运行循环，而是复用 `runtime.StartRun` + `runtime.DrainStream` 这一既有运行/流式消费 seam，通过一个把 `agentcore.AgentEvent` 桥接为 `tea.Msg` 的适配器驱动 UI。范围包括：入口接线、主题与宽度感知渲染、状态栏、事件桥、流式 transcript、富工具卡片、CJK 输入框、斜杠命令复用、会话恢复。
+本 SPEC 描述如何为 jarvis 新增一个基于 **Bubble Tea v2** 的全屏 TUI 交互界面，作为 TTY 下的默认交互模式，并保留行式 REPL 作为 `--no-tui` 与非 TTY 的 fallback。核心策略是**复用现有 agent 内核**：TUI 不重写运行循环，而是复用 `runtime.StartRun` + `runtime.DrainStream` 这一既有运行/流式消费 seam，通过一个把 `agentcore.AgentEvent` 桥接为 `tea.Msg` 的适配器驱动 UI。范围包括：入口接线、主题与宽度感知渲染、状态栏、事件桥、流式 transcript、富工具卡片、CJK 输入框、斜杠命令复用、会话恢复。
 
 ### 1.2 PRD Reference
 - Source: `tasks/prd-tui-agent.md`
@@ -32,7 +32,7 @@
 
 ### 2.1 System Context
 ```
-cmd/pigo/main.go (dispatch)
+cmd/jarvis/main.go (dispatch)
   │  无 -p + TTY + 未 --no-tui
   ▼
 internal/cli/tui.Run(tui.Options)         ← 新增，镜像 repl.Run 的装配
@@ -75,7 +75,7 @@ rootModel.Update(tea.Msg)  ← 由 waitForEvent tea.Cmd 从 bufChan 读出
 
 ### 2.4 File Structure
 ```
-cmd/pigo/
+cmd/jarvis/
 └── main.go                         [MODIFY: dispatch 增加 TUI 分支 + --no-tui flag]
 
 internal/cli/tui/                    [NEW 包]
@@ -109,7 +109,7 @@ go.mod / go.sum                      [MODIFY: +bubbletea/v2 +bubbles/v2; lipglos
 ## 3. Data Model
 
 ### 3.1 Schema Changes
-无持久化 schema 变更。会话仍用现有 `session.Store`（`~/.pigo/sessions`）。
+无持久化 schema 变更。会话仍用现有 `session.Store`（`~/.jarvis/sessions`）。
 
 ### 3.2 Entity Definitions
 ```go
@@ -177,7 +177,7 @@ type respNode struct { text string; depth int; kind nodeKind } // 缩进 + 着�
 | `dispatch`（改） | 现有签名不变 | 增加 TUI 分支判断 |
 
 ### 4.2 Request/Response Schemas
-入口判定（`cmd/pigo/main.go` dispatch，无 prompt 分支）：
+入口判定（`cmd/jarvis/main.go` dispatch，无 prompt 分支）：
 ```
 if opts.prompt == "" {
     useTUI := resumeID != "" || ui.StdoutIsTerminal()
@@ -196,10 +196,10 @@ if opts.prompt == "" {
 |------|--------|------|
 | TUI 初始化失败（非 TTY 误入等） | 1 | fallback 到 `repl.Run` 或打印错误 |
 | 运行内错误（provider/tool） | 0（交互态） | 渲染进 transcript，不退出程序 |
-| `Run` 返回 error | 1 | dispatch 打印 `pigo: %v` 到 errOut |
+| `Run` 返回 error | 1 | dispatch 打印 `jarvis: %v` 到 errOut |
 
 ### 4.4 Breaking Changes
-- **默认行为变更**：TTY 下 `pigo`（无 `-p`）从「行式 REPL」变为「TUI」。这是用户批准的默认迁移；`--no-tui` 提供回退。
+- **默认行为变更**：TTY 下 `jarvis`（无 `-p`）从「行式 REPL」变为「TUI」。这是用户批准的默认迁移；`--no-tui` 提供回退。
 - **lipgloss v2 升级**：内部依赖破坏性升级，影响 `ui`/`status`，无对外 API 变更。
 
 ---

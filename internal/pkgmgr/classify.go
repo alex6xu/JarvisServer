@@ -1,13 +1,13 @@
 // This file classifies a fetched pi package into its type(s) — extension,
 // skill, prompt, or theme (#157). Classification reads the package's
 // package.json: pi packages carry a "pi" metadata block declaring what they
-// provide, and pigo also falls back to structural signals (a bin entry, a
+// provide, and jarvis also falls back to structural signals (a bin entry, a
 // SKILL.md, a commands/ dir) so a package that omits explicit metadata but
 // clearly is one type is still recognized.
 //
 // A single package may be several types at once — the npm catalog has combined
 // "extensionskill" entries — so Classify returns a set. When nothing matches,
-// it returns an error rather than guessing, so `pigo install` fails clearly on
+// it returns an error rather than guessing, so `jarvis install` fails clearly on
 // a package that isn't a pi package.
 //
 // NOTE on metadata shape: the exact pi metadata field names are taken from the
@@ -25,7 +25,7 @@ import (
 	"slices"
 )
 
-// packageJSON is the subset of an npm package.json pigo reads for classification
+// packageJSON is the subset of an npm package.json jarvis reads for classification
 // and versioning. Unknown fields are ignored.
 type packageJSON struct {
 	Name    string          `json:"name"`

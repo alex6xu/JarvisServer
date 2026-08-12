@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
 )
 
 func TestTranslateHandlerDeltaAndDone(t *testing.T) {

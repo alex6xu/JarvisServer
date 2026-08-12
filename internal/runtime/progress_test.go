@@ -15,9 +15,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/smallnest/pigo/internal/agentcore"
-	"github.com/smallnest/pigo/internal/agenttool"
-	"github.com/smallnest/pigo/internal/provider"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/agenttool"
+	"github.com/alex6xu/jarvisserver/internal/provider"
 )
 
 // TestActivityOf pins the child-event → activity mapping (D-8 / §5.3): tool

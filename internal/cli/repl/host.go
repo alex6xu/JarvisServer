@@ -9,16 +9,16 @@ import (
 	"bufio"
 	"sync"
 
-	"github.com/smallnest/pigo/internal/agentcore"
-	"github.com/smallnest/pigo/internal/agenttool"
-	"github.com/smallnest/pigo/internal/cli"
-	"github.com/smallnest/pigo/internal/cli/run"
-	"github.com/smallnest/pigo/internal/hooks"
-	"github.com/smallnest/pigo/internal/plugin"
-	"github.com/smallnest/pigo/internal/provider"
-	"github.com/smallnest/pigo/internal/runtime"
-	"github.com/smallnest/pigo/internal/session"
-	"github.com/smallnest/pigo/internal/trust"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/agenttool"
+	"github.com/alex6xu/jarvisserver/internal/cli"
+	"github.com/alex6xu/jarvisserver/internal/cli/run"
+	"github.com/alex6xu/jarvisserver/internal/hooks"
+	"github.com/alex6xu/jarvisserver/internal/plugin"
+	"github.com/alex6xu/jarvisserver/internal/provider"
+	"github.com/alex6xu/jarvisserver/internal/runtime"
+	"github.com/alex6xu/jarvisserver/internal/session"
+	"github.com/alex6xu/jarvisserver/internal/trust"
 )
 
 var _ cli.Host = (*replDeps)(nil)

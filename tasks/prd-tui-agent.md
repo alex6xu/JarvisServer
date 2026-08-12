@@ -2,13 +2,13 @@
 
 ## Introduction
 
-pigo 目前的交互建立在一个**行式 REPL**（`internal/cli/repl`）之上：读一行 → 跑 agent → 流式打印文本 → 循环。它简洁可靠，但工具调用、状态信息只能以纯文本平铺输出，缺少结构化、可扫读的呈现。
+jarvis 目前的交互建立在一个**行式 REPL**（`internal/cli/repl`）之上：读一行 → 跑 agent → 流式打印文本 → 循环。它简洁可靠，但工具调用、状态信息只能以纯文本平铺输出，缺少结构化、可扫读的呈现。
 
-本 PRD 要为 pigo 引入一个**全屏 TUI（Terminal User Interface）**交互界面，对标参考截图的观感：工具调用（LSP references/rename、Read、Search 等）以带边框的卡片 + 树状结构呈现，卡片头部有 `✓`/`!` 状态与配色；底部有一条常驻状态栏（模型名、thinking level、工作目录、git 分支/dirty、context 使用率、累计花费、当前任务）；assistant 输出与工具结果实时流式追加，可滚动回看历史；底部是支持多行与快捷键的输入框。
+本 PRD 要为 jarvis 引入一个**全屏 TUI（Terminal User Interface）**交互界面，对标参考截图的观感：工具调用（LSP references/rename、Read、Search 等）以带边框的卡片 + 树状结构呈现，卡片头部有 `✓`/`!` 状态与配色；底部有一条常驻状态栏（模型名、thinking level、工作目录、git 分支/dirty、context 使用率、累计花费、当前任务）；assistant 输出与工具结果实时流式追加，可滚动回看历史；底部是支持多行与快捷键的输入框。
 
 技术栈选定 **Bubble Tea + Lipgloss**（charmbracelet 生态，Go TUI 事实标准，Elm 架构）。TUI 复用现有 agent 内核，通过订阅 `internal/agentcore` 已有的 `AgentEvent` 事件流驱动渲染，不重写内核逻辑。
 
-> **历史背景（重要）：** pigo 曾有一个基于 `charm.land/bubbletea/v2` 的全屏 TUI（`internal/tui`，约 3000 行），因逻辑复杂在 `prd-remove-tui.md` 中被整体删除，回退为行式 REPL。删除时记录的两个致命缺陷（见 `prd-tui-enhancement.md`）本次必须从设计上规避：
+> **历史背景（重要）：** jarvis 曾有一个基于 `charm.land/bubbletea/v2` 的全屏 TUI（`internal/tui`，约 3000 行），因逻辑复杂在 `prd-remove-tui.md` 中被整体删除，回退为行式 REPL。删除时记录的两个致命缺陷（见 `prd-tui-enhancement.md`）本次必须从设计上规避：
 > 1. **中文/CJK 无法输入**（`handleKey` 只在 `len(s)==1` 时追加按键，多字节 UTF-8 被静默丢弃）。
 > 2. **无宽度感知渲染**（拼字符串不区分双宽字符，换行/截断/光标对齐错位）。
 >
@@ -18,7 +18,7 @@ pigo 目前的交互建立在一个**行式 REPL**（`internal/cli/repl`）之�
 
 ## Goals
 
-- 在 TTY 环境下，`pigo`（无 `-p`）默认进入全屏 TUI 交互；行式 REPL 降级为 `--no-tui` 显式选项与非 TTY 自动 fallback。
+- 在 TTY 环境下，`jarvis`（无 `-p`）默认进入全屏 TUI 交互；行式 REPL 降级为 `--no-tui` 显式选项与非 TTY 自动 fallback。
 - 工具调用以带边框卡片呈现：头部含工具名 + `✓`/`!` 状态图标 + 配色，主体含调用输入参数与树状结构的 Response。
 - 底部常驻状态栏展示：模型名、thinking level、cwd、git 分支与 dirty 状态、context 使用率百分比、累计花费、当前任务描述。
 - assistant 文本与工具结果**流式**追加渲染，长对话可视口滚动回看历史。
@@ -30,16 +30,16 @@ pigo 目前的交互建立在一个**行式 REPL**（`internal/cli/repl`）之�
 ## User Stories
 
 ### US-001: 建立 TUI 骨架与默认入口接线
-**Description:** As a pigo 用户, I want TTY 下默认进入一个可启动、可退出的全屏 TUI 空壳, so that 后续渲染能力有承载容器且不破坏无界面路径。
+**Description:** As a jarvis 用户, I want TTY 下默认进入一个可启动、可退出的全屏 TUI 空壳, so that 后续渲染能力有承载容器且不破坏无界面路径。
 
 **Acceptance Criteria:**
 - [ ] 新增 `internal/cli/tui` 包，引入 `github.com/charmbracelet/bubbletea` 依赖，定义实现 `tea.Model` 的根 `Model`（`Init/Update/View`）
-- [ ] `dispatch`（`cmd/pigo/main.go`）在「无 prompt + stdout 为 TTY + 未指定 `--no-tui`」时启动 TUI；否则走行式 REPL
+- [ ] `dispatch`（`cmd/jarvis/main.go`）在「无 prompt + stdout 为 TTY + 未指定 `--no-tui`」时启动 TUI；否则走行式 REPL
 - [ ] 新增 `--no-tui` 布尔 flag，置位时强制行式 REPL
 - [ ] 非 TTY（管道/CI）自动 fallback 到现有行式 REPL 或既有 no-prompt 错误路径，退出码不变
 - [ ] TUI 启动后显示空壳（状态栏占位 + 空 transcript + 空输入框），`Ctrl+C`/`Ctrl+D` 可正常退出并恢复终端
 - [ ] `go build ./...`、`go vet ./...` 通过
-- [ ] 在终端手动验证：`pigo` 进入 TUI，`pigo --no-tui` 与 `echo x | pigo -p ...` 走原路径
+- [ ] 在终端手动验证：`jarvis` 进入 TUI，`jarvis --no-tui` 与 `echo x | jarvis -p ...` 走原路径
 
 ### US-002: Lipgloss 主题层与宽度感知渲染基础
 **Description:** As a 开发者, I want 集中的主题定义与宽度感知的渲染工具, so that 各类消息样式一致且中文双宽字符不错位。
@@ -123,9 +123,9 @@ pigo 目前的交互建立在一个**行式 REPL**（`internal/cli/repl`）之�
 **Description:** As a 用户, I want TUI 也能列出/恢复/续接会话, so that 无界面与 TUI 两种模式的会话行为一致。
 
 **Acceptance Criteria:**
-- [ ] `pigo --resume <id>` 与 `pigo --continue` 在 TUI 模式下加载对应会话历史并渲染进 transcript 后进入交互
-- [ ] `pigo --list-sessions` 行为与退出码不变（仍是打印并退出，不进入 TUI）
-- [ ] TUI 会话在退出/结束时按现有机制持久化到 `~/.pigo/sessions`
+- [ ] `jarvis --resume <id>` 与 `jarvis --continue` 在 TUI 模式下加载对应会话历史并渲染进 transcript 后进入交互
+- [ ] `jarvis --list-sessions` 行为与退出码不变（仍是打印并退出，不进入 TUI）
+- [ ] TUI 会话在退出/结束时按现有机制持久化到 `~/.jarvis/sessions`
 - [ ] 单元测试：恢复一个含若干消息的会话后，transcript 初始内容包含这些消息
 - [ ] Typecheck/lint 通过
 - [ ] 在终端手动验证：`--continue` 进入 TUI 且历史可见

@@ -14,9 +14,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/smallnest/pigo/internal/agentcore"
-	"github.com/smallnest/pigo/internal/hooks"
-	"github.com/smallnest/pigo/internal/runtime"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/hooks"
+	"github.com/alex6xu/jarvisserver/internal/runtime"
 )
 
 // blockingPreToolUse is a hook set whose PreToolUse hook exits 2 (Claude Code

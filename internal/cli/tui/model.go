@@ -12,12 +12,12 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/smallnest/pigo/internal/agentcore"
-	"github.com/smallnest/pigo/internal/cli"
-	"github.com/smallnest/pigo/internal/cli/memstatus"
-	"github.com/smallnest/pigo/internal/cli/status"
-	"github.com/smallnest/pigo/internal/memory"
-	"github.com/smallnest/pigo/internal/runtime"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/cli"
+	"github.com/alex6xu/jarvisserver/internal/cli/memstatus"
+	"github.com/alex6xu/jarvisserver/internal/cli/status"
+	"github.com/alex6xu/jarvisserver/internal/memory"
+	"github.com/alex6xu/jarvisserver/internal/runtime"
 )
 
 // Model is the root Bubble Tea model for the full-screen TUI. It composes a
@@ -73,7 +73,7 @@ type Model struct {
 
 	// session is the assembled run/persistence state (store, header, growing
 	// context, live config). It is nil for a session-less model; when set, the
-	// model persists the conversation to ~/.pigo/sessions after each turn ends.
+	// model persists the conversation to ~/.jarvis/sessions after each turn ends.
 	session *runSession
 
 	// interruptFn cancels the in-flight run (the first stage of the two-stage
@@ -165,7 +165,7 @@ type Model struct {
 // NewModel builds the root model from the assembled Options. It reads the
 // current working directory (for the status bar's path display and git probe)
 // and assembles the shared slash-command registry (#391), which reads the user
-// prompt-template dirs (~/.pigo/{commands,prompts}) and the pre-loaded skills;
+// prompt-template dirs (~/.jarvis/{commands,prompts}) and the pre-loaded skills;
 // missing dirs are not an error. The registry is bound here to a live config
 // derived from Options; withSession rebinds it to the session's live config so a
 // /model switch reaches the run loop.

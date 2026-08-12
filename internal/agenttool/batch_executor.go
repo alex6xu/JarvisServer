@@ -17,7 +17,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
 )
 
 // ForceSequential, when true, makes the whole batch run serially regardless of

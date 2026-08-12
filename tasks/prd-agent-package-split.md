@@ -113,7 +113,7 @@ Providers            Tools ← Sandbox
 **Description:** 作为开发者，我需要把 `cmd/`、`internal/tui`、`internal/session` 中对旧 `agent.*` 的引用改成对新子包符号的引用（破坏性改动，不留门面）。
 
 **Acceptance Criteria:**
-- [ ] `cmd/pigo/main.go`、`cmd/pigo/interactive.go`、`internal/tui/model.go`、`internal/tui/state.go`、`internal/session/session.go` 中的 `agent.XXX` 引用全部改为对应子包（`agentcore.` / `provider.` / `agenttool.` / `runtime.`）
+- [ ] `cmd/jarvis/main.go`、`cmd/jarvis/interactive.go`、`internal/tui/model.go`、`internal/tui/state.go`、`internal/session/session.go` 中的 `agent.XXX` 引用全部改为对应子包（`agentcore.` / `provider.` / `agenttool.` / `runtime.`）
 - [ ] 约 48 个原 `agent.*` 导出符号引用点全部迁移正确，无残留对 `internal/agent` 的 import
 - [ ] `internal/tui/state_test.go` 等外部测试的引用同步更新
 - [ ] `go build ./... && go vet ./... && go test ./...` 全绿
@@ -130,7 +130,7 @@ Providers            Tools ← Sandbox
 ## Functional Requirements
 
 - FR-1: 系统必须把 `internal/agent` 拆分为 `internal/agentcore`、`internal/provider`、`internal/agenttool`、`internal/runtime` 四个子 package。
-- FR-2: `internal/agentcore` 必须不 import 任何其他 pigo 子 package（叶子包）。
+- FR-2: `internal/agentcore` 必须不 import 任何其他 jarvis 子 package（叶子包）。
 - FR-3: `internal/provider` 必须只 import `internal/agentcore`。
 - FR-4: `internal/agenttool` 必须只 import `internal/agentcore`。
 - FR-5: `internal/runtime` 必须可 import `agentcore`、`provider`、`agenttool`，且这三者必须不反向 import `runtime`。

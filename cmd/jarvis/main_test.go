@@ -15,17 +15,17 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/smallnest/pigo/internal/cli/config"
-	"github.com/smallnest/pigo/internal/cli/run"
+	"github.com/alex6xu/jarvisserver/internal/cli/config"
+	"github.com/alex6xu/jarvisserver/internal/cli/run"
 )
 
 // --- dispatch seam ---
 
 // TestDispatchListSessionsEmpty verifies --list-sessions is a standalone action
 // that succeeds (exit 0) and prints the empty-store message, using an isolated
-// PIGO_HOME so it never touches the real session store.
+// JARVIS_HOME so it never touches the real session store.
 func TestDispatchListSessionsEmpty(t *testing.T) {
-	t.Setenv("PIGO_HOME", t.TempDir())
+	t.Setenv("JARVIS_HOME", t.TempDir())
 	var out, errOut bytes.Buffer
 	code := dispatch(context.Background(), cliOptions{listSessions: true}, &out, &errOut)
 	if code != 0 {
@@ -40,7 +40,7 @@ func TestDispatchListSessionsEmpty(t *testing.T) {
 // error (exit 1) that says there is nothing to continue, rather than starting a
 // blank REPL.
 func TestDispatchContinueNoSessions(t *testing.T) {
-	t.Setenv("PIGO_HOME", t.TempDir())
+	t.Setenv("JARVIS_HOME", t.TempDir())
 	// Ensure a non-terminal path is not taken before the continue guard: continue
 	// resolves the id first and errors when the store is empty.
 	var out, errOut bytes.Buffer
@@ -109,7 +109,7 @@ func TestDispatchTUIGating(t *testing.T) {
 // TestCwdChdirRootsEnv verifies the guarantee --cwd relies on: after the
 // process working directory is switched (what the --cwd flag does via os.Chdir),
 // run.SetupEnv roots the run — and thus the built-in file tools — at that
-// directory. This is the contract that lets pigo be pointed at an arbitrary
+// directory. This is the contract that lets jarvis be pointed at an arbitrary
 // project root as an SDK backend. It exercises the downstream effect rather than
 // re-parsing flags, since the chdir itself lives in main().
 func TestCwdChdirRootsEnv(t *testing.T) {
@@ -139,9 +139,9 @@ func TestCwdChdirRootsEnv(t *testing.T) {
 	}
 }
 
-// TestUpdateIsSelfUpdate verifies the US-003 `pigo update` routing classifier:
+// TestUpdateIsSelfUpdate verifies the US-003 `jarvis update` routing classifier:
 // no positional package name (including flags-only invocations like
-// `pigo update --check`) routes to binary self-update (true); any positional
+// `jarvis update --check`) routes to binary self-update (true); any positional
 // package name routes to pkgmgr package-update (false). Tested directly so the
 // dispatch split needs no argv parsing or spawning either update path.
 func TestUpdateIsSelfUpdate(t *testing.T) {

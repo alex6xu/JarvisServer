@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/smallnest/pigo/internal/agentcore"
-	"github.com/smallnest/pigo/internal/session"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/session"
 )
 
 func bytesReader(b []byte) *bytes.Reader { return bytes.NewReader(b) }

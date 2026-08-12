@@ -3,7 +3,7 @@ package cli
 import (
 	"testing"
 
-	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
 )
 
 // TestTelemetryHolderReset verifies that Reset clears the holder to "no telemetry yet".

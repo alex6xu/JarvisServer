@@ -1,4 +1,4 @@
-module github.com/smallnest/pigo
+module github.com/alex6xu/jarvisserver
 
 go 1.27rc1
 

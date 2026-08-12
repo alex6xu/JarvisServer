@@ -4,12 +4,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/smallnest/pigo/internal/agentcore"
-	"github.com/smallnest/pigo/internal/session"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/session"
 )
 
 // newTestStore opens a session store rooted at a temp dir so persistence/resume
-// can be exercised without touching ~/.pigo.
+// can be exercised without touching ~/.jarvis.
 func newTestStore(t *testing.T) *session.Store {
 	t.Helper()
 	store, err := session.NewStore(t.TempDir())

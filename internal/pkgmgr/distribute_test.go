@@ -14,7 +14,7 @@ func TestDistributeExtensionStringBin(t *testing.T) {
 		t.Skip("extension install not supported on windows")
 	}
 	home := t.TempDir()
-	t.Setenv("PIGO_HOME", home)
+	t.Setenv("JARVIS_HOME", home)
 
 	pkg := writePkg(t, `{"name":"pi-demo","version":"1.0.0","bin":"./cli.js"}`, map[string]string{
 		"cli.js":  "#!/usr/bin/env node\nconsole.log('hi')\n",
@@ -80,7 +80,7 @@ func TestDistributeExtensionObjectBin(t *testing.T) {
 		t.Skip("extension install not supported on windows")
 	}
 	home := t.TempDir()
-	t.Setenv("PIGO_HOME", home)
+	t.Setenv("JARVIS_HOME", home)
 
 	pkg := writePkg(t, `{"name":"pi-adapter","version":"2.0.0","bin":{"pi-adapter":"./main.js","other":"./other.js"}}`, map[string]string{
 		"main.js":  "#!/usr/bin/env node\n",
@@ -104,7 +104,7 @@ func TestDistributeExtensionReinstallReplaces(t *testing.T) {
 		t.Skip("extension install not supported on windows")
 	}
 	home := t.TempDir()
-	t.Setenv("PIGO_HOME", home)
+	t.Setenv("JARVIS_HOME", home)
 
 	pkg1 := writePkg(t, `{"name":"pi-x","version":"1.0.0","bin":"./a.js"}`, map[string]string{
 		"a.js":    "#!/usr/bin/env node\n",
@@ -134,7 +134,7 @@ func TestDistributeExtensionPiExtensionsEntry(t *testing.T) {
 		t.Skip("extension install not supported on windows")
 	}
 	home := t.TempDir()
-	t.Setenv("PIGO_HOME", home)
+	t.Setenv("JARVIS_HOME", home)
 
 	pkg := writePkg(t, `{"name":"pi-simplify","version":"0.2.3","pi":{"extensions":["dist/index.js"]}}`, map[string]string{
 		"dist/index.js": "#!/usr/bin/env node\nconsole.log('hi')\n",
@@ -193,7 +193,7 @@ func TestDistributeExtensionBinaryBinDirectExec(t *testing.T) {
 		t.Skip("extension install not supported on windows")
 	}
 	home := t.TempDir()
-	t.Setenv("PIGO_HOME", home)
+	t.Setenv("JARVIS_HOME", home)
 
 	pkg := writePkg(t, `{"name":"pi-native","version":"1.0.0","bin":"./server"}`, map[string]string{
 		"server": "#!/usr/bin/env node\n",
@@ -236,7 +236,7 @@ func TestDistributeExtensionMainEntry(t *testing.T) {
 		t.Skip("extension install not supported on windows")
 	}
 	home := t.TempDir()
-	t.Setenv("PIGO_HOME", home)
+	t.Setenv("JARVIS_HOME", home)
 
 	pkg := writePkg(t, `{"name":"pi-main","version":"1.0.0","main":"./dist/index.js"}`, map[string]string{
 		"dist/index.js": "#!/usr/bin/env node\n",
@@ -256,7 +256,7 @@ func TestDistributeExtensionNoBin(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("extension install not supported on windows")
 	}
-	t.Setenv("PIGO_HOME", t.TempDir())
+	t.Setenv("JARVIS_HOME", t.TempDir())
 	pkg := writePkg(t, `{"name":"pi-nobin","version":"1.0.0"}`, nil)
 	if _, err := DistributeExtension(pkg, "pi-nobin"); err == nil {
 		t.Fatal("DistributeExtension without bin = nil error, want error")

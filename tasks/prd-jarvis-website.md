@@ -1,17 +1,17 @@
-# PRD: pigo 官方网站（对标 MiMo Code）
+# PRD: jarvis 官方网站（对标 MiMo Code）
 
 ## Introduction / 概述
 
-为 pigo（`github.com/smallnest/pigo`，一个用 Go 复刻 pi 的命令行编码 Agent）重建一套**纯静态官方网站**，视觉与信息结构对标 [MiMo Code](https://mimo.xiaomi.com/coder)：一个营销风格的落地页（Hero + 交替展示的特性区块），配套多篇文档页。
+为 jarvis（`github.com/alex6xu/jarvisserver`，一个用 Go 复刻 pi 的命令行编码 Agent）重建一套**纯静态官方网站**，视觉与信息结构对标 [MiMo Code](https://mimo.xiaomi.com/coder)：一个营销风格的落地页（Hero + 交替展示的特性区块），配套多篇文档页。
 
 网站为零构建、零依赖的静态资源，可直接双击打开或托管到 GitHub Pages。首页位于 `docs/index.html`，文档页位于新建目录 `docs/web/`。全站**中英双语**，支持一键切换。
 
-面向读者：首次了解 pigo 的开发者、以及需要查阅安装/配置/命令的使用者。
+面向读者：首次了解 jarvis 的开发者、以及需要查阅安装/配置/命令的使用者。
 
 ## Goals / 目标
 
 - 复刻 MiMo Code 的落地页观感：Hero 主视觉 + 若干"图文交替"特性展示区块 + 页脚。
-- 首页 `docs/index.html` 一屏内传达 pigo 是什么、核心卖点、如何开始。
+- 首页 `docs/index.html` 一屏内传达 jarvis 是什么、核心卖点、如何开始。
 - 提供至少 6 篇文档页：快速开始、安装、特性、配置、Slash 命令、架构。
 - 全站中英双语，语言切换后所有可见文案（含导航、文档正文）同步切换，且刷新后保持选择。
 - 纯静态：无需 npm/构建步骤，任意浏览器直接打开可用。
@@ -31,10 +31,10 @@
 - [ ] Verify in a browser（经 `run` 技能或本地打开）
 
 ### US-002: 首页 Hero 主视觉
-**Description:** As a 访客, I want 首页顶部一眼看懂 pigo 是什么 so that 我能快速判断是否要用。
+**Description:** As a 访客, I want 首页顶部一眼看懂 jarvis 是什么 so that 我能快速判断是否要用。
 
 **Acceptance Criteria:**
-- [ ] `docs/index.html` 顶部含产品名 "pigo"、一句话标语、简短副标题
+- [ ] `docs/index.html` 顶部含产品名 "jarvis"、一句话标语、简短副标题
 - [ ] 含主 CTA 按钮：`快速开始 / Quickstart`（跳文档）与 `GitHub`（跳仓库）
 - [ ] 展示一段可复制的安装/启动命令（如 `curl ... | sh` 或 `go install`）
 - [ ] 顶部导航含 Logo、文档入口、语言切换按钮、GitHub 链接
@@ -67,12 +67,12 @@
 
 **Acceptance Criteria:**
 - [ ] 新建 `docs/web/install.html`
-- [ ] 覆盖：`install.sh` 脚本安装、`go install`（Go 1.27+）、从源码构建、`pigo update` 自更新
+- [ ] 覆盖：`install.sh` 脚本安装、`go install`（Go 1.27+）、从源码构建、`jarvis update` 自更新
 - [ ] 说明二进制安装位置与 PATH 配置
 - [ ] Verify in a browser
 
 ### US-006: 特性文档页
-**Description:** As a 用户, I want 完整特性清单与说明 so that 我了解 pigo 能做什么。
+**Description:** As a 用户, I want 完整特性清单与说明 so that 我了解 jarvis 能做什么。
 
 **Acceptance Criteria:**
 - [ ] 新建 `docs/web/features.html`
@@ -81,11 +81,11 @@
 - [ ] Verify in a browser
 
 ### US-007: 配置文档页
-**Description:** As a 用户, I want 配置项说明 so that 我能正确配置 pigo。
+**Description:** As a 用户, I want 配置项说明 so that 我能正确配置 jarvis。
 
 **Acceptance Criteria:**
 - [ ] 新建 `docs/web/configuration.html`
-- [ ] 说明配置文件位置（`~/.config/pigo/config.toml`）与常用键：`model`、`base_url`、`api_key`、`output_format`、`approve`、`no_tools`、`no_skills`、`protocol` 等
+- [ ] 说明配置文件位置（`~/.config/jarvis/config.toml`）与常用键：`model`、`base_url`、`api_key`、`output_format`、`approve`、`no_tools`、`no_skills`、`protocol` 等
 - [ ] 说明 `[memory]` 与 `[checkpoint]` 嵌套表
 - [ ] 说明常用 `<PROVIDER>_API_KEY` 环境变量与命令行参数优先级
 - [ ] 提供一份可复制的示例 `config.toml`
@@ -101,12 +101,12 @@
 - [ ] Verify in a browser
 
 ### US-009: 架构文档页
-**Description:** As a 开发者, I want 了解 pigo 内部架构 so that 我能理解或参与开发。
+**Description:** As a 开发者, I want 了解 jarvis 内部架构 so that 我能理解或参与开发。
 
 **Acceptance Criteria:**
 - [ ] 新建 `docs/web/architecture.html`
 - [ ] 描述 Agent Loop、AgentCore、Provider 抽象、工具系统、运行时组件之间关系
-- [ ] 复用/链接 `docs/` 下已有架构图（如 `pigo-agent-loop.html`、`pigo-runtime.html`、`class_*.html`）
+- [ ] 复用/链接 `docs/` 下已有架构图（如 `jarvis-agent-loop.html`、`jarvis-runtime.html`、`class_*.html`）
 - [ ] Verify in a browser
 
 ### US-010: 文档导航与首页联通
@@ -144,9 +144,9 @@
 
 - 参考 MiMo Code：暗色背景、居中 Hero、大标题 + 柔和副标题、圆角卡片、图文交替区块。
 - 排版用系统无衬线字体栈；代码块等宽字体 + 深色底 + 可复制。
-- 配色建议以 pigo/Go 主题色（如青绿/靛蓝）为强调色，保持克制。
+- 配色建议以 jarvis/Go 主题色（如青绿/靛蓝）为强调色，保持克制。
 - 响应式：桌面多列、移动端单列。
-- 复用现有资源：`docs/pigo-tui.png`、`docs/pigo.png` 可作首页配图。
+- 复用现有资源：`docs/jarvis-tui.png`、`docs/jarvis.png` 可作首页配图。
 
 ## Technical Considerations
 

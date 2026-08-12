@@ -15,8 +15,8 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/smallnest/pigo/internal/cli/ui"
-	"github.com/smallnest/pigo/internal/dream"
+	"github.com/alex6xu/jarvisserver/internal/cli/ui"
+	"github.com/alex6xu/jarvisserver/internal/dream"
 )
 
 // dreamStartupScheduler owns the startup auto-trigger decision. It is stateless

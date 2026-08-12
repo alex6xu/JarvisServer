@@ -1,9 +1,9 @@
 package compaction
 
-import "github.com/smallnest/pigo/internal/agentcore"
+import "github.com/alex6xu/jarvisserver/internal/agentcore"
 
 // CutPointResult describes the cut selected for compaction, mirroring pi's
-// CutPointResult (adapted to pigo's flat message list).
+// CutPointResult (adapted to jarvis's flat message list).
 type CutPointResult struct {
 	// FirstKeptIndex is the index of the first message retained after
 	// compaction; everything before it is summarized.

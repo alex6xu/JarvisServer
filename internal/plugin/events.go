@@ -10,7 +10,7 @@ import (
 	"encoding/json"
 	"io"
 
-	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
 )
 
 // EventNotifier forwards agent lifecycle events to the plugins that subscribed

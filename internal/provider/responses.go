@@ -5,7 +5,7 @@
 // github.com/openai/openai-go SDK.
 //
 // This milestone covers streaming text: a plain prompt in, assistant text out,
-// consumed from the Responses SSE stream and mapped into pigo's AssistantMessage
+// consumed from the Responses SSE stream and mapped into jarvis's AssistantMessage
 // the same way OpenAIDecoder does (API/Provider tags, Usage,
 // ResponseID/ResponseModel, StopReason=end_turn). Tools (#541) and
 // images/reasoning (#542) layer on later.
@@ -32,7 +32,7 @@ import (
 	"github.com/openai/openai-go/responses"
 	"github.com/openai/openai-go/shared"
 
-	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
 )
 
 // responsesDriver is the Provider backing --protocol openai/resp_api. It holds
@@ -91,7 +91,7 @@ func (d *responsesDriver) StreamCompletion(ctx context.Context, req CompletionRe
 	return stream, nil
 }
 
-// pump consumes the Responses SSE stream and translates events into pigo stream
+// pump consumes the Responses SSE stream and translates events into jarvis stream
 // events. It always closes the stream. Every runtime failure (transport error,
 // context cancellation, or an upstream error/failed event) becomes a terminal
 // StreamErrorEvent (dual failure model), not a returned error.
@@ -219,7 +219,7 @@ func (d *responsesDriver) newPartial() agentcore.AssistantMessage {
 	}
 }
 
-// mapResponse materializes a completed Responses API result into pigo's
+// mapResponse materializes a completed Responses API result into jarvis's
 // AssistantMessage: a reasoning summary (as a thinking block, when present),
 // text content, tool calls, usage (when present), diagnostics, and a stop reason
 // (tool_use when the model requested a tool, otherwise end_turn).
@@ -253,7 +253,7 @@ func (d *responsesDriver) mapResponse(resp *responses.Response) agentcore.Assist
 	return msg
 }
 
-// toolCallContent maps a Responses function_call item into a pigo
+// toolCallContent maps a Responses function_call item into a jarvis
 // ToolCallContent, keyed by the model's call_id so the tool result can be
 // backfilled against it on the next turn. Arguments ride verbatim as raw JSON.
 func toolCallContent(fc responses.ResponseFunctionToolCall) agentcore.ToolCallContent {
@@ -262,7 +262,7 @@ func toolCallContent(fc responses.ResponseFunctionToolCall) agentcore.ToolCallCo
 
 // reasoningText concatenates the summary text of every reasoning item in a
 // completed response. The Responses API returns the model's reasoning as one or
-// more reasoning items, each carrying summary parts; pigo surfaces the joined
+// more reasoning items, each carrying summary parts; jarvis surfaces the joined
 // text as a single thinking block, mirroring how the chat driver renders
 // accumulated reasoning_content.
 func reasoningText(resp *responses.Response) string {
@@ -289,7 +289,7 @@ func appendToolCalls(content agentcore.ContentList, calls []agentcore.ToolCallCo
 
 // buildResponsesParams maps a CompletionRequest onto Responses API params. The
 // system prompt becomes Instructions; the thinking level becomes a reasoning
-// effort (with an auto summary so reasoning is returned); pigo tools become
+// effort (with an auto summary so reasoning is returned); jarvis tools become
 // Responses function tools; and each message is replayed as the matching input
 // item(s): assistant tool calls as function_call items, tool results as
 // function_call_output items, and text (plus any images) as a role-tagged
@@ -302,7 +302,7 @@ func buildResponsesParams(req CompletionRequest) responses.ResponseNewParams {
 		params.Instructions = openai.String(sp)
 	}
 	if effort := responsesReasoningEffort(req.Config.ThinkingLevel); effort != "" {
-		// Requesting a summary makes the API return the model's reasoning so pigo
+		// Requesting a summary makes the API return the model's reasoning so jarvis
 		// can render it as a thinking block, matching the chat driver.
 		params.Reasoning = shared.ReasoningParam{Effort: effort, Summary: shared.ReasoningSummaryAuto}
 	}
@@ -318,10 +318,10 @@ func buildResponsesParams(req CompletionRequest) responses.ResponseNewParams {
 	return params
 }
 
-// buildResponsesTools converts pigo tools into Responses function tools. Each
+// buildResponsesTools converts jarvis tools into Responses function tools. Each
 // tool's JSON Schema becomes the function parameters; a schema that is empty or
 // not a JSON object falls back to an empty object schema so the wire stays
-// valid. Strict mode is off: pigo schemas are not authored against the Responses
+// valid. Strict mode is off: jarvis schemas are not authored against the Responses
 // strict-function contract (which requires additionalProperties:false etc.).
 func buildResponsesTools(tools []agentcore.AgentTool) []responses.ToolUnionParam {
 	if len(tools) == 0 {
@@ -344,7 +344,7 @@ func buildResponsesTools(tools []agentcore.AgentTool) []responses.ToolUnionParam
 	return out
 }
 
-// appendInputItems replays one pigo message as its Responses input item(s).
+// appendInputItems replays one jarvis message as its Responses input item(s).
 func appendInputItems(items responses.ResponseInputParam, m agentcore.Message) responses.ResponseInputParam {
 	switch msg := m.(type) {
 	case agentcore.ToolResultMessage:
@@ -408,7 +408,7 @@ func imageInputParts(m agentcore.Message) (responses.ResponseInputMessageContent
 	return parts, true
 }
 
-// responsesReasoningEffort maps pigo's thinking level to a Responses API
+// responsesReasoningEffort maps jarvis's thinking level to a Responses API
 // reasoning effort. The Responses reasoning field supports only low/medium/high,
 // so "minimal" collapses to "low" (unlike the chat driver, which forwards
 // "minimal" verbatim). off/unset yields "", signalling no reasoning param.
@@ -425,7 +425,7 @@ func responsesReasoningEffort(level agentcore.ThinkingLevel) shared.ReasoningEff
 	}
 }
 
-// responsesRole maps a pigo message role to the Responses API input role. Tool
+// responsesRole maps a jarvis message role to the Responses API input role. Tool
 // results are surfaced as user turns for this text milestone.
 func responsesRole(role string) responses.EasyInputMessageRole {
 	switch role {

@@ -1,15 +1,15 @@
-// This file distributes a classified pi prompt/command package into pigo's
+// This file distributes a classified pi prompt/command package into jarvis's
 // prompts directory so runtime.LoadUserCommandsDir picks it up (#160, #342).
 //
-// pigo loads declarative slash commands from $PIGO_HOME/prompts/*.md (and the
-// legacy $PIGO_HOME/commands/*.md) non-recursively: each markdown file defines
+// jarvis loads declarative slash commands from $JARVIS_HOME/prompts/*.md (and the
+// legacy $JARVIS_HOME/commands/*.md) non-recursively: each markdown file defines
 // a "/name" command, named after the file, whose body is the prompt template.
 // A pi prompt package ships one or more such templates, conventionally under a
 // "prompts/" subdirectory (the pi convention); the legacy "commands/" subdir is
 // a fallback, and some packages place the .md files at the package root.
 //
 // Distribution copies those .md files (flattened, since the loader is
-// non-recursive) into $PIGO_HOME/prompts/. Every file laid down is returned so
+// non-recursive) into $JARVIS_HOME/prompts/. Every file laid down is returned so
 // the lockfile can remove precisely what was installed.
 package pkgmgr
 
@@ -28,7 +28,7 @@ import (
 func DistributePrompt(pkgDir, name string) ([]string, error) {
 	promptsDir := PromptsDir()
 	if promptsDir == "" {
-		return nil, fmt.Errorf("pkgmgr: cannot resolve prompts dir (PIGO_HOME/home unavailable)")
+		return nil, fmt.Errorf("pkgmgr: cannot resolve prompts dir (JARVIS_HOME/home unavailable)")
 	}
 
 	// Prefer the pi-aligned prompts/ subdir, then the legacy commands/ subdir,

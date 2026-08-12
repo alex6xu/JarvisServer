@@ -1,8 +1,8 @@
-// Package builtinskills embeds a curated set of skills into the pigo binary and
+// Package builtinskills embeds a curated set of skills into the jarvis binary and
 // installs them into the user's skills directory on first run. This makes a
 // baseline of workflow skills (the goal-workflow set plus a couple of standalone
 // skills) available as /skill-name commands out of the box, with no manual
-// `pigo install` step and no network access — the skill trees are compiled into
+// `jarvis install` step and no network access — the skill trees are compiled into
 // the binary via //go:embed.
 //
 // The design is deliberately generic (a manifest of skill *sets*) so future

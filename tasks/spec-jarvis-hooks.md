@@ -1,15 +1,15 @@
-# SPEC: pigo Hooks(用户可扩展的生命周期钩子)
+# SPEC: jarvis Hooks(用户可扩展的生命周期钩子)
 
-> Technical specification derived from: `tasks/prd-pigo-hooks.md`
+> Technical specification derived from: `tasks/prd-jarvis-hooks.md`
 > Generated: 2026-07-30 | Target branch: master | Commit: 48e3a37
 
 ## 1. Summary
 
 ### 1.1 What This SPEC Covers
-本 SPEC 定义 pigo 用户级 Hook 系统的技术实现:一个新的 `internal/hooks` 叶子包(配置类型、matcher、shell runner、协议解析、事件分发),以及把它**组合(compose)** 进现有 seam 的装配逻辑。范围覆盖 PRD 的 9 个 hook 点与隔离/协议要求。不覆盖沙箱、非 shell 类型、远程分发(见 PRD Non-Goals)。
+本 SPEC 定义 jarvis 用户级 Hook 系统的技术实现:一个新的 `internal/hooks` 叶子包(配置类型、matcher、shell runner、协议解析、事件分发),以及把它**组合(compose)** 进现有 seam 的装配逻辑。范围覆盖 PRD 的 9 个 hook 点与隔离/协议要求。不覆盖沙箱、非 shell 类型、远程分发(见 PRD Non-Goals)。
 
 ### 1.2 PRD Reference
-- Source: `tasks/prd-pigo-hooks.md`
+- Source: `tasks/prd-jarvis-hooks.md`
 - User Stories: US-001 ~ US-015
 - Functional Requirements: FR-1 ~ FR-18
 
@@ -156,7 +156,7 @@ type HookDecision struct {
 
 ## 4. Hook Contract (对外协议,替代传统 API 层)
 
-本特性不引入 HTTP API;"接口"是 pigo 与用户 shell 命令之间的进程契约。
+本特性不引入 HTTP API;"接口"是 jarvis 与用户 shell 命令之间的进程契约。
 
 ### 4.1 触发点一览
 | Hook | 触发位置 | 机制 | 能力 | 携带工具名 |
@@ -172,7 +172,7 @@ type HookDecision struct {
 | Notification | trust 确认/等待 → 事件 | OnEvent 观察 | 无 | 否 |
 
 ### 4.2 输入(stdin)
-Dispatcher 把 `HookInput`(§3.3)序列化为单行 JSON 写入命令 stdin;并注入环境变量 `PIGO_SESSION_ID` / `PIGO_PROJECT_DIR` / `PIGO_EVENT_TYPE`(FR-4)。命令 cwd = 项目工作目录。
+Dispatcher 把 `HookInput`(§3.3)序列化为单行 JSON 写入命令 stdin;并注入环境变量 `JARVIS_SESSION_ID` / `JARVIS_PROJECT_DIR` / `JARVIS_EVENT_TYPE`(FR-4)。命令 cwd = 项目工作目录。
 
 ### 4.3 输出(退出码 + stdout)
 | 退出码 | 含义 | stdout | stderr |
@@ -224,7 +224,7 @@ func Dispatch(eventType, toolName string, input HookInput) HookDecision:
 ### 5.3 Runner.Run(runner.go)
 ```
 1. 构造 exec.CommandContext(ctx_timeout, shell, "-c", h.Command)
-2. 设 cwd=projectDir;env=os.Environ()+PIGO_*
+2. 设 cwd=projectDir;env=os.Environ()+JARVIS_*
 3. stdin = json(input);stdout/stderr = 各自 bounded buffer(上限 1MB,FR-13)
 4. 超时(h.Timeout 或默认 60s,FR-11)由 CommandContext 触发 kill
 5. 按退出码分类返回 (HookOutput, error);exit 2 → 从 stderr 取 reason
@@ -270,12 +270,12 @@ Hook **不重试**(副作用未知,重试不安全)。失败即按 §6.1 分类�
 Hook 命令以**当前用户身份**运行(与 `bash` 工具同权),不做额外提权/降权。风险通过信任边界 + 文档约束(PRD Non-Goals)。
 
 ### 7.2 信任边界(FR-14)
-- **用户级** hooks(`$PIGO_HOME/config.json`)始终启用。
-- **项目级** hooks(`./.pigo/config.json`)**仅在项目受信任时**加载;未信任项目的项目级 hooks 被忽略并提示(复用 `internal/trust`)。
+- **用户级** hooks(`$JARVIS_HOME/config.json`)始终启用。
+- **项目级** hooks(`./.jarvis/config.json`)**仅在项目受信任时**加载;未信任项目的项目级 hooks 被忽略并提示(复用 `internal/trust`)。
 - `InstallHooks` 接收 trust 判定结果,决定是否并入项目层 hooks。
 
 ### 7.3 数据保护(FR-17)
-`HookInput` 仅含可观测字段;**绝不**包含 `Credentials`/API key。构造 payload 时以白名单字段序列化(与 `plugin/events.go` 同纪律)。命令 stdin 传入的是转义后的合法 JSON,避免注入到 pigo 侧(用户命令自身的注入风险由用户承担)。
+`HookInput` 仅含可观测字段;**绝不**包含 `Credentials`/API key。构造 payload 时以白名单字段序列化(与 `plugin/events.go` 同纪律)。命令 stdin 传入的是转义后的合法 JSON,避免注入到 jarvis 侧(用户命令自身的注入风险由用户承担)。
 
 ---
 
@@ -371,7 +371,7 @@ Hook 触发频率与工具调用/turn 同量级(每 turn 数次)。每次触发 
 ### 11.1 Unresolved Questions
 - Stop 上限(FR-12)/超时(FR-11)是否需暴露为全局配置项,而非仅 per-hook?(建议 v1 per-hook + 全局默认常量)
 - 多 PreToolUse `updatedInput` 是否需要"严格模式"报错而非后者胜出?
-- 是否 v1 就提供 `pigo hooks test <event>` 调试子命令?(建议 v1.1)
+- 是否 v1 就提供 `jarvis hooks test <event>` 调试子命令?(建议 v1.1)
 - Windows shell(`cmd /c` vs `powershell`)是否纳入 v1?(建议 v1 仅 darwin/linux,`sh -c`)
 
 ### 11.2 Technical Risks

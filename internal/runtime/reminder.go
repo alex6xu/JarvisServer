@@ -1,5 +1,5 @@
 // This file implements the general system-reminder dynamic context injection
-// mechanism (US-002, FR-1/FR-2), pigo's port of Claude Code's per-turn
+// mechanism (US-002, FR-1/FR-2), jarvis's port of Claude Code's per-turn
 // <system-reminder> injection.
 //
 // A reminder is EPHEMERAL background context (the current todo list, a file
@@ -27,8 +27,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/smallnest/pigo/internal/agentcore"
-	"github.com/smallnest/pigo/internal/agenttool"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/agenttool"
 )
 
 // systemReminderPreamble marks the wrapped body as background context rather

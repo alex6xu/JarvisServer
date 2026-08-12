@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
 )
 
 // captureNotifier builds a HookNotifier whose hook for `event` appends its stdin

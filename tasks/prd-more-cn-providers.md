@@ -2,9 +2,9 @@
 
 ## Introduction
 
-pigo 通过 `internal/provider/registry.go` 的 provider 注册表管理所有内置 Provider 的元数据（名称、API Key 环境变量、默认 base URL、线路协议、鉴权方式）。目前注册表覆盖了 OpenRouter、Anthropic、DeepSeek、MiniMax、月之暗面等 30+ 个 Provider，但缺少国内几家主流云厂商的大模型平台。
+jarvis 通过 `internal/provider/registry.go` 的 provider 注册表管理所有内置 Provider 的元数据（名称、API Key 环境变量、默认 base URL、线路协议、鉴权方式）。目前注册表覆盖了 OpenRouter、Anthropic、DeepSeek、MiniMax、月之暗面等 30+ 个 Provider，但缺少国内几家主流云厂商的大模型平台。
 
-本需求为 pigo 新增四个国内 Provider：**百度智能云千帆（Qianfan）**、**字节火山引擎方舟（Volcengine Ark）**、**阿里云百炼（DashScope）**、**腾讯混元（Hunyuan）**。四者均提供 OpenAI 兼容端点、走 Bearer 鉴权，因此可完全复用现有的 `NewOpenRouterProvider` / OpenAI-compatible 驱动路径，改动是**纯增量**的——向注册表追加条目、向 presets 追加预置模型、更新文档，不改动任何现有 Provider 的行为。
+本需求为 jarvis 新增四个国内 Provider：**百度智能云千帆（Qianfan）**、**字节火山引擎方舟（Volcengine Ark）**、**阿里云百炼（DashScope）**、**腾讯混元（Hunyuan）**。四者均提供 OpenAI 兼容端点、走 Bearer 鉴权，因此可完全复用现有的 `NewOpenRouterProvider` / OpenAI-compatible 驱动路径，改动是**纯增量**的——向注册表追加条目、向 presets 追加预置模型、更新文档，不改动任何现有 Provider 的行为。
 
 ## Goals
 
@@ -17,7 +17,7 @@ pigo 通过 `internal/provider/registry.go` 的 provider 注册表管理所有�
 ## User Stories
 
 ### US-001: 向注册表新增四个国内 Provider 条目
-**Description:** As a pigo 用户, I want 注册表内置千帆/火山方舟/百炼/混元 four Provider, so that 我能用 `--provider <name>` 直接选中它们而无需手动指定 base URL 和协议。
+**Description:** As a jarvis 用户, I want 注册表内置千帆/火山方舟/百炼/混元 four Provider, so that 我能用 `--provider <name>` 直接选中它们而无需手动指定 base URL 和协议。
 
 **Acceptance Criteria:**
 - [ ] `providerRegistry` 新增 4 条 `ProviderSpec`：
@@ -30,7 +30,7 @@ pigo 通过 `internal/provider/registry.go` 的 provider 注册表管理所有�
 - [ ] `go build ./...` 通过
 
 ### US-002: 为四个 Provider 补充预置模型
-**Description:** As a pigo 用户, I want 每个国内平台有代表性预置模型, so that 我能在 REPL 用 `/models` 看到它们并 `/model` 切换，或直接用 model id 让 pigo 推断出正确的 provider。
+**Description:** As a jarvis 用户, I want 每个国内平台有代表性预置模型, so that 我能在 REPL 用 `/models` 看到它们并 `/model` 切换，或直接用 model id 让 jarvis 推断出正确的 provider。
 
 **Acceptance Criteria:**
 - [ ] `presets.go` 为每个 Provider 至少新增一个 `ModelPreset`，包含 `Provider`、`ID`、`DisplayName`（示例，最终 id 以各平台文档为准）：
@@ -43,7 +43,7 @@ pigo 通过 `internal/provider/registry.go` 的 provider 注册表管理所有�
 - [ ] `go build ./...` 通过
 
 ### US-003: model id → provider 推断命中新预置
-**Description:** As a pigo 用户, I want 传入新预置模型 id 时 pigo 自动路由到对应国内平台, so that 我无需每次都加 `--provider`。
+**Description:** As a jarvis 用户, I want 传入新预置模型 id 时 jarvis 自动路由到对应国内平台, so that 我无需每次都加 `--provider`。
 
 **Acceptance Criteria:**
 - [ ] `resolveProvider(<新预置 id>, "", "", "")` 经预置目录命中分支（`main.go` 第 1 步 `LookupPreset`）走 OpenAI-compatible 驱动，返回的 provider-name 为对应平台名
@@ -56,7 +56,7 @@ pigo 通过 `internal/provider/registry.go` 的 provider 注册表管理所有�
 **Acceptance Criteria:**
 - [ ] 注册表测试断言四个新 Provider 的 Name / EnvVars / DefaultBaseURL / Protocol / AuthScheme 与 US-001 一致
 - [ ] 解析测试断言 `--provider <name>` 与预置 id 两条路径都路由到正确 provider 且 base_url 覆盖优先级正确
-- [ ] `go test ./internal/provider/... ./cmd/pigo/...` 通过
+- [ ] `go test ./internal/provider/... ./cmd/jarvis/...` 通过
 
 ### US-005: 更新 README 文档
 **Description:** As a 新用户, I want README 列出新增的国内 Provider, so that 我知道如何配置它们的 Key 与 base URL。
@@ -64,7 +64,7 @@ pigo 通过 `internal/provider/registry.go` 的 provider 注册表管理所有�
 **Acceptance Criteria:**
 - [ ] README「内置 Provider 一览（`--provider`）」表格新增四行，列出 provider 名、环境变量、默认 base_url、协议
 - [ ] 与 `internal/provider/registry.go` 保持一致（表格声明的既有约束）
-- [ ] `pigo --help` 输出的 provider 清单包含四个新名称（由注册表自动驱动，无需单独改 help 文本）
+- [ ] `jarvis --help` 输出的 provider 清单包含四个新名称（由注册表自动驱动，无需单独改 help 文本）
 
 ## Functional Requirements
 
@@ -96,7 +96,7 @@ pigo 通过 `internal/provider/registry.go` 的 provider 注册表管理所有�
 ## Success Metrics
 
 - 四个 `--provider <name>` 均可在配置对应 Key 后成功发起一次补全请求
-- `pigo --help` 与 README 表格中出现四个新 Provider
+- `jarvis --help` 与 README 表格中出现四个新 Provider
 - `go test ./...` 全绿，无既有用例回归
 
 ## Open Questions

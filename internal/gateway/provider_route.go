@@ -135,14 +135,14 @@ func parseProviderModels(raw string) []string {
 }
 
 func providersPersistPath() string {
-	if dir := os.Getenv("PIGO_HOME"); dir != "" {
+	if dir := os.Getenv("JARVIS_HOME"); dir != "" {
 		return filepath.Join(dir, "gateway-providers.json")
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".pigo", "gateway-providers.json")
+	return filepath.Join(home, ".jarvis", "gateway-providers.json")
 }
 
 func (m *MemStore) loadProvidersFromDisk() error {

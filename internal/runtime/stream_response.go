@@ -7,9 +7,9 @@ package runtime
 import (
 	"context"
 
-	"github.com/smallnest/pigo/internal/agentcore"
-	"github.com/smallnest/pigo/internal/compaction"
-	"github.com/smallnest/pigo/internal/provider"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/compaction"
+	"github.com/alex6xu/jarvisserver/internal/provider"
 )
 
 // LoopConfig holds the pluggable behavior of the agent loop. Every hook is

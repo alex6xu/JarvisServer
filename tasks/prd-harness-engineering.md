@@ -1,16 +1,16 @@
-# PRD: Harness Engineering — 审视与补全 pigo 的 Agent 脚手架层
+# PRD: Harness Engineering — 审视与补全 jarvis 的 Agent 脚手架层
 
 ## Introduction
 
 一个 Agent 的质量不只取决于底层大模型，还取决于包裹在模型外面的那层"脚手架"（harness）：上下文如何组织、工具结果如何裁剪、失败如何重试、任务如何被引导（steering）、长会话如何压缩、危险操作如何设护栏。这层脚手架就是 **harness engineering** 关注的对象。
 
-本 PRD 以 harness engineering 的视角审视 `pigo` 当前实现，盘点已具备的能力与缺口，并给出一份**对标 pi / Claude Code**、分阶段落地的路线图。本文档定位为**审计 + 路线图（audit + roadmap）**：它梳理现状、定义目标脚手架层、拆出可实施的 User Story，但不在本轮直接实现——实现由后续 `/to-issues` → 实现流程承接。
+本 PRD 以 harness engineering 的视角审视 `jarvis` 当前实现，盘点已具备的能力与缺口，并给出一份**对标 pi / Claude Code**、分阶段落地的路线图。本文档定位为**审计 + 路线图（audit + roadmap）**：它梳理现状、定义目标脚手架层、拆出可实施的 User Story，但不在本轮直接实现——实现由后续 `/to-issues` → 实现流程承接。
 
 术语：本文中 "harness 层" 指 `internal/runtime`（loop、prompt、compaction）+ `internal/agenttool`（tool executor、各工具）+ `internal/provider/transport` 中所有"非模型推理本身"的编排逻辑。
 
 ## Goals
 
-- 用 harness engineering 的六个维度，系统盘点 pigo 现有能力与缺口，形成一张可追踪的"能力矩阵"。
+- 用 harness engineering 的六个维度，系统盘点 jarvis 现有能力与缺口，形成一张可追踪的"能力矩阵"。
 - 明确每个缺口的**对标基准**（pi / Claude Code 的对应行为），避免凭空设计。
 - 定义一个内聚的"harness 层"目标形态：动态上下文注入、工具结果裁剪预算、韧性重试、steering、可观测性、安全护栏协同工作。
 - 把路线图拆成小而独立、可单会话实现的 User Story，每个都带可验证的验收标准与对标出处。
@@ -41,7 +41,7 @@
 > 说明：US 按缺口优先级编号。每个 US 独立可实现，验收标准可观察/可测/可验证，并标注对标出处。UI 相关项为 CLI 行为，验证方式为命令行观测而非浏览器。
 
 ### US-001: 定义 harness 能力矩阵与对标基线文档
-**Description:** As a maintainer, I want a living capability matrix mapping each harness dimension to pigo's current state and the pi/Claude Code baseline, so that后续每个 US 都有明确的对标依据。
+**Description:** As a maintainer, I want a living capability matrix mapping each harness dimension to jarvis's current state and the pi/Claude Code baseline, so that后续每个 US 都有明确的对标依据。
 
 **Acceptance Criteria:**
 - [ ] 在 `docs/` 产出 harness 能力矩阵文档，覆盖本 PRD 六个维度

@@ -2,14 +2,14 @@
 
 ## Introduction
 
-pigo selects a wire protocol for talking to a model endpoint via the `--protocol`
+jarvis selects a wire protocol for talking to a model endpoint via the `--protocol`
 flag / `protocol` config key, today accepting only two flat values: `openai` and
 `anthropic`. The `openai` value always means the **Chat Completions** API
 (`POST {base_url}/chat/completions`).
 
 OpenAI now offers a second, distinct wire API — the **Responses API**
 (`POST {base_url}/responses`) — with a different request/response shape
-(input/output items, first-class reasoning, server-managed tool state). pigo has
+(input/output items, first-class reasoning, server-managed tool state). jarvis has
 no support for it today: every provider marked "responses" (e.g.
 `azure-openai-responses`) actually still speaks Chat Completions.
 
@@ -54,7 +54,7 @@ APIs and adds a real Responses API driver, implemented with the official
 
 **Acceptance Criteria:**
 - [ ] New driver posts to the Responses endpoint via the openai-go SDK, honoring the resolved `base_url` and API key
-- [ ] A plain text prompt returns assistant text mapped into pigo's existing message/response types
+- [ ] A plain text prompt returns assistant text mapped into jarvis's existing message/response types
 - [ ] Base-URL and auth precedence match the Chat Completions driver (`ResolveBaseURL`, provider env vars)
 - [ ] Errors (non-2xx, auth failure) surface with the same shape/exit mapping as the chat driver
 - [ ] Unit test with a stubbed HTTP transport verifies the request targets `/responses` and the response maps correctly
@@ -64,7 +64,7 @@ APIs and adds a real Responses API driver, implemented with the official
 **Description:** As a user, I want streamed output from the Responses API so the TUI/REPL renders tokens incrementally like it does for chat.
 
 **Acceptance Criteria:**
-- [ ] Driver consumes the Responses streaming events and emits pigo's existing streaming partial type
+- [ ] Driver consumes the Responses streaming events and emits jarvis's existing streaming partial type
 - [ ] Final accumulated output equals the non-streamed result for the same prompt
 - [ ] Cancellation via context stops the stream promptly
 - [ ] Unit test with a stubbed event stream verifies incremental deltas and final aggregation
@@ -74,8 +74,8 @@ APIs and adds a real Responses API driver, implemented with the official
 **Description:** As a user, I want tool calls to work over the Responses API so the agent loop functions identically to chat.
 
 **Acceptance Criteria:**
-- [ ] pigo tool schemas are sent as Responses-API tools/functions
-- [ ] Model-emitted tool calls are parsed into pigo's tool-call type (name + arguments + id)
+- [ ] jarvis tool schemas are sent as Responses-API tools/functions
+- [ ] Model-emitted tool calls are parsed into jarvis's tool-call type (name + arguments + id)
 - [ ] Tool results are fed back in the Responses-API format for the follow-up turn
 - [ ] A multi-turn tool-call round-trip completes in a unit/integration test with a stubbed transport
 - [ ] Typecheck / `go vet` / lint passes
@@ -151,7 +151,7 @@ APIs and adds a real Responses API driver, implemented with the official
 
 ## Success Metrics
 
-- `pigo --protocol openai/resp_api -u <endpoint> -m <model>` completes a streamed, tool-using turn with parity to `--protocol openai`.
+- `jarvis --protocol openai/resp_api -u <endpoint> -m <model>` completes a streamed, tool-using turn with parity to `--protocol openai`.
 - Zero behavior change for existing `openai` / `anthropic` / provider-name users (existing provider tests stay green).
 - Banner Protocol field matches the actual wire API used.
 
