@@ -2,13 +2,13 @@
 
 ## Introduction
 
-当前 pigo 的交互模式建立在 `charm.land/bubbletea/v2` 全屏 TUI 之上（`internal/tui` 包约 3000 行，含 model.go 834 行、state.go 413 行），逻辑复杂：包含流式渲染、transcript 状态机、斜杠命令弹出菜单、模型 picker、两段式 Ctrl+C、markdown 渲染、viewport 滚动等。
+当前 jarvis 的交互模式建立在 `charm.land/bubbletea/v2` 全屏 TUI 之上（`internal/tui` 包约 3000 行，含 model.go 834 行、state.go 413 行），逻辑复杂：包含流式渲染、transcript 状态机、斜杠命令弹出菜单、模型 picker、两段式 Ctrl+C、markdown 渲染、viewport 滚动等。
 
-本次改动的目标是**删除整个 `internal/tui` 包及其依赖的 bubbletea/bubbles/lipgloss/glamour 等 UI 库**，让代码保持简洁。删除后，`pigo` 无 `-p` 参数、且 stdout 是终端时，不再进入全屏对话界面。
+本次改动的目标是**删除整个 `internal/tui` 包及其依赖的 bubbletea/bubbles/lipgloss/glamour 等 UI 库**，让代码保持简洁。删除后，`jarvis` 无 `-p` 参数、且 stdout 是终端时，不再进入全屏对话界面。
 
 但以下三项能力必须在无 TUI 的前提下继续可用：
 1. **斜杠命令 + 技能**：`/model`、`/help`、用户自定义命令、`~/.agents/skills` 的 `/skill-name` 调用。
-2. **会话持久化**：`~/.pigo/sessions` 的保存/恢复/列表（`--resume`、`--continue`、`--list-sessions`）。
+2. **会话持久化**：`~/.jarvis/sessions` 的保存/恢复/列表（`--resume`、`--continue`、`--list-sessions`）。
 3. **流式输出**：assistant 回复增量打印，而非一次性输出完整结果。
 
 面向读者可能是初级开发者或 AI agent，下文尽量避免术语堆砌。
@@ -16,7 +16,7 @@
 ## Goals
 
 - 删除 `internal/tui` 整个包（含全部 `*.go` 与 `*_test.go`），移除对 bubbletea/bubbles/lipgloss/glamour/go-runewidth/reflow 等纯 UI 依赖。
-- `cmd/pigo` 不再引用 `internal/tui`；`go build ./...` 与 `go mod tidy` 后无残留 UI 依赖。
+- `cmd/jarvis` 不再引用 `internal/tui`；`go build ./...` 与 `go mod tidy` 后无残留 UI 依赖。
 - 保留一个**极简的无界面交互路径**（基于标准输入输出的行式 REPL）：读一行 → 跑 agent → 流式打印结果 → 循环。
 - 在该 REPL 中保留斜杠命令、技能调用、会话持久化、流式输出。
 - 代码总行数显著下降，交互逻辑不再依赖任何 TUI 框架。
@@ -29,7 +29,7 @@
 
 **Acceptance Criteria:**
 - [ ] `internal/tui/` 目录及其下所有 `*.go`、`*_test.go` 文件被删除
-- [ ] 代码库中无任何文件 `import "github.com/smallnest/pigo/internal/tui"`（`grep -rn "internal/tui" --include="*.go"` 返回空）
+- [ ] 代码库中无任何文件 `import "github.com/alex6xu/jarvisserver/internal/tui"`（`grep -rn "internal/tui" --include="*.go"` 返回空）
 - [ ] `go build ./...` 通过
 - [ ] `go vet ./...` 通过
 
@@ -43,7 +43,7 @@
 - [ ] `go mod verify` 通过
 
 ### US-003: 极简行式 REPL 替代全屏交互
-**Description:** As a user, I want a simple line-based REPL when I run `pigo` without `-p` on a terminal, so that I can still hold a multi-turn conversation without the full-screen UI.
+**Description:** As a user, I want a simple line-based REPL when I run `jarvis` without `-p` on a terminal, so that I can still hold a multi-turn conversation without the full-screen UI.
 
 **Acceptance Criteria:**
 - [ ] 无 `-p`、stdout 为终端时，进入行式 REPL：打印提示符 → 读取一行输入 → 运行 agent → 打印回复 → 回到提示符
@@ -77,7 +77,7 @@
 **Description:** As a user, I want my REPL conversation saved and resumable, so that `--resume`、`--continue`、`--list-sessions` continue to work.
 
 **Acceptance Criteria:**
-- [ ] 每轮 agent run 结束后，会话消息写入 `~/.pigo/sessions`（或 `$PIGO_HOME/sessions`）
+- [ ] 每轮 agent run 结束后，会话消息写入 `~/.jarvis/sessions`（或 `$JARVIS_HOME/sessions`）
 - [ ] `--list-sessions` 列出已存会话（保持现有输出格式）
 - [ ] `--resume <id>` 加载指定会话历史并在 REPL 中继续对话
 - [ ] `--continue` 恢复最近一次会话
@@ -106,7 +106,7 @@
 ## Functional Requirements
 
 - FR-1: 系统必须删除 `internal/tui` 目录下的全部源文件与测试文件。
-- FR-2: 系统必须移除 `cmd/pigo/interactive.go` 中对 `internal/tui` 的 import 及 picker/menu 相关装配代码。
+- FR-2: 系统必须移除 `cmd/jarvis/interactive.go` 中对 `internal/tui` 的 import 及 picker/menu 相关装配代码。
 - FR-3: 系统必须在 `go mod tidy` 后从 go.mod / go.sum 移除仅被 TUI 使用的第三方依赖。
 - FR-4: 无 `-p` 且 stdout 为终端时，系统必须进入行式 REPL 循环。
 - FR-5: 无 `-p` 且 stdout 非终端且无 `--resume` 时，系统必须报错并以非零码退出。
@@ -114,7 +114,7 @@
 - FR-7: REPL 必须以流式方式打印 assistant 回复。
 - FR-8: REPL 必须将 `/` 开头的输入经 `SlashRegistry.ResolveOutcome` 解析后分流为 action 或 prompt。
 - FR-9: REPL 必须支持 `/skill-name` 调用 `~/.agents/skills` 加载的技能。
-- FR-10: REPL 必须在每轮结束后持久化会话到 `~/.pigo/sessions`。
+- FR-10: REPL 必须在每轮结束后持久化会话到 `~/.jarvis/sessions`。
 - FR-11: 系统必须保留 `--list-sessions`、`--resume`、`--continue` 的现有行为。
 - FR-12: REPL 必须支持 `/exit`（含 `/quit`）与 EOF 干净退出。
 - FR-13: REPL 必须支持 `/model`、`/models` 文本命令进行模型查看与切换。
@@ -130,7 +130,7 @@
 
 ## Design Considerations
 
-- 新 REPL 建议放在 `cmd/pigo/interactive.go`（原地重写）或新增 `cmd/pigo/repl.go`，不新建包，避免再引入一层抽象。
+- 新 REPL 建议放在 `cmd/jarvis/interactive.go`（原地重写）或新增 `cmd/jarvis/repl.go`，不新建包，避免再引入一层抽象。
 - 复用现有 `runtime.StartRun` / `LoopEventStream`，通过消费事件流实现流式打印——这是当前 TUI bridge 已用的机制，去掉渲染层即可。
 - 复用 `session.Store`、`buildSlashRegistry`、`liveRunConfig`、`resolveProvider`、`presetListing` 等既有构件，删除的仅是 UI 呈现层。
 - 提示符与工具提示用纯 ASCII / 简单文本，保证在任意终端与管道下都可读（中文对话内容本身照常输出）。
@@ -151,6 +151,6 @@
 
 ## Open Questions
 
-- REPL 是否需要在每次提示符处显示当前模型名（如 `pigo(openrouter/free)> `）？倾向于显示，便于确认 `/model` 切换生效。
+- REPL 是否需要在每次提示符处显示当前模型名（如 `jarvis(openrouter/free)> `）？倾向于显示，便于确认 `/model` 切换生效。
 - 中断（Ctrl+C）在 REPL 空闲时的行为：直接退出，还是打印一次提示再等第二次？倾向于第一次取消 run、空闲时第一次即退出（简化）。
 - 工具调用/结果的单行提示格式是否需要可配置（verbose / quiet）？初版固定简洁格式即可。

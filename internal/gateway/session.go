@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/smallnest/pigo/internal/agentcore"
-	"github.com/smallnest/pigo/internal/session"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/session"
 )
 
 // GetSession builds the SessionDetailResponse for web session restore.
@@ -20,7 +20,7 @@ func (s *Service) GetSession(id string) (SessionDetailResponse, error) {
 		Session: SessionMeta{
 			ID:           h.ID,
 			Title:        sessionTitle(msgs),
-			Platform:     "pigo",
+			Platform:     "jarvis",
 			MessageCount: len(msgs),
 			Model:        h.Model,
 			CreatedAt:    h.CreatedAt.Format(time.RFC3339),
@@ -50,7 +50,7 @@ func (s *Service) ListSessions() (SessionListResponse, error) {
 		meta := SessionMeta{
 			ID:        h.ID,
 			Title:     h.ID,
-			Platform:  "pigo",
+			Platform:  "jarvis",
 			Model:     h.Model,
 			CreatedAt: h.CreatedAt.Format(time.RFC3339),
 			UpdatedAt: h.UpdatedAt.Format(time.RFC3339),

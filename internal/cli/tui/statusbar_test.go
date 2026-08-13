@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/smallnest/pigo/internal/agentcore"
-	"github.com/smallnest/pigo/internal/cli/ui"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/cli/ui"
 )
 
 // newTestStatusBar builds a status bar with a known cwd (already ~-abbreviated
@@ -27,7 +27,7 @@ func TestStatusBarRendersAllFields(t *testing.T) {
 	out := s.Render(width)
 
 	for _, want := range []string{
-		"pigo",          // app badge
+		"jarvis",          // app badge
 		"claude-opus",   // model
 		"high",          // thinking level
 		"~/project",     // cwd

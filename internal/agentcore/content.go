@@ -1,5 +1,5 @@
 // Package agentcore defines the core "leaf" data types and control flow for the
-// pigo agent harness, a Go reimplementation of the pi agent loop. It is the
+// jarvis agent harness, a Go reimplementation of the pi agent loop. It is the
 // foundation package that every other agent sub-package depends on and imports
 // nothing from them.
 //

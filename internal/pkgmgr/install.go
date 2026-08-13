@@ -1,7 +1,7 @@
 // This file is the install orchestrator (#162): it ties together the pieces the
 // earlier issues built — fetch (#156), classify (#157), the per-type
 // distributors (#158-#161), and the lockfile (#154) — into the single
-// `pigo install npm:<name>` flow.
+// `jarvis install npm:<name>` flow.
 //
 // The flow is: parse the reference, fetch+extract the package to a temp dir,
 // classify it into one or more pi types, distribute each type to its target

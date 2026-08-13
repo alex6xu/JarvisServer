@@ -14,7 +14,7 @@ import (
 	"sync"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
-	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
 )

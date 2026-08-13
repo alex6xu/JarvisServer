@@ -9,8 +9,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/smallnest/pigo/internal/agentcore"
-	"github.com/smallnest/pigo/internal/runtime"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/runtime"
 )
 
 // PublishFunc publishes one sequenced stream event (seq assigned by RunManager).

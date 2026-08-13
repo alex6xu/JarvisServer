@@ -17,16 +17,16 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/smallnest/pigo/internal/agentcore"
-	"github.com/smallnest/pigo/internal/cli"
-	"github.com/smallnest/pigo/internal/cli/ui"
-	"github.com/smallnest/pigo/internal/plugin"
-	"github.com/smallnest/pigo/internal/provider"
-	"github.com/smallnest/pigo/internal/runtime"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/cli"
+	"github.com/alex6xu/jarvisserver/internal/cli/ui"
+	"github.com/alex6xu/jarvisserver/internal/plugin"
+	"github.com/alex6xu/jarvisserver/internal/provider"
+	"github.com/alex6xu/jarvisserver/internal/runtime"
 )
 
 // PromptTemplateSources carries the prompt-template discovery sources that
-// BuildSlashRegistry loads beyond the global ~/.pigo/{commands,prompts} dirs.
+// BuildSlashRegistry loads beyond the global ~/.jarvis/{commands,prompts} dirs.
 // Settings is the config.toml `prompts` array (TierSettings); CLI is the
 // --prompt-template flag list (TierCLI, wired in #339). Each entry is a file or
 // directory (loaded non-recursively). Missing paths are warned and skipped.
@@ -36,7 +36,7 @@ type PromptTemplateSources struct {
 	// Disable (--no-prompt-templates) turns off all prompt-template discovery
 	// (global, project, settings, CLI); built-ins and skills are unaffected.
 	Disable bool
-	// ProjectDir is the project-local prompts dir (.pigo/prompts in the working
+	// ProjectDir is the project-local prompts dir (.jarvis/prompts in the working
 	// dir), loaded at the project tier only when ProjectTrusted is true.
 	ProjectDir string
 	// ProjectTrusted reports whether the working directory is trusted; project
@@ -53,7 +53,7 @@ func LoadPromptPaths(paths []string) []runtime.SlashCommand {
 	for _, p := range paths {
 		info, err := os.Stat(p)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "pigo: prompts path %q not found, skipping\n", p)
+			fmt.Fprintf(os.Stderr, "jarvis: prompts path %q not found, skipping\n", p)
 			continue
 		}
 		var cmds []runtime.SlashCommand
@@ -68,7 +68,7 @@ func LoadPromptPaths(paths []string) []runtime.SlashCommand {
 			}
 		}
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "pigo: prompts path %q: %v\n", p, err)
+			fmt.Fprintf(os.Stderr, "jarvis: prompts path %q: %v\n", p, err)
 			continue
 		}
 		out = append(out, cmds...)
@@ -79,7 +79,7 @@ func LoadPromptPaths(paths []string) []runtime.SlashCommand {
 // BuildSlashRegistry assembles the slash-command registry: compile-time
 // built-ins seeded by runtime.NewSlashRegistry, the live-state action commands
 // (/model, /help) bound to live, user declarative templates loaded from
-// ~/.pigo/commands (or $PIGO_HOME/commands), plugin-declared commands from the
+// ~/.jarvis/commands (or $JARVIS_HOME/commands), plugin-declared commands from the
 // loaded Manager, plus the pre-loaded skills — each surfaced as a "/skill-name"
 // command (mirrors Claude Code's /skill invocation). A missing directory is not an
 // error. Names that collide with a built-in are shadowed (the built-in wins) and
@@ -93,16 +93,16 @@ func BuildSlashRegistry(live *cli.LiveConfig, skills []*runtime.Skill, mgr *plug
 	// --no-prompt-templates disables all prompt-template discovery (global,
 	// settings, CLI); built-in slash commands and skills are unaffected.
 	if !srcs.Disable {
-		dir := os.Getenv("PIGO_HOME")
+		dir := os.Getenv("JARVIS_HOME")
 		if dir == "" {
 			home, err := os.UserHomeDir()
 			if err != nil {
 				return reg, nil // built-ins only
 			}
-			dir = filepath.Join(home, ".pigo")
+			dir = filepath.Join(home, ".jarvis")
 		}
-		// Load user prompt templates from both the legacy ~/.pigo/commands and
-		// the pi-aligned ~/.pigo/prompts (both non-recursive, global tier).
+		// Load user prompt templates from both the legacy ~/.jarvis/commands and
+		// the pi-aligned ~/.jarvis/prompts (both non-recursive, global tier).
 		// Loading commands first means a same-named template in prompts/
 		// overrides the legacy one (last-write-wins within the global tier). A
 		// missing directory is not an error (LoadUserCommandsDir returns nil,
@@ -125,7 +125,7 @@ func BuildSlashRegistry(live *cli.LiveConfig, skills []*runtime.Skill, mgr *plug
 		for _, c := range LoadPromptPaths(srcs.CLI) {
 			reg.AddCLI(c)
 		}
-		// Project-tier templates from .pigo/prompts in the working directory,
+		// Project-tier templates from .jarvis/prompts in the working directory,
 		// loaded only when the project is trusted (mirrors pi). A missing dir is
 		// not an error. Overrides global/settings/CLI (project tier is higher).
 		if srcs.ProjectTrusted && srcs.ProjectDir != "" {
@@ -151,7 +151,7 @@ func BuildSlashRegistry(live *cli.LiveConfig, skills []*runtime.Skill, mgr *plug
 		for i, e := range sh {
 			parts[i] = e.String()
 		}
-		fmt.Fprintf(os.Stderr, "pigo: commands shadowed by higher-priority source (rename to use): %v\n", parts)
+		fmt.Fprintf(os.Stderr, "jarvis: commands shadowed by higher-priority source (rename to use): %v\n", parts)
 	}
 	return reg, nil
 }

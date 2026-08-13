@@ -10,15 +10,15 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/smallnest/pigo/internal/agentcore"
-	"github.com/smallnest/pigo/internal/agenttool"
-	"github.com/smallnest/pigo/internal/cli/run"
-	"github.com/smallnest/pigo/internal/hooks"
-	"github.com/smallnest/pigo/internal/plugin"
-	"github.com/smallnest/pigo/internal/provider"
-	"github.com/smallnest/pigo/internal/runtime"
-	"github.com/smallnest/pigo/internal/session"
-	"github.com/smallnest/pigo/internal/trust"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/agenttool"
+	"github.com/alex6xu/jarvisserver/internal/cli/run"
+	"github.com/alex6xu/jarvisserver/internal/hooks"
+	"github.com/alex6xu/jarvisserver/internal/plugin"
+	"github.com/alex6xu/jarvisserver/internal/provider"
+	"github.com/alex6xu/jarvisserver/internal/runtime"
+	"github.com/alex6xu/jarvisserver/internal/session"
+	"github.com/alex6xu/jarvisserver/internal/trust"
 )
 
 // ErrLineInterrupted is returned by an Editor.ReadLine when the user hits an
@@ -60,7 +60,7 @@ type Host interface {
 	// HookDeps carries the session id / project dir stamped onto every HookInput.
 	HookDeps() run.HookDeps
 
-	// Cwd is the directory pigo was launched in; it does not change during a
+	// Cwd is the directory jarvis was launched in; it does not change during a
 	// session and gates side-effect tools.
 	Cwd() string
 	// Input is the shared buffered stdin reader used by both the main loop and

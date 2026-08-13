@@ -1,16 +1,16 @@
 // This file distributes a classified pi extension (including MCP adapters) into
-// pigo's plugins directory so internal/plugin.Discover picks it up (#158).
+// jarvis's plugins directory so internal/plugin.Discover picks it up (#158).
 //
 // plugin.Discover launches every *executable regular file* directly inside
-// $PIGO_HOME/plugins, ignoring subdirectories. An npm extension, however, is a
+// $JARVIS_HOME/plugins, ignoring subdirectories. An npm extension, however, is a
 // whole package tree with a "bin" entry pointing at its real entrypoint, and
 // that entrypoint usually needs its sibling files present to run. So we cannot
 // just drop a single file in.
 //
 // The layout we lay down reconciles the two:
 //
-//	$PIGO_HOME/plugins/<name>.pkg/     ← full extracted package (a dir; Discover skips it)
-//	$PIGO_HOME/plugins/<name>          ← executable launcher (a file; Discover runs it)
+//	$JARVIS_HOME/plugins/<name>.pkg/     ← full extracted package (a dir; Discover skips it)
+//	$JARVIS_HOME/plugins/<name>          ← executable launcher (a file; Discover runs it)
 //
 // The launcher is a tiny shell script that execs the package's bin entrypoint,
 // forwarding argv. The bin file is made executable and relies on its own
@@ -28,7 +28,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/smallnest/pigo/internal/pihost"
+	"github.com/alex6xu/jarvisserver/internal/pihost"
 )
 
 // DistributeExtension copies the extension package at pkgDir into the plugins
@@ -41,7 +41,7 @@ func DistributeExtension(pkgDir, name string) ([]string, error) {
 	}
 	pluginsDir := PluginsDir()
 	if pluginsDir == "" {
-		return nil, fmt.Errorf("pkgmgr: cannot resolve plugins dir (PIGO_HOME/home unavailable)")
+		return nil, fmt.Errorf("pkgmgr: cannot resolve plugins dir (JARVIS_HOME/home unavailable)")
 	}
 
 	binRel, err := extensionBin(pkgDir, name)
@@ -82,7 +82,7 @@ func DistributeExtension(pkgDir, name string) ([]string, error) {
 		}
 		script := fmt.Sprintf(
 			"#!/bin/sh\n"+
-				"command -v node >/dev/null 2>&1 || { echo \"pigo: node not found on PATH; pi extension %s skipped\" >&2; exit 127; }\n"+
+				"command -v node >/dev/null 2>&1 || { echo \"jarvis: node not found on PATH; pi extension %s skipped\" >&2; exit 127; }\n"+
 				"exec node %s %s \"$@\"\n",
 			name, shellQuote(hostAbs), shellQuote(payloadDir),
 		)
@@ -102,7 +102,7 @@ func DistributeExtension(pkgDir, name string) ([]string, error) {
 	return created, nil
 }
 
-// isPiExtension reports whether the entrypoint should be run under pigo's Node
+// isPiExtension reports whether the entrypoint should be run under jarvis's Node
 // host rather than exec'd directly. The pi.extensions declaration is
 // authoritative and checked first; otherwise the resolved bin extension
 // (.js/.mjs/.cjs) identifies a JS module that needs the host. Native binaries

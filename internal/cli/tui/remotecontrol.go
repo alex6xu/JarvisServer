@@ -18,9 +18,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/smallnest/pigo/internal/agentcore"
-	"github.com/smallnest/pigo/internal/remotecontrol"
-	"github.com/smallnest/pigo/internal/trust"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/remotecontrol"
+	"github.com/alex6xu/jarvisserver/internal/trust"
 )
 
 // remoteSession owns the running server + bridge for one /remote-control

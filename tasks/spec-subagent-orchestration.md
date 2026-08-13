@@ -20,7 +20,7 @@
 | D-2 子 agent 人格 | 只做通用 agent（固定通用 system prompt） | PRD 明确本轮不做 `subagent_type` |
 | D-3 进度事件 | 新增专门 `SubAgentProgressEvent` | 与 `ToolExecutionUpdateEvent`（文本增量）解耦，语义清晰 |
 | D-4 进度传输 | loop 把运行级 `emit` 注入 ctx，task 工具取出直接 emit | `AgentTool.Execute` 只有 `onUpdate`，改签名代价大；ctx 注入零侵入 |
-| D-5 并发上限 | 工具实例级共享信号量，默认 4，`PIGO_MAX_SUBAGENTS` 覆盖 | 呼应 `/graph` max concurrency，防速率打爆 |
+| D-5 并发上限 | 工具实例级共享信号量，默认 4，`JARVIS_MAX_SUBAGENTS` 覆盖 | 呼应 `/graph` max concurrency，防速率打爆 |
 | D-6 嵌套护栏 | 子 RunConfig 的工具集剔除 `task` | 天然一层深度上限，最简单安全 |
 | D-7 上报时机 | 按子 agent 工具执行/轮边界 | 活动变化才发，事件量可控 |
 | D-8 活动粒度 | 工具名/阶段（Editing / Running bash / Thinking …） | 简洁；不含参数摘要，免截断/脱敏 |
@@ -167,7 +167,7 @@ factory := func() runtime.RunConfig {
     return buildChildRunConfig(prov, model, ToolRegistry(childTools))
     // 复用主 run 构建 RunConfig 的路径；子 agent 不装 hooks/reminders（保持简单）
 }
-sem := make(chan struct{}, maxSubagents())  // 默认 4，PIGO_MAX_SUBAGENTS 覆盖
+sem := make(chan struct{}, maxSubagents())  // 默认 4，JARVIS_MAX_SUBAGENTS 覆盖
 tools = append(tools, runtime.NewTaskTool(factory, sem))
 ```
 
@@ -190,7 +190,7 @@ stream-json 的 stdout 事件包不含该类型（普通/JSON 结果输出不受
 ## 5. Business Logic
 
 ### 5.1 并发信号量
-- `maxSubagents()`：读 `PIGO_MAX_SUBAGENTS`，非法/缺省→4，下限 1。
+- `maxSubagents()`：读 `JARVIS_MAX_SUBAGENTS`，非法/缺省→4，下限 1。
 - `Execute` 起始 `sem <- struct{}{}`（阻塞直到有空位），`defer func(){ <-sem }()` 保证 panic/err 也释放。
 - 信号量在 task 工具实例上，一个 `Env` 一个实例 → 同一 run 内所有 task 调用共享。
 

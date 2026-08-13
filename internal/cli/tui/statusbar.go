@@ -7,7 +7,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/smallnest/pigo/internal/cli/ui"
+	"github.com/alex6xu/jarvisserver/internal/cli/ui"
 )
 
 // statusBar renders the persistent bottom line described in the SPEC (US-003,
@@ -103,7 +103,7 @@ type telemetryEventView struct {
 }
 
 // appName is the badge shown at the far left of the bar.
-const appName = "pigo"
+const appName = "jarvis"
 
 // Glyphs prefixing each segment plus the powerline separator, matching the
 // decorated Claude-Code-plugin look. The segment icons are common Unicode; the

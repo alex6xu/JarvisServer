@@ -23,7 +23,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
 )
 
 // webSearchTimeout bounds a single search request. webSearchDefaultCount is used

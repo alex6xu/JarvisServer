@@ -16,7 +16,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
 )
 
 // toolResultMaxBytes is the executor-layer budget for a single tool result's

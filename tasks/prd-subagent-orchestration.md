@@ -2,7 +2,7 @@
 
 ## Introduction
 
-pigo 目前虽然内部有完整的子 agent 执行机制（`internal/runtime/subagent.go` 的 `SubAgentTool`，支持 goroutine/进程隔离、并行执行），但**模型没有任何工具可以调用它**：内置工具集（`internal/cli/run/run.go` 的 `BuiltinTools`）里没有通用的 Task/Agent 工具，技能也只是被当作提示词在主循环里原地展开，而非真正的子 agent。
+jarvis 目前虽然内部有完整的子 agent 执行机制（`internal/runtime/subagent.go` 的 `SubAgentTool`，支持 goroutine/进程隔离、并行执行），但**模型没有任何工具可以调用它**：内置工具集（`internal/cli/run/run.go` 的 `BuiltinTools`）里没有通用的 Task/Agent 工具，技能也只是被当作提示词在主循环里原地展开，而非真正的子 agent。
 
 这带来两个问题：
 
@@ -33,7 +33,7 @@ pigo 目前虽然内部有完整的子 agent 执行机制（`internal/runtime/su
 - [ ] `go build ./... && go vet ./... && go test ./internal/runtime/...` 通过
 
 ### US-002: 新增通用 task 工具并注册进工具集
-**Description:** 作为使用 pigo 的模型，我需要一个 `task` 工具，接收 `{description, prompt}` 派发一个通用子 agent，返回其最终文本，以便实现委派与 fan-out。
+**Description:** 作为使用 jarvis 的模型，我需要一个 `task` 工具，接收 `{description, prompt}` 派发一个通用子 agent，返回其最终文本，以便实现委派与 fan-out。
 
 **Acceptance Criteria:**
 - [ ] `task` 工具 Schema 为 `{description: string, prompt: string}`，`prompt` 必填
@@ -49,7 +49,7 @@ pigo 目前虽然内部有完整的子 agent 执行机制（`internal/runtime/su
 **Acceptance Criteria:**
 - [ ] task 工具共享一个信号量，默认最大并发 4
 - [ ] 超出上限的 task 调用阻塞排队，直到有空位，不报错、不丢弃
-- [ ] 上限可通过配置/环境变量覆盖（如 `PIGO_MAX_SUBAGENTS`）
+- [ ] 上限可通过配置/环境变量覆盖（如 `JARVIS_MAX_SUBAGENTS`）
 - [ ] 单元测试验证：派发 N>上限 个 task，任一时刻运行中的不超过上限
 - [ ] `go test ./...` 通过
 
@@ -83,7 +83,7 @@ pigo 目前虽然内部有完整的子 agent 执行机制（`internal/runtime/su
 - [ ] 在实际 TUI 中运行 `/graph` 或多 task 调用，肉眼确认多行状态实时刷新（如 `run` skill）
 
 ### US-007: headless 模式打印 subagent 进度
-**Description:** 作为在非交互/管道场景使用 pigo 的用户，我希望 subagent 进度也能以文本行输出，便于观察与日志。
+**Description:** 作为在非交互/管道场景使用 jarvis 的用户，我希望 subagent 进度也能以文本行输出，便于观察与日志。
 
 **Acceptance Criteria:**
 - [ ] headless 事件处理（`internal/runtime/headless.go` 或对应 CLI 输出层）识别 `SubAgentProgressEvent` 并打印成行（含 description + 活动 + 耗时）
@@ -91,7 +91,7 @@ pigo 目前虽然内部有完整的子 agent 执行机制（`internal/runtime/su
 - [ ] `go test ./...` 通过
 
 ### US-008: 系统提示广告 task 工具
-**Description:** 作为使用 pigo 的模型，我需要在系统提示里知道 `task` 工具存在及何时用它（fan-out 委派），以便 `/graph` 等技能能正确触发并发。
+**Description:** 作为使用 jarvis 的模型，我需要在系统提示里知道 `task` 工具存在及何时用它（fan-out 委派），以便 `/graph` 等技能能正确触发并发。
 
 **Acceptance Criteria:**
 - [ ] task 工具出现在模型可见的工具列表/能力描述中，说明其「派发独立子 agent 并行完成子任务」的用途

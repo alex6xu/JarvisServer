@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
 )
 
 func runBGTool(t *testing.T, tool agentcore.AgentTool, args map[string]any) (agentcore.AgentToolResult, error) {

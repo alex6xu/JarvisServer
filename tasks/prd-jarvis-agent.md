@@ -1,10 +1,10 @@
-# PRD: pigo — 用 Go 复刻 pi Agent Harness
+# PRD: jarvis — 用 Go 复刻 pi Agent Harness
 
 ## Introduction
 
-pigo 是用 Go 语言重新实现的 pi agent harness。目标是把 pi（一套 TypeScript/Node.js 实现的、可自我扩展的编码 agent）的**设计思路和核心控制流严格复刻到 Go**，形成一个原生编译、单二进制分发、无 Node 运行时依赖的编码 agent。
+jarvis 是用 Go 语言重新实现的 pi agent harness。目标是把 pi（一套 TypeScript/Node.js 实现的、可自我扩展的编码 agent）的**设计思路和核心控制流严格复刻到 Go**，形成一个原生编译、单二进制分发、无 Node 运行时依赖的编码 agent。
 
-pi 本身是一个 monorepo，分为五层：`pi-ai`（多厂商 LLM 统一 API）、`pi-agent-core`（agent 运行时 / loop）、`pi-tui`（终端 UI）、`pi-coding-agent`（面向用户的 `pi` CLI）、`pi-orchestrator`（多 agent 编排）。pigo 将逐层对标这套分层。
+pi 本身是一个 monorepo，分为五层：`pi-ai`（多厂商 LLM 统一 API）、`pi-agent-core`（agent 运行时 / loop）、`pi-tui`（终端 UI）、`pi-coding-agent`（面向用户的 `pi` CLI）、`pi-orchestrator`（多 agent 编排）。jarvis 将逐层对标这套分层。
 
 关键约束（源自前期技术讨论）：
 - **agent loop 严格复刻 pi**：双层循环 + 三段式工具执行（prepare → execute → finalize）+ 完整钩子体系（beforeToolCall / afterToolCall / prepareNextTurn / shouldStopAfterTurn / getSteeringMessages / getFollowUpMessages）。这是 pi 最核心、最值得原样保留的资产。
@@ -30,7 +30,7 @@ pi 本身是一个 monorepo，分为五层：`pi-ai`（多厂商 LLM 统一 API�
 
 ## User Stories
 
-> 编号规则：US-NNN。每个 US 尽量可在一个专注的开发会话内完成，且可独立实现。UI 相关 story 需包含"可视化验证"。pigo 是命令行/TUI 项目，"浏览器验证"不适用，改为"在真实终端运行验证"。
+> 编号规则：US-NNN。每个 US 尽量可在一个专注的开发会话内完成，且可独立实现。UI 相关 story 需包含"可视化验证"。jarvis 是命令行/TUI 项目，"浏览器验证"不适用，改为"在真实终端运行验证"。
 
 ### 阶段一：核心 loop 与类型基座（对标 pi-agent-core）
 
@@ -113,7 +113,7 @@ pi 本身是一个 monorepo，分为五层：`pi-ai`（多厂商 LLM 统一 API�
 - [ ] `go build ./...` 通过
 
 ### US-008: 实现 Anthropic provider（流式）
-**Description:** 作为用户，我希望 pigo 能通过 Anthropic Claude 完成对话与工具调用。
+**Description:** 作为用户，我希望 jarvis 能通过 Anthropic Claude 完成对话与工具调用。
 
 **Acceptance Criteria:**
 - [ ] 实现 Anthropic Messages API 的流式请求，正确解析 text / thinking / tool_use 增量
@@ -124,7 +124,7 @@ pi 本身是一个 monorepo，分为五层：`pi-ai`（多厂商 LLM 统一 API�
 - [ ] `go test ./...` 通过
 
 ### US-009: 实现 OpenAI 兼容 provider（流式）
-**Description:** 作为用户，我希望 pigo 支持 OpenAI 及 OpenAI 兼容接口（含大量第三方网关）。
+**Description:** 作为用户，我希望 jarvis 支持 OpenAI 及 OpenAI 兼容接口（含大量第三方网关）。
 
 **Acceptance Criteria:**
 - [ ] 实现 OpenAI Chat Completions（或 Responses）流式，解析 tool_calls 增量与文本增量
@@ -134,7 +134,7 @@ pi 本身是一个 monorepo，分为五层：`pi-ai`（多厂商 LLM 统一 API�
 - [ ] `go test ./...` 通过
 
 ### US-010: 实现 Google Gemini provider（流式）
-**Description:** 作为用户，我希望 pigo 支持 Google Gemini。
+**Description:** 作为用户，我希望 jarvis 支持 Google Gemini。
 
 **Acceptance Criteria:**
 - [ ] 实现 Gemini 流式 generateContent，解析文本与 functionCall
@@ -153,7 +153,7 @@ pi 本身是一个 monorepo，分为五层：`pi-ai`（多厂商 LLM 统一 API�
 - [ ] `go test ./...` 通过
 
 ### US-012: OAuth 与 API key 解析
-**Description:** 作为用户，我希望 pigo 支持 API key 与 OAuth 两种鉴权，并能处理短时 token 过期。
+**Description:** 作为用户，我希望 jarvis 支持 API key 与 OAuth 两种鉴权，并能处理短时 token 过期。
 
 **Acceptance Criteria:**
 - [ ] 支持从环境变量与配置文件读取 API key（按 provider）
@@ -163,7 +163,7 @@ pi 本身是一个 monorepo，分为五层：`pi-ai`（多厂商 LLM 统一 API�
 - [ ] `go test ./...` 通过
 
 ### US-013: 扩展更多 provider（对齐 pi 覆盖面）
-**Description:** 作为用户，我希望 pigo 覆盖 pi 支持的主要 provider（Bedrock、Mistral、DeepSeek、xAI、Groq、OpenRouter 等）。
+**Description:** 作为用户，我希望 jarvis 覆盖 pi 支持的主要 provider（Bedrock、Mistral、DeepSeek、xAI、Groq、OpenRouter 等）。
 
 **Acceptance Criteria:**
 - [ ] 每个新增 provider 复用统一 `Provider` 接口，仅实现差异部分
@@ -237,14 +237,14 @@ pi 本身是一个 monorepo，分为五层：`pi-ai`（多厂商 LLM 统一 API�
 ### 阶段四：CLI / 交互模式（对标 coding-agent）
 
 ### US-020: headless / stdio 运行模式
-**Description:** 作为用户，我希望能以非交互方式（print / stdio）运行 pigo，便于脚本与 CI 集成。
+**Description:** 作为用户，我希望能以非交互方式（print / stdio）运行 jarvis，便于脚本与 CI 集成。
 
 **Acceptance Criteria:**
 - [ ] 提供 print 模式：接收一个 prompt，运行 agent，输出最终结果到 stdout
 - [ ] 提供 stream-json / stdio 协议模式（对标 pi 的 rpc / print-mode），事件以行分隔 JSON 输出
 - [ ] 退出码正确反映成功/失败
 - [ ] 有端到端测试（用 fake provider）
-- [ ] 在真实终端运行验证：`pigo -p "读取 README 并总结"` 能产出结果
+- [ ] 在真实终端运行验证：`jarvis -p "读取 README 并总结"` 能产出结果
 
 ### US-021: 系统提示词与上下文装配
 **Description:** 作为开发者，我需要复刻 pi 的系统提示词装配，包括注入项目级 AGENTS.md。
@@ -268,7 +268,7 @@ pi 本身是一个 monorepo，分为五层：`pi-ai`（多厂商 LLM 统一 API�
 - [ ] `go build ./...` 通过
 
 ### US-023: 配置系统
-**Description:** 作为用户，我希望通过分层配置控制 pigo 的行为（provider、model、工具开关等）。
+**Description:** 作为用户，我希望通过分层配置控制 jarvis 的行为（provider、model、工具开关等）。
 
 **Acceptance Criteria:**
 - [ ] 支持分层配置解析（默认 < 全局 < 项目 < 环境变量/命令行），对标 pi/zero 的 config resolution
@@ -278,7 +278,7 @@ pi 本身是一个 monorepo，分为五层：`pi-ai`（多厂商 LLM 统一 API�
 - [ ] `go test ./...` 通过
 
 ### US-024: 会话持久化
-**Description:** 作为用户，我希望 pigo 能保存并恢复会话历史。
+**Description:** 作为用户，我希望 jarvis 能保存并恢复会话历史。
 
 **Acceptance Criteria:**
 - [ ] 会话以本地文件（如 JSONL）持久化，含消息与元数据
@@ -290,7 +290,7 @@ pi 本身是一个 monorepo，分为五层：`pi-ai`（多厂商 LLM 统一 API�
 ### 阶段五：全量对标（对标 orchestrator / MCP / sandbox）
 
 ### US-025: MCP 客户端支持
-**Description:** 作为用户，我希望 pigo 能连接 MCP（Model Context Protocol）服务器以扩展工具。
+**Description:** 作为用户，我希望 jarvis 能连接 MCP（Model Context Protocol）服务器以扩展工具。
 
 **Acceptance Criteria:**
 - [ ] 实现 MCP 客户端，支持 stdio 传输
@@ -355,14 +355,14 @@ pi 本身是一个 monorepo，分为五层：`pi-ai`（多厂商 LLM 统一 API�
 - 不直接翻译 pi 的 TypeScript 代码（语言特性差异导致直译不可行；只复刻设计与控制流）。
 - 首版不追求 provider 数量 100% 对齐 pi（先核心厂商 + 至少 6 个 provider，其余登记路线图）。
 - 不实现 pi 的 HTML 导出、图像生成/处理（photon）、终端图片渲染等外围能力（后续可选）。
-- 不实现浏览器相关验证（pigo 为 CLI/TUI，验证在真实终端进行）。
+- 不实现浏览器相关验证（jarvis 为 CLI/TUI，验证在真实终端进行）。
 - 不提供托管服务或云端 orchestrator（orchestrator 仅本地多进程/多 agent）。
 - 不承诺与 pi 的会话文件格式二进制兼容。
 
 ## Design Considerations
 
 - **分层与 pi 一一对应**，便于对照移植：
-  | pi (TS) | pigo (Go) |
+  | pi (TS) | jarvis (Go) |
   |---|---|
   | packages/ai | internal/llm（Provider 接口 + 各厂商实现，流式） |
   | packages/agent | internal/agent（loop.go：双层循环 + 三段式工具） |
@@ -382,12 +382,12 @@ pi 本身是一个 monorepo，分为五层：`pi-ai`（多厂商 LLM 统一 API�
 - 流式：HTTP + SSE 解析需自实现或用轻量库，注意断流重连与超时（对标 pi 的 streaming resilience）。
 - 并发：工具并行执行用 goroutine + WaitGroup，结果按 index 回填保序；全程贯穿 `context.Context` 以支持取消。
 - 安全：密钥仅按 key 名引用，禁止写入日志；工具输出支持 secret redaction。
-- 目录约定：代码实现位于 `/Users/chaoyuepan/ai/pigo`，建议采用 `cmd/pigo`（入口）+ `internal/*`（各层）的标准 Go 布局。
+- 目录约定：代码实现位于 `/Users/chaoyuepan/ai/jarvis`，建议采用 `cmd/jarvis`（入口）+ `internal/*`（各层）的标准 Go 布局。
 - 测试：全程用 fake/faux provider（对标 pi 的 `providers/faux.ts`）驱动 loop 集成测试，避免依赖真实 API key。
 
 ## Success Metrics
 
-- pigo 能在真实终端完成一次"读文件 → 执行命令 → 编辑文件"的多轮任务，全程工具调用正确。
+- jarvis 能在真实终端完成一次"读文件 → 执行命令 → 编辑文件"的多轮任务，全程工具调用正确。
 - agent loop 的六个钩子与截断保护行为，均有单元/集成测试覆盖并通过。
 - 至少 6 个 provider 的流式响应通过 fixture 单元测试。
 - 单二进制在 macOS 与 Linux 上均可构建运行，无 Node 依赖。
@@ -396,7 +396,7 @@ pi 本身是一个 monorepo，分为五层：`pi-ai`（多厂商 LLM 统一 API�
 ## Open Questions
 
 - provider 覆盖面的优先级排序：除 Anthropic/OpenAI/Gemini 外，先做哪 3 个（当前假设 Bedrock / OpenRouter / DeepSeek）？
-- 会话文件格式是否需要与 pi 的 JSONL 保持字段级可互读，还是仅需 pigo 内部自洽？
+- 会话文件格式是否需要与 pi 的 JSONL 保持字段级可互读，还是仅需 jarvis 内部自洽？
 - MCP 是否需要支持 HTTP/SSE 传输，还是首版仅 stdio 即可？
 - sandbox 的隔离强度：仅进程内策略检查（beforeToolCall），还是需要引入 OS 级隔离（namespace / seccomp / 容器）？
 - 多 agent 编排是否需要跨进程 IPC（对标 pi orchestrator 的 rpc-process），还是首版单进程内 goroutine 即可？

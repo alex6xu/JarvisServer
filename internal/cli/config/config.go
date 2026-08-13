@@ -1,7 +1,7 @@
-// Package config implements pigo's optional user config file at
-// ~/.config/pigo/config.toml (honoring $XDG_CONFIG_HOME when set) plus the
+// Package config implements jarvis's optional user config file at
+// ~/.config/jarvis/config.toml (honoring $XDG_CONFIG_HOME when set) plus the
 // provider-agnostic base-url env-var name derivation. Values in the file
-// replace pigo's built-in defaults, but an explicit command-line flag always
+// replace jarvis's built-in defaults, but an explicit command-line flag always
 // wins over the file:
 //
 //	command-line flag > config.toml > built-in default
@@ -11,7 +11,7 @@
 //
 // The package is intentionally free of any cliOptions/run-assembly concern: it
 // only loads and decodes the file and derives env-var names. Overlaying a
-// FileConfig onto the parsed CLI options lives in cmd/pigo, alongside the
+// FileConfig onto the parsed CLI options lives in cmd/jarvis, alongside the
 // options struct it mutates.
 package config
 
@@ -52,7 +52,7 @@ type FileConfig struct {
 	// Memory, Checkpoint, and Compaction are nested TOML tables for the
 	// persistent-memory / infinite-context feature. They are pure config
 	// plumbing here; defaults/parsing live in memory.go (Resolve* helpers) and
-	// the overlay into runtime options lives in cmd/pigo. See
+	// the overlay into runtime options lives in cmd/jarvis. See
 	// tasks/spec-persistent-memory-infinite-context.md §3/§4/§5.2.
 	Memory     MemoryConfig     `toml:"memory"`
 	Checkpoint CheckpointConfig `toml:"checkpoint"`
@@ -76,18 +76,18 @@ type DreamConfig struct {
 }
 
 // FileConfigPath returns the path to the user config file:
-// $XDG_CONFIG_HOME/pigo/config.toml, or ~/.config/pigo/config.toml by default.
+// $XDG_CONFIG_HOME/jarvis/config.toml, or ~/.config/jarvis/config.toml by default.
 // It returns "" when neither can be resolved, so the caller treats the file as
 // absent.
 func FileConfigPath() string {
 	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
-		return filepath.Join(dir, "pigo", "config.toml")
+		return filepath.Join(dir, "jarvis", "config.toml")
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".config", "pigo", "config.toml")
+	return filepath.Join(home, ".config", "jarvis", "config.toml")
 }
 
 // LoadFileConfig reads and decodes config.toml. A missing file (or an empty

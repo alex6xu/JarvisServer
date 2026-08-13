@@ -1,7 +1,7 @@
 package repl
 
 // Tests for default skill loading from ~/.agents/skills and its exposure as
-// /skill-name slash commands. skillsDir honors the PIGO_SKILLS_DIR override so
+// /skill-name slash commands. skillsDir honors the JARVIS_SKILLS_DIR override so
 // the loader can be pointed at a temp dir without touching the real home dir.
 
 import (
@@ -9,10 +9,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/smallnest/pigo/internal/cli"
-	"github.com/smallnest/pigo/internal/cli/prompts"
-	"github.com/smallnest/pigo/internal/cli/run"
-	"github.com/smallnest/pigo/internal/runtime"
+	"github.com/alex6xu/jarvisserver/internal/cli"
+	"github.com/alex6xu/jarvisserver/internal/cli/prompts"
+	"github.com/alex6xu/jarvisserver/internal/cli/run"
+	"github.com/alex6xu/jarvisserver/internal/runtime"
 )
 
 // writeSkill creates a skill markdown file with the given frontmatter body.
@@ -33,12 +33,12 @@ func findSkill(skills []*runtime.Skill, name string) *runtime.Skill {
 	return nil
 }
 
-// TestLoadSkillsFromDir verifies skills in PIGO_SKILLS_DIR are loaded and expose
+// TestLoadSkillsFromDir verifies skills in JARVIS_SKILLS_DIR are loaded and expose
 // a /skill-name slash command whose expansion is the skill body.
 func TestLoadSkillsFromDir(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("PIGO_SKILLS_DIR", dir)
-	t.Setenv("PIGO_HOME", t.TempDir())
+	t.Setenv("JARVIS_SKILLS_DIR", dir)
+	t.Setenv("JARVIS_HOME", t.TempDir())
 	writeSkill(t, dir, "greet.md", "---\nname: greet\ndescription: say hello\n---\nYou are a friendly greeter.")
 
 	skills, err := run.LoadSkills(false)
@@ -68,8 +68,8 @@ func TestLoadSkillsFromDir(t *testing.T) {
 // skills are loaded and the skills dir is left untouched (no bootstrap).
 func TestLoadSkillsNoSkills(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("PIGO_SKILLS_DIR", dir)
-	t.Setenv("PIGO_HOME", t.TempDir())
+	t.Setenv("JARVIS_SKILLS_DIR", dir)
+	t.Setenv("JARVIS_HOME", t.TempDir())
 
 	skills, err := run.LoadSkills(true)
 	if err != nil {
@@ -91,9 +91,9 @@ func TestLoadSkillsNoSkills(t *testing.T) {
 // pre-loaded skills into the registry so /skill-name resolves.
 func TestBuildSlashRegistryIncludesSkills(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("PIGO_SKILLS_DIR", dir)
+	t.Setenv("JARVIS_SKILLS_DIR", dir)
 	// Keep the user-commands path from touching a real home dir.
-	t.Setenv("PIGO_HOME", t.TempDir())
+	t.Setenv("JARVIS_HOME", t.TempDir())
 	writeSkill(t, dir, "summarize.md", "---\nname: summarize\ndescription: summarize input\n---\nSummarize the following: $ARGUMENTS")
 
 	skills, err := run.LoadSkills(false)
@@ -123,7 +123,7 @@ func TestBuildSlashRegistryIncludesSkills(t *testing.T) {
 // under --no-skills, where loadSkills returns nil), a /skill-name command is not
 // registered even though a skill file exists on disk (mirrors pi's --no-skills).
 func TestBuildSlashRegistryNoSkills(t *testing.T) {
-	t.Setenv("PIGO_HOME", t.TempDir())
+	t.Setenv("JARVIS_HOME", t.TempDir())
 
 	reg, err := prompts.BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil, prompts.PromptTemplateSources{})
 	if err != nil {
@@ -137,12 +137,12 @@ func TestBuildSlashRegistryNoSkills(t *testing.T) {
 }
 
 // TestLoadSkillsBootstrapsBuiltinSkills verifies that on a fresh
-// PIGO_SKILLS_DIR the built-in skills are installed and loaded (first-run
+// JARVIS_SKILLS_DIR the built-in skills are installed and loaded (first-run
 // bootstrap), so e.g. /prd resolves without any manual install.
 func TestLoadSkillsBootstrapsBuiltinSkills(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("PIGO_SKILLS_DIR", dir)
-	t.Setenv("PIGO_HOME", t.TempDir())
+	t.Setenv("JARVIS_SKILLS_DIR", dir)
+	t.Setenv("JARVIS_HOME", t.TempDir())
 
 	skills, err := run.LoadSkills(false)
 	if err != nil {

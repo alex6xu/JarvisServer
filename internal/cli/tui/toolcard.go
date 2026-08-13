@@ -7,7 +7,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/smallnest/pigo/internal/cli/ui"
+	"github.com/alex6xu/jarvisserver/internal/cli/ui"
 )
 
 // This file implements the rich tool-call card component (US-006, SPEC 3.2,

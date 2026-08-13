@@ -1,17 +1,17 @@
-// Package pkgmgr implements pigo's pi-package installer state and layout
+// Package pkgmgr implements jarvis's pi-package installer state and layout
 // (#154). A pi package is an add-on published to npm — an extension (often an
 // MCP adapter), a skill, a prompt/command template, or a theme — installed with
-// `pigo install npm:<name>`. This package owns two concerns that the install /
+// `jarvis install npm:<name>`. This package owns two concerns that the install /
 // list / uninstall / update commands all build on:
 //
-//   - The lockfile: a JSON record at $PIGO_HOME/packages.json of every installed
+//   - The lockfile: a JSON record at $JARVIS_HOME/packages.json of every installed
 //     package (name, source, version, types, and the exact files laid down on
 //     disk). It is the source of truth for list/uninstall/update, so removal and
 //     upgrade can find and clean up precisely what an install created.
-//   - The directory layout: where each package type is placed so pigo's existing
+//   - The directory layout: where each package type is placed so jarvis's existing
 //     discovery mechanisms pick it up without extra configuration — extensions
-//     under $PIGO_HOME/plugins, skills under the skills dir, prompts under
-//     $PIGO_HOME/commands, themes under $PIGO_HOME/themes.
+//     under $JARVIS_HOME/plugins, skills under the skills dir, prompts under
+//     $JARVIS_HOME/commands, themes under $JARVIS_HOME/themes.
 //
 // This file defines the lockfile wire types and their load/save, mirroring the
 // conventions already used by internal/trust: a missing file is an empty
@@ -27,21 +27,21 @@ import (
 	"sort"
 )
 
-// PackageType is one of the pi package kinds pigo can install. A single package
+// PackageType is one of the pi package kinds jarvis can install. A single package
 // may declare several (the npm catalog has combined "extensionskill" entries),
 // so an InstalledPackage carries a slice of these.
 type PackageType string
 
 const (
 	// TypeExtension is an executable extension (including MCP adapters); it is
-	// laid down under $PIGO_HOME/plugins and discovered by internal/plugin.
+	// laid down under $JARVIS_HOME/plugins and discovered by internal/plugin.
 	TypeExtension PackageType = "extension"
 	// TypeSkill is a skill bundle placed under the skills directory.
 	TypeSkill PackageType = "skill"
-	// TypePrompt is a prompt/command template placed under $PIGO_HOME/commands.
+	// TypePrompt is a prompt/command template placed under $JARVIS_HOME/commands.
 	TypePrompt PackageType = "prompt"
-	// TypeTheme is a theme; pigo has no theme runtime yet, so it is only stored
-	// under $PIGO_HOME/themes for a future consumer.
+	// TypeTheme is a theme; jarvis has no theme runtime yet, so it is only stored
+	// under $JARVIS_HOME/themes for a future consumer.
 	TypeTheme PackageType = "theme"
 )
 
@@ -76,20 +76,20 @@ type Lockfile struct {
 // lockfileVersion is the current schema version written by Save.
 const lockfileVersion = 1
 
-// DefaultLockfilePath returns the lockfile location: $PIGO_HOME/packages.json,
-// or ~/.pigo/packages.json when PIGO_HOME is unset. It returns "" when the home
+// DefaultLockfilePath returns the lockfile location: $JARVIS_HOME/packages.json,
+// or ~/.jarvis/packages.json when JARVIS_HOME is unset. It returns "" when the home
 // directory cannot be resolved and no override is set, mirroring
 // trust.DefaultPath so the caller can treat the store as unavailable rather than
 // guessing a path.
 func DefaultLockfilePath() string {
-	if dir := os.Getenv("PIGO_HOME"); dir != "" {
+	if dir := os.Getenv("JARVIS_HOME"); dir != "" {
 		return filepath.Join(dir, "packages.json")
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".pigo", "packages.json")
+	return filepath.Join(home, ".jarvis", "packages.json")
 }
 
 // Load reads the lockfile at path. A missing file is not an error: it yields an
@@ -171,7 +171,7 @@ func (lf *Lockfile) Remove(name string) bool {
 	return true
 }
 
-// List returns all installed packages sorted by name, for stable `pigo list`
+// List returns all installed packages sorted by name, for stable `jarvis list`
 // output.
 func (lf *Lockfile) List() []InstalledPackage {
 	out := make([]InstalledPackage, 0, len(lf.Packages))

@@ -1,18 +1,18 @@
-// EN: Command pigo is the CLI entry point for the pigo agent. It parses flags,
-// 中文: 命令pigo 是pigo 代理的CLI 入口点。它解析标志，
+// EN: Command jarvis is the CLI entry point for the jarvis agent. It parses flags,
+// 中文: 命令jarvis 是jarvis 代理的CLI 入口点。它解析标志，
 // EN: overlays config.toml, and dispatches to one of the run modes — interactive
 // 中文: 覆盖 config.toml，并分派到一种运行模式 — 交互
 // EN: REPL, headless print, session listing, or the internal sub-agent RPC server:
 // 中文: REPL、无头打印、会话列表或内部子代理 RPC 服务器：
 //
-// EN: pigo                                          # interactive REPL (on a TTY)
-// 中文: Pigo # 交互式 REPL（在 TTY 上）
-// EN: pigo -p "read README and summarize"           # print mode: final text
-// 中文: Pigo -p“阅读自述文件并总结”#打印模式：最终文本
-// EN: pigo -p "..." --output-format stream-json      # line-delimited JSON events
-// 中文: Pigo -p "..." --output-format stream-json # 行分隔的 JSON 事件
-// EN: pigo install <pkg> | list | uninstall | update # package management
-// 中文: Pigo 安装 <pkg> |列表 |卸载 |更新#包管理
+// EN: jarvis                                          # interactive REPL (on a TTY)
+// 中文: Jarvis # 交互式 REPL（在 TTY 上）
+// EN: jarvis -p "read README and summarize"           # print mode: final text
+// 中文: Jarvis -p“阅读自述文件并总结”#打印模式：最终文本
+// EN: jarvis -p "..." --output-format stream-json      # line-delimited JSON events
+// 中文: Jarvis -p "..." --output-format stream-json # 行分隔的 JSON 事件
+// EN: jarvis install <pkg> | list | uninstall | update # package management
+// 中文: Jarvis 安装 <pkg> |列表 |卸载 |更新#包管理
 //
 // EN: The provider is resolved from --model against the built-in OpenAI-compatible
 // 中文: 提供程序是根据内置 OpenAI 兼容的 --model 解析的
@@ -41,24 +41,24 @@ import (
 
 	flag "github.com/spf13/pflag"
 
-	"github.com/smallnest/pigo/internal/cli"
-	"github.com/smallnest/pigo/internal/cli/config"
-	"github.com/smallnest/pigo/internal/cli/headless"
-	"github.com/smallnest/pigo/internal/cli/pkgcmd"
-	"github.com/smallnest/pigo/internal/cli/repl"
-	"github.com/smallnest/pigo/internal/cli/run"
-	"github.com/smallnest/pigo/internal/cli/tui"
-	"github.com/smallnest/pigo/internal/cli/ui"
-	"github.com/smallnest/pigo/internal/dream"
-	"github.com/smallnest/pigo/internal/selfupdate"
+	"github.com/alex6xu/jarvisserver/internal/cli"
+	"github.com/alex6xu/jarvisserver/internal/cli/config"
+	"github.com/alex6xu/jarvisserver/internal/cli/headless"
+	"github.com/alex6xu/jarvisserver/internal/cli/pkgcmd"
+	"github.com/alex6xu/jarvisserver/internal/cli/repl"
+	"github.com/alex6xu/jarvisserver/internal/cli/run"
+	"github.com/alex6xu/jarvisserver/internal/cli/tui"
+	"github.com/alex6xu/jarvisserver/internal/cli/ui"
+	"github.com/alex6xu/jarvisserver/internal/dream"
+	"github.com/alex6xu/jarvisserver/internal/selfupdate"
 )
 
 // EN: Build metadata, injected at release time via -ldflags by goreleaser
 // 中文: 构建元数据，由 goreleaser 在发布时通过 -ldflags 注入
 // EN: (see .goreleaser.yaml). They keep their default values for `go build`/
 // 中文: （参见 .goreleaser.yaml）。他们保留“go build”的默认值/
-// EN: `go run` from source, so `pigo --version` still works without a release build.
-// 中文: 从源代码“go run”，因此“pigo --version”在没有发布版本的情况下仍然可以工作。
+// EN: `go run` from source, so `jarvis --version` still works without a release build.
+// 中文: 从源代码“go run”，因此“jarvis --version”在没有发布版本的情况下仍然可以工作。
 var (
 	version = "dev"
 	commit  = "none"
@@ -138,15 +138,15 @@ type cliOptions struct {
 	noPromptTemplates bool
 	// EN: subagentRPC selects the process-isolated sub-agent server mode (US-019,
 	// 中文: subagentRPC选择进程隔离的子代理服务器模式（US-019，
-	// EN: #135): pigo reads JSON-RPC sub-agent run requests from stdin and writes
-	// 中文: #135):pigo 从 stdin 读取 JSON-RPC 子代理运行请求并写入
+	// EN: #135): jarvis reads JSON-RPC sub-agent run requests from stdin and writes
+	// 中文: #135):jarvis 从 stdin 读取 JSON-RPC 子代理运行请求并写入
 	// EN: results to stdout. Internal, used by SubAgentTool's process mode.
 	// 中文: 结果到标准输出。内部，由 SubAgentTool 的进程模式使用。
 	subagentRPC bool
 	// EN: dream, when set, runs the process-isolated memory-consolidation pass and
 	// 中文: dream 设置后，运行进程隔离的内存整合过程，
-	// EN: exits: pigo enumerates + consolidates the global/project memory scope, emits
-	// 中文: 退出：pigo 枚举+合并全局/项目内存范围，发出
+	// EN: exits: jarvis enumerates + consolidates the global/project memory scope, emits
+	// 中文: 退出：jarvis 枚举+合并全局/项目内存范围，发出
 	// EN: a single-line Report JSON on stdout, and exits 0/1. Internal, spawned by the
 	// 中文: 标准输出上的单行报告 JSON，并退出 0/1。内部，产生于
 	// EN: dream scheduler (and usable headlessly by scripts). See internal/dream and
@@ -163,8 +163,8 @@ type cliOptions struct {
 	// 中文: thinkingLevel，当非空时，是 --thinking-level 标志：推理
 	// EN: effort for requests (off|minimal|low|medium|high|xhigh|max). It is the highest-
 	// 中文: 请求的努力（off|minimal|low|medium|high|xhigh|max）。这是最高的——
-	// EN: precedence layer in resolveThinkingLevel, overriding PIGO_THINKING_LEVEL, the
-	// 中文: 优先层在resolveThinkingLevel中，覆盖PIGO_THINKING_LEVEL，
+	// EN: precedence layer in resolveThinkingLevel, overriding JARVIS_THINKING_LEVEL, the
+	// 中文: 优先层在resolveThinkingLevel中，覆盖JARVIS_THINKING_LEVEL，
 	// EN: config files, and the built-in default (medium).
 	// 中文: 配置文件和内置默认值（中）。
 	thinkingLevel string
@@ -180,18 +180,18 @@ type cliOptions struct {
 	// EN: repl.Run rather than launching tui.Run.
 	// 中文: repl.Run 而不是启动 tui.Run。
 	noTUI bool
-	// EN: cwd, when non-empty, is the working directory pigo switches to before doing
-	// 中文: cwd，当非空时，是pigo在执行操作之前切换到的工作目录
+	// EN: cwd, when non-empty, is the working directory jarvis switches to before doing
+	// 中文: cwd，当非空时，是jarvis在执行操作之前切换到的工作目录
 	// EN: anything else (matches the Claude Agent SDK's cwd option / git -C). Every
 	// 中文: 其他任何内容（与 Claude Agent SDK 的 cwd 选项 / git -C 匹配）。每一个
 	// EN: cwd-derived resolution — built-in tool file roots, project trust, hooks
 	// 中文: cwd 派生解析 — 内置工具文件根、项目信任、挂钩
-	// EN: project dir, .pigo/ project config, git info, the status-bar path — reads
-	// 中文: 项目目录、.pigo/ 项目配置、git 信息、状态栏路径 — 读取
+	// EN: project dir, .jarvis/ project config, git info, the status-bar path — reads
+	// 中文: 项目目录、.jarvis/ 项目配置、git 信息、状态栏路径 — 读取
 	// EN: os.Getwd(), so a single os.Chdir here makes all of them operate in the
 	// 中文: os.Getwd()，因此这里的单个 os.Chdir 使它们全部在
-	// EN: given directory. This is what makes pigo usable as an SDK backend that can
-	// 中文: 给定的目录。这就是 Pigo 可以用作 SDK 后端的原因
+	// EN: given directory. This is what makes jarvis usable as an SDK backend that can
+	// 中文: 给定的目录。这就是 Jarvis 可以用作 SDK 后端的原因
 	// EN: be pointed at an arbitrary project root.
 	// 中文: 指向任意项目根。
 	cwd string
@@ -236,17 +236,17 @@ type cliOptions struct {
 }
 
 func main() {
-	// EN: Package-management subcommands (pigo install|list|uninstall|update ...) are
-	// 中文: 包管理子命令（pigo install|list|uninstall|update ...）是
+	// EN: Package-management subcommands (jarvis install|list|uninstall|update ...) are
+	// 中文: 包管理子命令（jarvis install|list|uninstall|update ...）是
 	// EN: positional and distinct from the flag-driven agent modes, so peel them off
 	// 中文: 位置性的并且与标志驱动的代理模式不同，因此将它们剥离
 	// EN: before pflag parsing — the agent flags don't apply to them.
 	// 中文: 在 pflag 解析之前 - 代理标志不适用于它们。
 	if len(os.Args) > 1 && pkgcmd.Subcommands[os.Args[1]] {
-		// EN: `pigo update` routes by whether a positional package name follows it:
-		// 中文: `pigo update` 根据位置包名称是否跟随它来进行路由：
-		// EN: none — or flags-only, e.g. `pigo update --check` — is binary self-update
-		// 中文: 无 - 或仅标志，例如`pigo update --check` — 是二进制自更新
+		// EN: `jarvis update` routes by whether a positional package name follows it:
+		// 中文: `jarvis update` 根据位置包名称是否跟随它来进行路由：
+		// EN: none — or flags-only, e.g. `jarvis update --check` — is binary self-update
+		// 中文: 无 - 或仅标志，例如`jarvis update --check` — 是二进制自更新
 		// EN: (#466: download the latest release and replace this binary); a package
 		// 中文: （#466：下载最新版本并替换此二进制文件）；一个包裹
 		// EN: name stays package-update (handled by pkgcmd). This is the US-003 dispatch
@@ -277,16 +277,16 @@ func main() {
 	flag.BoolVarP(&opts.continueLast, "continue", "c", false, "resume the most recent interactive session")
 	flag.BoolVarP(&opts.approve, "approve", "a", false, "trust the working directory for this run: skip the first-launch trust prompt and run side-effect tools without per-call confirmation")
 	flag.BoolVar(&opts.noSkills, "no-skills", false, "disable skill discovery (do not load skills under ~/.agents/skills as /skill-name commands)")
-	flag.BoolVar(&opts.noPromptTemplates, "no-prompt-templates", false, "disable prompt-template discovery (do not load ~/.pigo/{commands,prompts}, .pigo/prompts, config prompts, or --prompt-template); built-in slash commands are unaffected")
+	flag.BoolVar(&opts.noPromptTemplates, "no-prompt-templates", false, "disable prompt-template discovery (do not load ~/.jarvis/{commands,prompts}, .jarvis/prompts, config prompts, or --prompt-template); built-in slash commands are unaffected")
 	flag.StringVar(&opts.systemPrompt, "system-prompt", "", "system prompt to use instead of the default coding-assistant prompt (mirrors pi --system-prompt)")
 	flag.StringArrayVar(&opts.appendSystemPrompt, "append-system-prompt", nil, "append text or file contents to the system prompt; repeatable (mirrors pi --append-system-prompt)")
 	flag.StringArrayVar(&opts.promptTemplates, "prompt-template", nil, "load a prompt template from a file or directory (non-recursive); repeatable (mirrors pi --prompt-template)")
-	flag.StringVar(&opts.thinkingLevel, "thinking-level", "", "reasoning effort: off|minimal|low|medium|high|xhigh|max (overrides PIGO_THINKING_LEVEL and config; default medium)")
+	flag.StringVar(&opts.thinkingLevel, "thinking-level", "", "reasoning effort: off|minimal|low|medium|high|xhigh|max (overrides JARVIS_THINKING_LEVEL and config; default medium)")
 	flag.BoolVar(&opts.subagentRPC, "subagent-rpc", false, "internal: run as a process-isolated sub-agent JSON-RPC server over stdio (US-019)")
 	flag.BoolVar(&opts.dream, "dream", false, "internal: run a memory-consolidation pass over the global/project memory scope, emit a Report JSON on stdout, and exit (SPEC §4.1)")
 	flag.BoolVar(&opts.dreamDryRun, "dream-dry-run", false, "internal: with --dream, analyze and report without writing files or updating dream state (SPEC §5.5)")
 	flag.BoolVar(&opts.noTUI, "no-tui", false, "use the line-based REPL instead of the full-screen TUI")
-	flag.StringVarP(&opts.cwd, "cwd", "C", "", "run as if pigo was started in this directory (matches the Claude Agent SDK's cwd; like git -C): tool file access, trust, hooks, and project config all resolve against it")
+	flag.StringVarP(&opts.cwd, "cwd", "C", "", "run as if jarvis was started in this directory (matches the Claude Agent SDK's cwd; like git -C): tool file access, trust, hooks, and project config all resolve against it")
 	flag.BoolVarP(&opts.showVersion, "version", "v", false, "print version information and exit")
 	// EN: Extend the default pflag usage with a "Supported providers" block so
 	// 中文: 使用“支持的提供程序”块扩展默认 pflag 的使用，以便
@@ -310,27 +310,27 @@ func main() {
 	// 中文: 已解决（工具根、信任、挂钩、项目配置、git 信息）。在这里做
 	// EN: — after parse, before config overlay and dispatch — means every downstream
 	// 中文: — 解析之后，配置覆盖和分派之前 — 表示每个下游
-	// EN: os.Getwd() sees the requested directory, so pigo behaves as if it had been
-	// 中文: os.Getwd() 看到请求的目录，因此pigo 的行为就好像它已经被
+	// EN: os.Getwd() sees the requested directory, so jarvis behaves as if it had been
+	// 中文: os.Getwd() 看到请求的目录，因此jarvis 的行为就好像它已经被
 	// EN: launched there. A bad path is a usage error (exit 2) rather than a silent
 	// 中文: 在那里推出。错误的路径是使用错误（出口 2）而不是静默
 	// EN: fall-through to the original directory.
 	// 中文: 直接跳转到原始目录。
 	if opts.cwd != "" {
 		if err := os.Chdir(opts.cwd); err != nil {
-			fmt.Fprintf(os.Stderr, "pigo: --cwd: %v\n", err)
+			fmt.Fprintf(os.Stderr, "jarvis: --cwd: %v\n", err)
 			os.Exit(2)
 		}
 	}
 
-	// EN: Overlay ~/.config/pigo/config.toml: file values replace built-in defaults,
-	// 中文: 覆盖 ~/.config/pigo/config.toml：文件值替换内置默认值，
+	// EN: Overlay ~/.config/jarvis/config.toml: file values replace built-in defaults,
+	// 中文: 覆盖 ~/.config/jarvis/config.toml：文件值替换内置默认值，
 	// EN: but any flag the user set on the command line still wins (CLI > file >
 	// 中文: 但用户在命令行上设置的任何标志仍然获胜（CLI > file >
 	// EN: default). A malformed file warns but does not abort — defaults apply.
 	// 中文: 默认）。格式错误的文件会发出警告，但不会中止 — 应用默认值。
 	if cfg, err := config.LoadFileConfig(config.FileConfigPath()); err != nil {
-		fmt.Fprintf(os.Stderr, "pigo: %v\n", err)
+		fmt.Fprintf(os.Stderr, "jarvis: %v\n", err)
 	} else {
 		applyFileConfig(&opts, cfg, flag.CommandLine.Changed)
 	}
@@ -338,7 +338,7 @@ func main() {
 	// EN: --version is a standalone action: print build metadata and exit.
 	// 中文: --version 是一个独立的操作：打印构建元数据并退出。
 	if opts.showVersion {
-		fmt.Printf("pigo %s (commit %s, built %s)\n", version, commit, date)
+		fmt.Printf("jarvis %s (commit %s, built %s)\n", version, commit, date)
 		os.Exit(0)
 	}
 
@@ -477,7 +477,7 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 	// 中文: --list-sessions 是一个独立的操作：打印并退出。
 	if opts.listSessions {
 		if err := headless.PrintSessions(out); err != nil {
-			fmt.Fprintf(errOut, "pigo: %v\n", err)
+			fmt.Fprintf(errOut, "jarvis: %v\n", err)
 			return 1
 		}
 		return 0
@@ -489,11 +489,11 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 	if opts.continueLast && resumeID == "" {
 		id, err := headless.MostRecentSessionID()
 		if err != nil {
-			fmt.Fprintf(errOut, "pigo: %v\n", err)
+			fmt.Fprintf(errOut, "jarvis: %v\n", err)
 			return 1
 		}
 		if id == "" {
-			fmt.Fprintln(errOut, "pigo: no sessions to continue")
+			fmt.Fprintln(errOut, "jarvis: no sessions to continue")
 			return 1
 		}
 		resumeID = id
@@ -514,12 +514,12 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 	if opts.prompt == "" {
 		isTTY := ui.StdoutIsTerminal()
 		if resumeID == "" && !isTTY {
-			fmt.Fprintln(errOut, "pigo: no prompt (use -p \"...\" or positional args)")
+			fmt.Fprintln(errOut, "jarvis: no prompt (use -p \"...\" or positional args)")
 			return 2
 		}
 		env, err := run.SetupEnv(opts.model, opts.baseURL, opts.protocol, opts.provider, opts.apiKey, opts.noTools, opts.noSkills, opts.systemPrompt, opts.appendSystemPrompt, opts.memory.Memory.Enabled, run.NewToolPolicy(opts.allowedTools, opts.disallowedTools))
 		if err != nil {
-			fmt.Fprintf(errOut, "pigo: %v\n", err)
+			fmt.Fprintf(errOut, "jarvis: %v\n", err)
 			return setupExitCode(err)
 		}
 		if env.Plugins != nil {
@@ -530,7 +530,7 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 		}
 		thinking, err := run.ResolveThinkingLevel(opts.thinkingLevel)
 		if err != nil {
-			fmt.Fprintf(errOut, "pigo: %v\n", err)
+			fmt.Fprintf(errOut, "jarvis: %v\n", err)
 			return 2
 		}
 		if shouldUseTUI(opts, isTTY) {
@@ -560,7 +560,7 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 				CliPrompts:        opts.promptTemplates,
 				NoPromptTemplates: opts.noPromptTemplates,
 			}); err != nil {
-				fmt.Fprintf(errOut, "pigo: %v\n", err)
+				fmt.Fprintf(errOut, "jarvis: %v\n", err)
 				return 1
 			}
 			return 0
@@ -584,7 +584,7 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 			NoPromptTemplates: opts.noPromptTemplates,
 			Dream:             opts.dreamCfg,
 		}); err != nil {
-			fmt.Fprintf(errOut, "pigo: %v\n", err)
+			fmt.Fprintf(errOut, "jarvis: %v\n", err)
 			return 1
 		}
 		return 0
@@ -592,13 +592,13 @@ func dispatch(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 
 	mode, err := headless.ParseOutputMode(opts.outputFmt)
 	if err != nil {
-		fmt.Fprintf(errOut, "pigo: %v\n", err)
+		fmt.Fprintf(errOut, "jarvis: %v\n", err)
 		return 2
 	}
 
 	env, err := run.SetupEnv(opts.model, opts.baseURL, opts.protocol, opts.provider, opts.apiKey, opts.noTools, opts.noSkills, opts.systemPrompt, opts.appendSystemPrompt, opts.memory.Memory.Enabled, run.NewToolPolicy(opts.allowedTools, opts.disallowedTools))
 	if err != nil {
-		fmt.Fprintf(errOut, "pigo: %v\n", err)
+		fmt.Fprintf(errOut, "jarvis: %v\n", err)
 		return setupExitCode(err)
 	}
 	if env.Plugins != nil {
@@ -649,25 +649,25 @@ func setupExitCode(err error) int {
 func runDream(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 	projectDir, err := os.Getwd()
 	if err != nil {
-		fmt.Fprintf(errOut, "pigo: dream: %v\n", err)
+		fmt.Fprintf(errOut, "jarvis: dream: %v\n", err)
 		return 1
 	}
 	// EN: The dream pass reuses the main-session model (SPEC Q3): resolve the same
 	// 中文: 梦想通行证重用主会话模型（SPEC Q3）：解决相同问题
-	// EN: model/provider/api-key tuple cmd/pigo already overlaid from flags+config,
-	// 中文: model/provider/api-key 元组 cmd/pigo 已从 flags+config 覆盖，
-	// EN: and inject a real LLM-backed Consolidator so `pigo --dream` performs the
-	// 中文: 并注入一个真正的 LLM 支持的 Consolidator，以便“pigo --dream”执行
+	// EN: model/provider/api-key tuple cmd/jarvis already overlaid from flags+config,
+	// 中文: model/provider/api-key 元组 cmd/jarvis 已从 flags+config 覆盖，
+	// EN: and inject a real LLM-backed Consolidator so `jarvis --dream` performs the
+	// 中文: 并注入一个真正的 LLM 支持的 Consolidator，以便“jarvis --dream”执行
 	// EN: semantic merge/prune step (not just the deterministic dedup/path-clean).
 	// 中文: 语义合并/修剪步骤（不仅仅是确定性的重复数据删除/路径清理）。
 	thinking, err := run.ResolveThinkingLevel(opts.thinkingLevel)
 	if err != nil {
-		fmt.Fprintf(errOut, "pigo: dream: %v\n", err)
+		fmt.Fprintf(errOut, "jarvis: dream: %v\n", err)
 		return 1
 	}
 	cons, err := dream.NewLLMConsolidator(opts.model, opts.baseURL, opts.protocol, opts.provider, opts.apiKey, thinking)
 	if err != nil {
-		fmt.Fprintf(errOut, "pigo: dream: %v\n", err)
+		fmt.Fprintf(errOut, "jarvis: dream: %v\n", err)
 		return 1
 	}
 	r := &dream.Runner{Consolidator: cons}
@@ -676,7 +676,7 @@ func runDream(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 		ProjectDir: projectDir,
 	})
 	if err != nil {
-		fmt.Fprintf(errOut, "pigo: dream: %v\n", err)
+		fmt.Fprintf(errOut, "jarvis: dream: %v\n", err)
 		return 1
 	}
 	// EN: Single-line JSON on stdout is the stdout contract (SPEC §4.2). Encoder
@@ -684,7 +684,7 @@ func runDream(ctx context.Context, opts cliOptions, out, errOut io.Writer) int {
 	// EN: writes a trailing newline, keeping the report one line.
 	// 中文: 写入尾随换行符，使报告保持一行。
 	if err := json.NewEncoder(out).Encode(report); err != nil {
-		fmt.Fprintf(errOut, "pigo: dream: encode report: %v\n", err)
+		fmt.Fprintf(errOut, "jarvis: dream: encode report: %v\n", err)
 		return 1
 	}
 	return 0
@@ -708,16 +708,16 @@ func shouldUseTUI(opts cliOptions, isTTY bool) bool {
 	return isTTY && !opts.noTUI
 }
 
-// EN: updateIsSelfUpdate classifies the arguments that follow `pigo update` (US-003)
-// 中文: updateIsSelfUpdate 对“pigo update”之后的参数进行分类 (US-003)
+// EN: updateIsSelfUpdate classifies the arguments that follow `jarvis update` (US-003)
+// 中文: updateIsSelfUpdate 对“jarvis update”之后的参数进行分类 (US-003)
 // EN: to route between binary self-update and pkgmgr package-update. It returns true
 // 中文: 在二进制自更新和 pkgmgr 包更新之间进行路由。它返回 true
 // EN: — self-update — when no positional package name is present: any argument that
 // 中文: — 自更新 — 当不存在位置包名称时：任何参数
 // EN: does not begin with '-' is treated as a package name and routes to
 // 中文: 不以“-”开头的被视为包名称并路由到
-// EN: package-update, while flags-only invocations (e.g. `pigo update --check`) stay
-// 中文: 包更新，而仅标志调用（例如“pigo update --check”）保留
+// EN: package-update, while flags-only invocations (e.g. `jarvis update --check`) stay
+// 中文: 包更新，而仅标志调用（例如“jarvis update --check”）保留
 // EN: on the self-update path. Keeping the decision side-effect-free lets the routing
 // 中文: 在自我更新的道路上。保持决策无副作用，让路由
 // EN: be unit-tested without spawning either update path (see TestUpdateIsSelfUpdate).

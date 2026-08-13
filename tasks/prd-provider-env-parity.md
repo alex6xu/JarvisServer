@@ -2,11 +2,11 @@
 
 ## Introduction
 
-pigo 是 pi 的 Go 复刻。当前 pigo 只内置了 5 个可用 provider（OpenRouter 默认、Ollama、NVIDIA、Anthropic、Bedrock 构造器但未接线），API key 解析也只覆盖 9 个环境变量。而 pi 支持约 30 个 provider，每个都有约定的环境变量名、默认 `base_url` 与所属协议（OpenAI 兼容 / Anthropic Messages）。
+jarvis 是 pi 的 Go 复刻。当前 jarvis 只内置了 5 个可用 provider（OpenRouter 默认、Ollama、NVIDIA、Anthropic、Bedrock 构造器但未接线），API key 解析也只覆盖 9 个环境变量。而 pi 支持约 30 个 provider，每个都有约定的环境变量名、默认 `base_url` 与所属协议（OpenAI 兼容 / Anthropic Messages）。
 
-本特性让 pigo 全量对齐 pi 的 provider 生态：用户设置对应的环境变量（如 `DEEPSEEK_API_KEY`），用 `--provider deepseek` 选中该 provider，pigo 就能用内置的默认 `base_url`、协议、精选模型目录直接发起对话，无需手动指定 `--base-url`。同时提供通用的 `<PROVIDER>_BASE_URL` 环境变量约定用于覆盖默认端点。
+本特性让 jarvis 全量对齐 pi 的 provider 生态：用户设置对应的环境变量（如 `DEEPSEEK_API_KEY`），用 `--provider deepseek` 选中该 provider，jarvis 就能用内置的默认 `base_url`、协议、精选模型目录直接发起对话，无需手动指定 `--base-url`。同时提供通用的 `<PROVIDER>_BASE_URL` 环境变量约定用于覆盖默认端点。
 
-**读者假设：** 实现者应先阅读 `internal/provider/providers.go`（provider 构造器与两种 wire driver）、`internal/provider/auth.go`（`providerEnvVars` 与 key 解析）、`internal/provider/presets.go`（`PresetProviders` / `PresetCatalog`）、`cmd/pigo/main.go`（`resolveProvider` 与 CLI flag）。
+**读者假设：** 实现者应先阅读 `internal/provider/providers.go`（provider 构造器与两种 wire driver）、`internal/provider/auth.go`（`providerEnvVars` 与 key 解析）、`internal/provider/presets.go`（`PresetProviders` / `PresetCatalog`）、`cmd/jarvis/main.go`（`resolveProvider` 与 CLI flag）。
 
 ## Goals
 
@@ -38,10 +38,10 @@ pigo 是 pi 的 Go 复刻。当前 pigo 只内置了 5 个可用 provider（Open
 - [ ] Typecheck/`go vet` 通过。
 
 ### US-003: `--provider` 显式标志
-**Description:** 作为用户，我想用 `--provider <name>` 直接选中某个内置 provider，让 pigo 使用其默认 base_url、协议与 env key。
+**Description:** 作为用户，我想用 `--provider <name>` 直接选中某个内置 provider，让 jarvis 使用其默认 base_url、协议与 env key。
 
 **Acceptance Criteria:**
-- [ ] `cmd/pigo/main.go` 新增 `--provider`（简写待定）flag。
+- [ ] `cmd/jarvis/main.go` 新增 `--provider`（简写待定）flag。
 - [ ] `resolveProvider` 支持：当 `--provider` 指定时，按注册表构造对应 driver（openai 或 anthropic 协议），provider 名用于 key 解析。
 - [ ] `--provider` 与 `--protocol` 同时给出且冲突时报明确错误。
 - [ ] 未指定 `--provider` 时保持现有推断逻辑（模型前缀 / 11434 / 默认 OpenRouter）不变。
@@ -180,7 +180,7 @@ pigo 是 pi 的 Go 复刻。当前 pigo 只内置了 5 个可用 provider（Open
 | cloudflare-workers-ai | CLOUDFLARE_API_KEY (+ACCOUNT_ID) | https://api.cloudflare.com/client/v4/accounts/{id}/ai/v1 | openai |
 | cloudflare-ai-gateway | CLOUDFLARE_API_KEY (+ACCOUNT_ID+GATEWAY_ID) | https://gateway.ai.cloudflare.com/v1/{acct}/{gw}/anthropic | anthropic |
 
-- 集成点：`internal/provider/{providers,auth,presets}.go` 与 `cmd/pigo/main.go` 的 `resolveProvider`。
+- 集成点：`internal/provider/{providers,auth,presets}.go` 与 `cmd/jarvis/main.go` 的 `resolveProvider`。
 - 现有 `NewBedrockProvider` 构造器已存在但未在 `resolveProvider` 接线，本特性需接线。
 - 所有单测不得发起真实网络请求；沿用现有 `faux_provider` / transport 测试风格。
 
@@ -193,6 +193,6 @@ pigo 是 pi 的 Go 复刻。当前 pigo 只内置了 5 个可用 provider（Open
 ## Open Questions
 
 - `--provider` 的简写字母选哪个（`-P`？）以避免与现有 flag 冲突？
-- google（Gemini generativelanguage）走 OpenAI 兼容端点还是需要专门适配？pi 中为独立 wire，pigo 是否本期以 OpenAI 兼容近似，还是标为 Non-Goal？
+- google（Gemini generativelanguage）走 OpenAI 兼容端点还是需要专门适配？pi 中为独立 wire，jarvis 是否本期以 OpenAI 兼容近似，还是标为 Non-Goal？
 - google-vertex 协议随模型而异（Claude on Vertex 走 anthropic，Gemini 走自有），本期是否只支持其中一种？
 - opencode / kimi-coding / zai 等端点的路径后缀是否需要在 driver 内补 `/chat/completions` 或 `/messages`，需在实现时按各家文档确认。

@@ -1,5 +1,5 @@
 // This file implements the /goal command (mirrors pi-goal / Claude Code's goal
-// mode): given a high-level objective, pigo runs the agent autonomously —
+// mode): given a high-level objective, jarvis runs the agent autonomously —
 // re-prompting it turn after turn from the loop's follow-up seam — until the
 // model declares the goal done (goal_complete), reports a true impasse
 // (goal_blocked), or a safety guard (max turns / no-progress) or the token
@@ -25,16 +25,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/smallnest/pigo/internal/agentcore"
-	"github.com/smallnest/pigo/internal/agenttool"
-	"github.com/smallnest/pigo/internal/cli"
-	"github.com/smallnest/pigo/internal/cli/run"
-	"github.com/smallnest/pigo/internal/cli/ui"
-	"github.com/smallnest/pigo/internal/compaction"
-	"github.com/smallnest/pigo/internal/hooks"
-	"github.com/smallnest/pigo/internal/provider"
-	"github.com/smallnest/pigo/internal/runtime"
-	"github.com/smallnest/pigo/internal/trust"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/agenttool"
+	"github.com/alex6xu/jarvisserver/internal/cli"
+	"github.com/alex6xu/jarvisserver/internal/cli/run"
+	"github.com/alex6xu/jarvisserver/internal/cli/ui"
+	"github.com/alex6xu/jarvisserver/internal/compaction"
+	"github.com/alex6xu/jarvisserver/internal/hooks"
+	"github.com/alex6xu/jarvisserver/internal/provider"
+	"github.com/alex6xu/jarvisserver/internal/runtime"
+	"github.com/alex6xu/jarvisserver/internal/trust"
 )
 
 // goalMaxAutomaticTurns caps how many autonomous continuations a single /goal
@@ -84,7 +84,7 @@ func RunGoal(setCancel func(context.CancelFunc), out io.Writer, host cli.Host, l
 	// Otherwise args is a new objective, optionally prefixed with --tokens N.
 	objective, budget, err := parseGoalObjective(args)
 	if err != nil {
-		fmt.Fprintf(out, "pigo: %v\n", err)
+		fmt.Fprintf(out, "jarvis: %v\n", err)
 		return
 	}
 	if strings.TrimSpace(objective) == "" {

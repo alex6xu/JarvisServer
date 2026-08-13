@@ -2,9 +2,9 @@
 
 ## 1. Introduction/Overview
 
-pigo 目前对"模型能用哪些工具"只有一个**全有或全无**的开关：`--no-tools`（`cmd/pigo/main.go:166`）。要么全部内置工具可用，要么一个都不给。中间态完全缺失——用户没法说"这次只准读文件，别碰 bash"，也没法说"随便用，就是别写文件"。
+jarvis 目前对"模型能用哪些工具"只有一个**全有或全无**的开关：`--no-tools`（`cmd/jarvis/main.go:166`）。要么全部内置工具可用，要么一个都不给。中间态完全缺失——用户没法说"这次只准读文件，别碰 bash"，也没法说"随便用，就是别写文件"。
 
-对标 Claude Code，它提供 `--allowedTools` / `--disallowedTools` 做工具级准入控制。pigo 侧其实已经有现成的地基：
+对标 Claude Code，它提供 `--allowedTools` / `--disallowedTools` 做工具级准入控制。jarvis 侧其实已经有现成的地基：
 
 - `internal/runtime/skills.go:37` 的 `AllowedTools stringList`（技能 frontmatter 的 `allowed-tools`）
 - `internal/runtime/skills.go:357` 的 `filterToolsByName(tools, allow)` 过滤器
@@ -20,7 +20,7 @@ pigo 目前对"模型能用哪些工具"只有一个**全有或全无**的开关
 
 - 提供工具级准入控制：`--allowed-tools`（白名单）与 `--disallowed-tools`（黑名单），补齐 `--no-tools` 之外的中间态。
 - 黑名单优先于白名单：同一工具同时出现在两侧时，**拒绝**胜出（fail-closed）。
-- 工具名匹配**大小写不敏感**，让 Claude Code 习惯的 `Read` / `Bash` 写法能直接命中 pigo 的 `read` / `bash`。
+- 工具名匹配**大小写不敏感**，让 Claude Code 习惯的 `Read` / `Bash` 写法能直接命中 jarvis 的 `read` / `bash`。
 - 白名单是**硬边界**：`--approve` 只能免掉确认弹窗，不能让边界外的工具运行。
 - 拼错工具名**立即报错退出**，绝不静默忽略——静默忽略会制造"我以为限制住了"的错觉。
 - 复用现有 `filterToolsByName`，不新造平行机制。
@@ -29,7 +29,7 @@ pigo 目前对"模型能用哪些工具"只有一个**全有或全无**的开关
 ## 3. User Stories
 
 ### US-001: 注册两个 CLI 参数并解析多种输入形式
-**Description:** As a pigo 用户, I want 用 `--allowed-tools` / `--disallowed-tools` 在命令行声明工具边界 so that 我能在不改配置文件的前提下按次收紧本次运行的权限。
+**Description:** As a jarvis 用户, I want 用 `--allowed-tools` / `--disallowed-tools` 在命令行声明工具边界 so that 我能在不改配置文件的前提下按次收紧本次运行的权限。
 
 **Acceptance Criteria:**
 - [ ] `cliOptions` 新增 `allowedTools []string` 与 `disallowedTools []string` 两个字段，带说明其语义与优先级的注释
@@ -37,24 +37,24 @@ pigo 目前对"模型能用哪些工具"只有一个**全有或全无**的开关
 - [ ] 参数**可重复**：`--allowed-tools read --allowed-tools grep` 等价于两项
 - [ ] 单个参数值支持**逗号分隔**：`--allowed-tools "read,grep"` 解析为两项
 - [ ] 逗号切分后逐项 `TrimSpace`，空串项被丢弃：`--allowed-tools "read, ,grep"` 得到 `[read grep]`
-- [ ] `pigo --help` 中两个参数各有一行说明，写明"黑名单优先"
+- [ ] `jarvis --help` 中两个参数各有一行说明，写明"黑名单优先"
 - [ ] 单元测试覆盖：单值、重复传参、逗号形式、混合形式、含空白与空项
 - [ ] `go build ./...` 与 `go test ./cmd/...` 通过
 
 ### US-002: 工具名规范化与未知名校验
-**Description:** As a pigo 用户, I want 写 `Read` 也能命中内置的 `read`、写错名字时立刻收到报错 so that 我不会因为大小写或拼写问题得到一个"看起来限制住了、其实没限住"的会话。
+**Description:** As a jarvis 用户, I want 写 `Read` 也能命中内置的 `read`、写错名字时立刻收到报错 so that 我不会因为大小写或拼写问题得到一个"看起来限制住了、其实没限住"的会话。
 
 **Acceptance Criteria:**
 - [ ] 新增纯函数完成规范化：对输入工具名做 `TrimSpace` + `strings.ToLower`
 - [ ] 校验发生在**工具集组装完成之后**（此时才知道全量可用工具名，含 MCP / 子 Agent / 插件工具）
-- [ ] 任一 `--allowed-tools` / `--disallowed-tools` 项不在可用工具名集合中时，向 stderr 打印 `pigo: --allowed-tools: unknown tool "xxx" (available: ...)` 并 `os.Exit(2)`
+- [ ] 任一 `--allowed-tools` / `--disallowed-tools` 项不在可用工具名集合中时，向 stderr 打印 `jarvis: --allowed-tools: unknown tool "xxx" (available: ...)` 并 `os.Exit(2)`
 - [ ] 报错信息列出全部可用工具名，便于用户自我纠正
 - [ ] 多个未知名时一次性全部列出，而非报第一个就退出
 - [ ] 单元测试覆盖：大小写变体命中、未知名报错、多个未知名合并报错、空列表不校验
 - [ ] Typecheck/lint 通过
 
 ### US-003: 工具集过滤（黑名单优先）
-**Description:** As a pigo 用户, I want 声明的边界真正作用到交给模型的工具清单上 so that 模型连边界外工具的存在都感知不到。
+**Description:** As a jarvis 用户, I want 声明的边界真正作用到交给模型的工具清单上 so that 模型连边界外工具的存在都感知不到。
 
 **Acceptance Criteria:**
 - [ ] 新增纯函数 `ApplyToolPolicy(tools []agentcore.AgentTool, allow, deny []string) []agentcore.AgentTool`，位于工具组装所在包
@@ -67,7 +67,7 @@ pigo 目前对"模型能用哪些工具"只有一个**全有或全无**的开关
 - [ ] Typecheck/lint 通过
 
 ### US-004: 接入主会话的三条运行路径
-**Description:** As a pigo 用户, I want 无论用 TUI、REPL 还是无头 `-p` 模式，边界都同样生效 so that 我不会因为换了个前端就意外获得更大权限。
+**Description:** As a jarvis 用户, I want 无论用 TUI、REPL 还是无头 `-p` 模式，边界都同样生效 so that 我不会因为换了个前端就意外获得更大权限。
 
 **Acceptance Criteria:**
 - [ ] `allowedTools` / `disallowedTools` 从 `cliOptions` 透传进 `dispatch`，再进入三条路径共用的工具组装点
@@ -79,7 +79,7 @@ pigo 目前对"模型能用哪些工具"只有一个**全有或全无**的开关
 - [ ] Typecheck/lint 通过
 
 ### US-005: `read` 被屏蔽时不注入 `<available_skills>`
-**Description:** As a pigo 用户, I want 屏蔽 `read` 后系统提示里不再宣传技能 so that 模型不会去调用它根本加载不了的技能。
+**Description:** As a jarvis 用户, I want 屏蔽 `read` 后系统提示里不再宣传技能 so that 模型不会去调用它根本加载不了的技能。
 
 **Acceptance Criteria:**
 - [ ] 系统提示构建时的 `ReadToolAvailable` 判定（`internal/runtime/prompt.go:61`）基于**过滤后**的工具集，而非过滤前
@@ -90,7 +90,7 @@ pigo 目前对"模型能用哪些工具"只有一个**全有或全无**的开关
 - [ ] Typecheck/lint 通过
 
 ### US-006: 白名单是硬边界，`--approve` 不得绕过
-**Description:** As a pigo 用户, I want `--approve` 只免掉确认弹窗、不能放行边界外的工具 so that 我的白名单是真实的安全边界而不是心理安慰。
+**Description:** As a jarvis 用户, I want `--approve` 只免掉确认弹窗、不能放行边界外的工具 so that 我的白名单是真实的安全边界而不是心理安慰。
 
 **Acceptance Criteria:**
 - [ ] `--allowed-tools read --approve` 时 `bash` / `write` / `edit` 均不在工具集中，模型无法调用
@@ -102,19 +102,19 @@ pigo 目前对"模型能用哪些工具"只有一个**全有或全无**的开关
 - [ ] Typecheck/lint 通过
 
 ### US-007: config.toml 支持默认边界
-**Description:** As a pigo 用户, I want 在 `config.toml` 里声明常用边界 so that 我不必每次敲一长串命令行参数。
+**Description:** As a jarvis 用户, I want 在 `config.toml` 里声明常用边界 so that 我不必每次敲一长串命令行参数。
 
 **Acceptance Criteria:**
 - [ ] `FileConfig`（`internal/cli/config/config.go:30`）新增 `AllowedTools []string \`toml:"allowed_tools"\`` 与 `DisallowedTools []string \`toml:"disallowed_tools"\``
-- [ ] `applyFileConfig`（`cmd/pigo/main.go` 内）遵循既有精度覆盖：仅当对应 flag 未被显式传入（`changed("allowed-tools")` 为 false）时才用文件值
+- [ ] `applyFileConfig`（`cmd/jarvis/main.go` 内）遵循既有精度覆盖：仅当对应 flag 未被显式传入（`changed("allowed-tools")` 为 false）时才用文件值
 - [ ] CLI 传入时**整体替换**文件值，而非与文件值合并——合并语义会让"我想放宽"变成"放不宽"
 - [ ] 配置缺失（零值）时行为与当前完全一致
 - [ ] `config.toml.example` 补上两个键的注释示例，说明黑名单优先
-- [ ] 单元测试参照 `TestApplyFileConfig_FillsUnsetFlags` / `TestApplyFileConfig_CLIWins`（`cmd/pigo/main_test.go:179,225`）的模式，覆盖填充与 CLI 优先两种情形
+- [ ] 单元测试参照 `TestApplyFileConfig_FillsUnsetFlags` / `TestApplyFileConfig_CLIWins`（`cmd/jarvis/main_test.go:179,225`）的模式，覆盖填充与 CLI 优先两种情形
 - [ ] Typecheck/lint 通过
 
 ### US-008: 文档更新
-**Description:** As a pigo 用户, I want 在 README 和文档站查到这两个参数的准确语义 so that 我不必读源码去猜黑白名单谁优先。
+**Description:** As a jarvis 用户, I want 在 README 和文档站查到这两个参数的准确语义 so that 我不必读源码去猜黑白名单谁优先。
 
 **Acceptance Criteria:**
 - [ ] README CLI 参数表（`README.md:155-171` 区域）新增两行
@@ -149,12 +149,12 @@ pigo 目前对"模型能用哪些工具"只有一个**全有或全无**的开关
 
 - **不支持参数级细粒度匹配**：`Bash(git log:*)`、`Read(src/**)` 这类 Claude Code 语法本期不做。它需要一套独立的参数匹配器，并且必须在 `BeforeToolCall` 层拦截调用参数而非在注册层过滤工具，是另一个量级的工程。本期写成该形式一律按未知工具名报错。
 - **不引入 `--permission-mode`**：`default` / `acceptEdits` / `bypassPermissions` / `plan` 这套模式概念不做，`--approve` 保持现状。
-- **不做环境变量入口**：不引入 `PIGO_ALLOWED_TOOLS`。
+- **不做环境变量入口**：不引入 `JARVIS_ALLOWED_TOOLS`。
 - **不做 TUI 运行时切换**：不新增 `/tools` 斜杠命令，边界在进程启动时确定、整个会话不变。
 - **不改动技能层的 `allowed-tools`**：`internal/runtime/skills.go` 的技能 frontmatter 过滤保持原样，两者独立。本期不定义"CLI 边界与技能子 Agent 边界如何叠加"，因为子 Agent 从父工具集派生，天然继承 CLI 边界即可。
 - **不改动 hooks 机制**：`PreToolUse` hook 的拦截能力与本特性正交，不做整合。
 - **不改动 `SideEffectTools` 分类**：副作用工具的判定表保持原样。
-- **不做持久化的项目级边界**：不引入 `.pigo/` 项目层的工具边界配置，只做全局 `config.toml`。
+- **不做持久化的项目级边界**：不引入 `.jarvis/` 项目层的工具边界配置，只做全局 `config.toml`。
 
 ## 6. Design Considerations
 
@@ -163,7 +163,7 @@ pigo 目前对"模型能用哪些工具"只有一个**全有或全无**的开关
 复用点：
 - `internal/runtime/skills.go:357` 的 `filterToolsByName` 已实现"空列表即不限制"的白名单语义，`ApplyToolPolicy` 的 allow 分支可直接复用其逻辑或以其为原型（注意它当前是大小写敏感的，本期需要不敏感版本）。
 - `internal/runtime/skills.go:96` 的 `stringList.UnmarshalYAML` 已实现"标量按逗号切分"的容错，FR-4 的 CLI 侧切分逻辑与它形状相同，可考虑提取共用的 `splitAndTrim` 辅助函数避免两处实现漂移。
-- 错误退出遵循 `--cwd` 的既有模式（`cmd/pigo/main.go:216-220`）：向 stderr 打印 `pigo: <flag>: <reason>` 后 `os.Exit(2)`。
+- 错误退出遵循 `--cwd` 的既有模式（`cmd/jarvis/main.go:216-220`）：向 stderr 打印 `jarvis: <flag>: <reason>` 后 `os.Exit(2)`。
 
 ## 7. Technical Considerations
 
@@ -181,9 +181,9 @@ pigo 目前对"模型能用哪些工具"只有一个**全有或全无**的开关
 
 ## 8. Success Metrics
 
-- `pigo --allowed-tools read -p "..."` 后模型的可用工具清单恰好为 `[read]`，可通过 `--output-format stream-json` 的事件流或调试输出核验。
-- `pigo --allowed-tools read,bash --disallowed-tools bash -p "..."` 后 `bash` 不可用（黑名单优先生效）。
-- `pigo --allowed-tools raed -p "..."`（拼错）退出码为 2，stderr 含 `unknown tool "raed"` 与可用名列表。
+- `jarvis --allowed-tools read -p "..."` 后模型的可用工具清单恰好为 `[read]`，可通过 `--output-format stream-json` 的事件流或调试输出核验。
+- `jarvis --allowed-tools read,bash --disallowed-tools bash -p "..."` 后 `bash` 不可用（黑名单优先生效）。
+- `jarvis --allowed-tools raed -p "..."`（拼错）退出码为 2，stderr 含 `unknown tool "raed"` 与可用名列表。
 - 不传任何新参数时，`go test ./...` 全绿，无行为回归。
 - `--allowed-tools read --approve` 下 `bash` / `write` / `edit` 均无法被调用。
 
@@ -197,7 +197,7 @@ pigo 目前对"模型能用哪些工具"只有一个**全有或全无**的开关
 
 仍开放：
 
-- 是否需要 `pigo --list-tools` 之类的只读查询，让用户在不发起对话的前提下确认当前生效的工具集？本期未做。当前的验证方式是拼错一个名字，从报错信息里读出全部可用工具名——可用但迂回。
+- 是否需要 `jarvis --list-tools` 之类的只读查询，让用户在不发起对话的前提下确认当前生效的工具集？本期未做。当前的验证方式是拼错一个名字，从报错信息里读出全部可用工具名——可用但迂回。
 - 进程隔离子 Agent（`--subagent-rpc`）当前从 RPC 的 `tools` 名单重建工具集，且 `run.BuiltinTools(cwd, false)` 不读 `--no-tools`。该模式在生产中未被任何代码路径启用（`SubAgentIsolationProcess` 无非测试引用），故本期未接入策略；若将来启用，需要把策略一并透传过 RPC 边界。
 
 

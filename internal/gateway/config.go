@@ -12,7 +12,7 @@ type Config struct {
 	Agent AgentConf `json:",optional"`
 }
 
-// AgentConf holds pigo agent / auth settings layered on RestConf.
+// AgentConf holds jarvis agent / auth settings layered on RestConf.
 type AgentConf struct {
 	Cwd           string `json:",optional"`
 	Model         string `json:",default=openrouter/free"`

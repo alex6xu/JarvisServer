@@ -5,22 +5,22 @@ import (
 	"testing"
 )
 
-// TestHomeHonorsPIGOHOME verifies Home prefers PIGO_HOME over the default.
-func TestHomeHonorsPIGOHOME(t *testing.T) {
-	t.Setenv("PIGO_HOME", "/custom/pigo")
-	if got := Home(); got != "/custom/pigo" {
-		t.Errorf("Home() = %q, want /custom/pigo", got)
+// TestHomeHonorsJARVISHOME verifies Home prefers JARVIS_HOME over the default.
+func TestHomeHonorsJARVISHOME(t *testing.T) {
+	t.Setenv("JARVIS_HOME", "/custom/jarvis")
+	if got := Home(); got != "/custom/jarvis" {
+		t.Errorf("Home() = %q, want /custom/jarvis", got)
 	}
 }
 
 // TestTypeDirsUnderHome verifies the plugins/commands/themes dirs nest under
-// $PIGO_HOME.
+// $JARVIS_HOME.
 func TestTypeDirsUnderHome(t *testing.T) {
-	t.Setenv("PIGO_HOME", "/custom/pigo")
+	t.Setenv("JARVIS_HOME", "/custom/jarvis")
 	cases := map[PackageType]string{
-		TypeExtension: "/custom/pigo/plugins",
-		TypePrompt:    "/custom/pigo/commands",
-		TypeTheme:     "/custom/pigo/themes",
+		TypeExtension: "/custom/jarvis/plugins",
+		TypePrompt:    "/custom/jarvis/commands",
+		TypeTheme:     "/custom/jarvis/themes",
 	}
 	for typ, want := range cases {
 		if got := DirForType(typ); got != want {
@@ -29,9 +29,9 @@ func TestTypeDirsUnderHome(t *testing.T) {
 	}
 }
 
-// TestSkillsDirHonorsOverride verifies skills use PIGO_SKILLS_DIR, not $PIGO_HOME.
+// TestSkillsDirHonorsOverride verifies skills use JARVIS_SKILLS_DIR, not $JARVIS_HOME.
 func TestSkillsDirHonorsOverride(t *testing.T) {
-	t.Setenv("PIGO_SKILLS_DIR", "/custom/skills")
+	t.Setenv("JARVIS_SKILLS_DIR", "/custom/skills")
 	if got := SkillsDir(); got != "/custom/skills" {
 		t.Errorf("SkillsDir() = %q, want /custom/skills", got)
 	}
@@ -42,7 +42,7 @@ func TestSkillsDirHonorsOverride(t *testing.T) {
 
 // TestSkillsDirDefault verifies skills default to ~/.agents/skills.
 func TestSkillsDirDefault(t *testing.T) {
-	t.Setenv("PIGO_SKILLS_DIR", "")
+	t.Setenv("JARVIS_SKILLS_DIR", "")
 	t.Setenv("HOME", "/home/tester")
 	want := filepath.Join("/home/tester", ".agents", "skills")
 	if got := SkillsDir(); got != want {

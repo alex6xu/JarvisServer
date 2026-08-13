@@ -11,7 +11,7 @@ import (
 // nested layout.
 func TestDistributeSkill(t *testing.T) {
 	skills := t.TempDir()
-	t.Setenv("PIGO_SKILLS_DIR", skills)
+	t.Setenv("JARVIS_SKILLS_DIR", skills)
 
 	pkg := writePkg(t, `{"name":"pi-writing","version":"1.0.0","pi":{"type":"skill"}}`, map[string]string{
 		"SKILL.md":          "---\nname: writing\ndescription: help writing\n---\nbody",
@@ -46,7 +46,7 @@ func TestDistributeSkill(t *testing.T) {
 // TestDistributeSkillReinstallReplaces verifies reinstalling clears stale files.
 func TestDistributeSkillReinstallReplaces(t *testing.T) {
 	skills := t.TempDir()
-	t.Setenv("PIGO_SKILLS_DIR", skills)
+	t.Setenv("JARVIS_SKILLS_DIR", skills)
 
 	pkg1 := writePkg(t, `{"name":"pi-s","version":"1.0.0"}`, map[string]string{
 		"SKILL.md": "---\nname: s\ndescription: d\n---\n",
@@ -68,7 +68,7 @@ func TestDistributeSkillReinstallReplaces(t *testing.T) {
 
 // TestDistributeSkillNoSkillMd verifies a package without SKILL.md errors.
 func TestDistributeSkillNoSkillMd(t *testing.T) {
-	t.Setenv("PIGO_SKILLS_DIR", t.TempDir())
+	t.Setenv("JARVIS_SKILLS_DIR", t.TempDir())
 	pkg := writePkg(t, `{"name":"pi-noskill","version":"1.0.0"}`, nil)
 	if _, err := DistributeSkill(pkg, "pi-noskill"); err == nil {
 		t.Fatal("DistributeSkill without SKILL.md = nil error, want error")

@@ -1,8 +1,8 @@
-// This file distributes a classified pi skill into pigo's skills directory so
+// This file distributes a classified pi skill into jarvis's skills directory so
 // runtime.LoadSkillsDir picks it up (#159).
 //
-// pigo loads skills from the skills dir (SkillsDir): ~/.agents/skills, or
-// PIGO_SKILLS_DIR when set. LoadSkillsDir recognizes the nested layout
+// jarvis loads skills from the skills dir (SkillsDir): ~/.agents/skills, or
+// JARVIS_SKILLS_DIR when set. LoadSkillsDir recognizes the nested layout
 // "<skillsDir>/<name>/SKILL.md" (a directory per skill whose SKILL.md holds the
 // YAML frontmatter). An npm skill package is exactly such a bundle — a SKILL.md
 // plus its supporting files — so distribution is a straight copy of the package

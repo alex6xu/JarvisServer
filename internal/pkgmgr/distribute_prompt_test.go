@@ -11,7 +11,7 @@ import (
 // prompts/ templates are installed.
 func TestDistributePromptPromptsDirPreferred(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("PIGO_HOME", home)
+	t.Setenv("JARVIS_HOME", home)
 
 	pkg := writePkg(t, `{"name":"pi-prompts","version":"1.0.0","pi":{"type":"prompt"}}`, map[string]string{
 		"prompts/review.md":  "---\ndescription: review\n---\nReview $ARGUMENTS",
@@ -34,10 +34,10 @@ func TestDistributePromptPromptsDirPreferred(t *testing.T) {
 }
 
 // TestDistributePromptCommandsDirFallback verifies the legacy commands/ subdir
-// is used when prompts/ is absent, installing into ~/.pigo/prompts.
+// is used when prompts/ is absent, installing into ~/.jarvis/prompts.
 func TestDistributePromptCommandsDirFallback(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("PIGO_HOME", home)
+	t.Setenv("JARVIS_HOME", home)
 
 	pkg := writePkg(t, `{"name":"pi-prompts","version":"1.0.0","pi":{"type":"prompt"}}`, map[string]string{
 		"commands/review.md":  "---\ndescription: review\n---\nReview $ARGUMENTS",
@@ -65,10 +65,10 @@ func TestDistributePromptCommandsDirFallback(t *testing.T) {
 
 // TestDistributePromptRootFallback verifies root-level *.md are used when
 // neither prompts/ nor commands/ exists, skipping README.md, installing into
-// ~/.pigo/prompts.
+// ~/.jarvis/prompts.
 func TestDistributePromptRootFallback(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("PIGO_HOME", home)
+	t.Setenv("JARVIS_HOME", home)
 
 	pkg := writePkg(t, `{"name":"pi-p","version":"1.0.0","pi":{"type":"prompt"}}`, map[string]string{
 		"summarize.md": "Summarize $ARGUMENTS",
@@ -92,7 +92,7 @@ func TestDistributePromptRootFallback(t *testing.T) {
 
 // TestDistributePromptNone verifies a package with no prompt templates errors.
 func TestDistributePromptNone(t *testing.T) {
-	t.Setenv("PIGO_HOME", t.TempDir())
+	t.Setenv("JARVIS_HOME", t.TempDir())
 	pkg := writePkg(t, `{"name":"pi-empty","version":"1.0.0"}`, nil)
 	if _, err := DistributePrompt(pkg, "pi-empty"); err == nil {
 		t.Fatal("DistributePrompt with no templates = nil error, want error")
@@ -100,11 +100,11 @@ func TestDistributePromptNone(t *testing.T) {
 }
 
 // TestDistributePromptReturnsPromptsPaths verifies the returned paths (recorded
-// in the lockfile) are under ~/.pigo/prompts, so uninstall removes precisely
+// in the lockfile) are under ~/.jarvis/prompts, so uninstall removes precisely
 // what was installed.
 func TestDistributePromptReturnsPromptsPaths(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("PIGO_HOME", home)
+	t.Setenv("JARVIS_HOME", home)
 	pkg := writePkg(t, `{"name":"pi-p","version":"1.0.0","pi":{"type":"prompt"}}`, map[string]string{
 		"prompts/x.md": "X $ARGUMENTS",
 	})

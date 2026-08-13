@@ -2,9 +2,9 @@ package run
 
 // Tests for resolveThinkingLevel: the CLI end of the layered config chain
 // (US-023). It resolves the effective reasoning-effort level through
-// default < global ($PIGO_HOME/config.json) < project (./.pigo/config.json)
-// < env (PIGO_THINKING_LEVEL) < --thinking-level flag, and rejects an invalid
-// value. Each test isolates PIGO_HOME and the working directory so it never
+// default < global ($JARVIS_HOME/config.json) < project (./.jarvis/config.json)
+// < env (JARVIS_THINKING_LEVEL) < --thinking-level flag, and rejects an invalid
+// value. Each test isolates JARVIS_HOME and the working directory so it never
 // reads the developer's real config.
 
 import (
@@ -12,16 +12,16 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
 )
 
-// isolateConfig points PIGO_HOME at a temp dir and chdir's into a temp working
+// isolateConfig points JARVIS_HOME at a temp dir and chdir's into a temp working
 // directory (restored on cleanup), so no real global/project config leaks in.
 func isolateConfig(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
-	t.Setenv("PIGO_HOME", home)
-	t.Setenv("PIGO_THINKING_LEVEL", "")
+	t.Setenv("JARVIS_HOME", home)
+	t.Setenv("JARVIS_THINKING_LEVEL", "")
 
 	wd := t.TempDir()
 	prev, err := os.Getwd()
@@ -65,8 +65,8 @@ func TestResolveThinkingLevelDefault(t *testing.T) {
 func TestResolveThinkingLevelFlagWins(t *testing.T) {
 	home := isolateConfig(t)
 	writeConfig(t, filepath.Join(home, "config.json"), "low")
-	writeConfig(t, filepath.Join(".pigo", "config.json"), "high")
-	t.Setenv("PIGO_THINKING_LEVEL", "minimal")
+	writeConfig(t, filepath.Join(".jarvis", "config.json"), "high")
+	t.Setenv("JARVIS_THINKING_LEVEL", "minimal")
 
 	got, err := ResolveThinkingLevel("xhigh")
 	if err != nil {
@@ -82,8 +82,8 @@ func TestResolveThinkingLevelFlagWins(t *testing.T) {
 func TestResolveThinkingLevelEnvOverProject(t *testing.T) {
 	home := isolateConfig(t)
 	writeConfig(t, filepath.Join(home, "config.json"), "low")
-	writeConfig(t, filepath.Join(".pigo", "config.json"), "high")
-	t.Setenv("PIGO_THINKING_LEVEL", "off")
+	writeConfig(t, filepath.Join(".jarvis", "config.json"), "high")
+	t.Setenv("JARVIS_THINKING_LEVEL", "off")
 
 	got, err := ResolveThinkingLevel("")
 	if err != nil {
@@ -99,7 +99,7 @@ func TestResolveThinkingLevelEnvOverProject(t *testing.T) {
 func TestResolveThinkingLevelProjectOverGlobal(t *testing.T) {
 	home := isolateConfig(t)
 	writeConfig(t, filepath.Join(home, "config.json"), "low")
-	writeConfig(t, filepath.Join(".pigo", "config.json"), "high")
+	writeConfig(t, filepath.Join(".jarvis", "config.json"), "high")
 
 	got, err := ResolveThinkingLevel("")
 	if err != nil {

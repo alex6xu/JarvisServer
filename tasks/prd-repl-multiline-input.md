@@ -2,7 +2,7 @@
 
 ## Introduction
 
-pigo 的 REPL 目前只能单行输入：`replLineEditor.readLine`（`cmd/pigo/line_editor.go`）在 raw 模式下逐字节读取，遇到 `\r`/`\n` 立即提交，整个输入维护为一个 `input string`。用户想粘贴代码块、写多段说明或格式化的 prompt 时，无法在同一条消息里换行。
+jarvis 的 REPL 目前只能单行输入：`replLineEditor.readLine`（`cmd/jarvis/line_editor.go`）在 raw 模式下逐字节读取，遇到 `\r`/`\n` 立即提交，整个输入维护为一个 `input string`。用户想粘贴代码块、写多段说明或格式化的 prompt 时，无法在同一条消息里换行。
 
 本功能为 REPL 增加多行输入能力：在支持的终端里用 **Shift+Enter** 换行、普通 **Enter** 提交；对无法区分 Shift+Enter 的终端（大多数终端默认如此），提供**行尾反斜杠 `\` 续行**作为通用兜底。多行缓冲区支持**完整跨行编辑**（方向键在已输入的多行间移动光标、任意行可回改）。整块多行文本作为一条消息发给 agent。
 
@@ -26,7 +26,7 @@ pigo 的 REPL 目前只能单行输入：`replLineEditor.readLine`（`cmd/pigo/l
 - [ ] 单行输入行为与改造前等价：输入可见字符追加到当前行、光标随之右移。
 - [ ] 提交时把各行用 `\n` 连接为单个字符串返回，末尾无多余换行。
 - [ ] 空输入提交返回空字符串（与现状一致）。
-- [ ] `go build ./... && go vet ./...` 通过；`go test ./cmd/pigo/` 通过。
+- [ ] `go build ./... && go vet ./...` 通过；`go test ./cmd/jarvis/` 通过。
 
 ### US-002: 行尾反斜杠续行兜底
 **Description:** As a user on any terminal, I want a trailing backslash to continue input on the next line so I can enter multi-line messages without relying on Shift+Enter.
@@ -121,7 +121,7 @@ pigo 的 REPL 目前只能单行输入：`replLineEditor.readLine`（`cmd/pigo/l
 
 - 复用现有 `readLine` 的 raw 模式进出、stty 状态保存/还原（`line_editor.go:147-164`）与转义序列消费框架（`case 27`）。
 - 组合键上报启用/还原序列应与 stty 还原一起 `defer`，避免异常路径下终端残留在 CSI-u 模式。
-- 续行标识与对齐应与现有 prompt `pigo(%s)> `（`repl.go:191`）视觉协调；续行行可用简短前缀（如 `...> ` 或缩进对齐）。
+- 续行标识与对齐应与现有 prompt `jarvis(%s)> `（`repl.go:191`）视觉协调；续行行可用简短前缀（如 `...> ` 或缩进对齐）。
 - 补全/建议逻辑（`suggestions`/`visible`/dim 渲染）仅适用于单行末尾场景，多行时抑制以避免渲染冲突。
 
 ## Technical Considerations
@@ -135,7 +135,7 @@ pigo 的 REPL 目前只能单行输入：`replLineEditor.readLine`（`cmd/pigo/l
 
 - 在支持的终端（如 iTerm2/kitty，开启 CSI-u）Shift+Enter 换行、Enter 提交按预期工作。
 - 在不支持的终端（如默认 Terminal.app）`\` 续行可完成等价多行输入。
-- 现有单行 REPL 交互（历史、补全、Ctrl+C/D、管道输入）无回退，`go test ./cmd/pigo/` 全绿。
+- 现有单行 REPL 交互（历史、补全、Ctrl+C/D、管道输入）无回退，`go test ./cmd/jarvis/` 全绿。
 - 多行 prompt 提交后 agent 收到完整含换行的消息。
 
 ## Open Questions
