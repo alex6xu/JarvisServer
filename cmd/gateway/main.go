@@ -40,6 +40,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "gateway: %v\n", err)
 		os.Exit(1)
 	}
+	defer svc.Close()
 
 	srv := gateway.NewServer(svc, c)
 	defer srv.Stop()

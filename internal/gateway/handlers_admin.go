@@ -1,13 +1,20 @@
 package gateway
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"strconv"
 )
 
-func (s *Service) handleListTokens(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"tokens": s.Mem.listTokens()})
+func (s *Service) handleListTokens(w http.ResponseWriter, r *http.Request) {
+	tokens, err := s.Audit.ListAPITokens(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tokens": tokens})
 }
 
 func (s *Service) handleCreateToken(w http.ResponseWriter, r *http.Request) {
@@ -18,8 +25,17 @@ func (s *Service) handleCreateToken(w http.ResponseWriter, r *http.Request) {
 	if body.Name == "" {
 		body.Name = "api-key"
 	}
-	t := s.Mem.createToken(body.Name)
-	writeJSON(w, http.StatusOK, map[string]any{"key": t.Key, "token": t})
+	account, ok := requestAccount(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	t, raw, err := s.Audit.IssueToken(r.Context(), account.ID, body.Name, "sk-", 0)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"key": raw, "token": t})
 }
 
 func (s *Service) handleUpdateToken(w http.ResponseWriter, r *http.Request) {
@@ -31,7 +47,7 @@ func (s *Service) handleUpdateToken(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid json body")
 		return
 	}
-	if err := s.Mem.updateTokenStatus(id, body.Status); err != nil {
+	if err := s.Audit.SetTokenStatus(r.Context(), id, body.Status); err != nil {
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
 	}
@@ -39,7 +55,7 @@ func (s *Service) handleUpdateToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleDeleteToken(w http.ResponseWriter, r *http.Request) {
-	if err := s.Mem.deleteToken(pathParam(r, "id")); err != nil {
+	if err := s.Audit.DeleteToken(r.Context(), pathParam(r, "id")); err != nil {
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
 	}
@@ -47,7 +63,11 @@ func (s *Service) handleDeleteToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleListProviders(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"providers": s.Mem.listProviders()})
+	providers := s.Mem.listProviders()
+	for i := range providers {
+		providers[i].Key = ""
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"providers": providers})
 }
 
 func (s *Service) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
@@ -57,7 +77,11 @@ func (s *Service) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := s.Mem.upsertProvider(0, p)
-	_ = s.Mem.saveProvidersToDisk()
+	if err := s.persistProviders(r.Context()); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	out.Key = ""
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -73,7 +97,11 @@ func (s *Service) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := s.Mem.upsertProvider(id, p)
-	_ = s.Mem.saveProvidersToDisk()
+	if err := s.persistProviders(r.Context()); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	out.Key = ""
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -87,7 +115,10 @@ func (s *Service) handleDeleteProvider(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
 	}
-	_ = s.Mem.saveProvidersToDisk()
+	if err := s.persistProviders(r.Context()); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
@@ -101,8 +132,39 @@ func (s *Service) handleSetDefaultProvider(w http.ResponseWriter, r *http.Reques
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
 	}
-	_ = s.Mem.saveProvidersToDisk()
+	if err := s.persistProviders(r.Context()); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Service) handleSetProviderStatus(w http.ResponseWriter, r *http.Request) {
+	id, err := parseProviderID(pathParam(r, "id"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	var body struct {
+		Status int `json:"status"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	if err := s.Mem.setProviderStatus(id, body.Status); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := s.persistProviders(r.Context()); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Service) persistProviders(ctx context.Context) error {
+	return s.Audit.ReplaceProviders(ctx, s.Mem.listProviders())
 }
 
 func (s *Service) handleFetchProviderModels(w http.ResponseWriter, r *http.Request) {
@@ -112,41 +174,85 @@ func (s *Service) handleFetchProviderModels(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if p, ok := s.Mem.getProvider(id); ok {
-		models := parseProviderModels(p.Models)
-		if len(models) > 0 {
-			writeJSON(w, http.StatusOK, map[string]any{"models": models})
+		models, err := fetchProviderModels(r.Context(), *p)
+		if err != nil {
+			writeErr(w, http.StatusBadGateway, err.Error())
 			return
 		}
+		writeJSON(w, http.StatusOK, map[string]any{"models": models})
+		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"models": []string{s.Opts.Model}})
+	writeErr(w, http.StatusNotFound, "provider not found")
 }
 
 func (s *Service) handleFetchModelsBody(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Type     json.RawMessage `json:"type"`
-		Key      string          `json:"key"`
-		BaseURL  string          `json:"base_url"`
-		AuthMode string          `json:"auth_mode"`
+		Type     int    `json:"type"`
+		Key      string `json:"key"`
+		BaseURL  string `json:"base_url"`
+		AuthMode string `json:"auth_mode"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&body)
-	_ = body
-	// Real upstream model listing can be added later; return configured default for now.
-	writeJSON(w, http.StatusOK, map[string]any{"models": []string{s.Opts.Model}})
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	models, err := fetchProviderModels(r.Context(), Provider{
+		Type: body.Type, Key: body.Key, BaseURL: body.BaseURL, AuthMode: body.AuthMode,
+	})
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"models": models})
 }
 
-func (s *Service) handleAdminStats(w http.ResponseWriter, _ *http.Request) {
-	sessions, _ := s.Store.List()
-	totalMsgs := 0
-	for _, h := range sessions {
-		if _, entries, err := s.Store.LoadEntries(h.ID); err == nil {
-			totalMsgs += len(entries)
+func (s *Service) handleRoutePreview(w http.ResponseWriter, r *http.Request) {
+	plan, err := s.resolveLLMPlan(r.URL.Query().Get("model"))
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	type previewCandidate struct {
+		Order        int            `json:"order"`
+		ProviderID   int            `json:"provider_id,omitempty"`
+		ProviderName string         `json:"provider_name"`
+		Model        string         `json:"model"`
+		BaseURL      string         `json:"base_url,omitempty"`
+		Protocol     string         `json:"protocol,omitempty"`
+		Priority     int            `json:"priority"`
+		Weight       int            `json:"weight"`
+		Default      bool           `json:"is_default"`
+		Health       ProviderHealth `json:"health"`
+	}
+	out := make([]previewCandidate, 0, len(plan.Candidates))
+	for i, candidate := range plan.Candidates {
+		name := candidate.ProviderLabel
+		if name == "" {
+			name = candidate.ProviderName
 		}
+		out = append(out, previewCandidate{
+			Order: i + 1, ProviderID: candidate.ProviderID, ProviderName: name,
+			Model: candidate.Model, BaseURL: candidate.BaseURL, Protocol: candidate.Protocol,
+			Priority: candidate.Priority, Weight: candidate.Weight, Default: candidate.IsDefault,
+			Health: s.Router.Health(candidate.ProviderID),
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"requested_model": plan.RequestedModel, "candidates": out})
+}
+
+func (s *Service) handleAdminStats(w http.ResponseWriter, r *http.Request) {
+	stats, err := s.Audit.Stats(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"totalSessions":   len(sessions),
-		"totalMessages":   totalMsgs,
-		"totalTokens":     0,
+		"totalSessions":   stats.TotalSessions,
+		"totalMessages":   stats.TotalMessages,
+		"totalTokens":     stats.TotalTokens,
 		"totalCost":       0.0,
+		"totalRequests":   stats.TotalRequests,
+		"failedRequests":  stats.FailedRequests,
 		"activeProviders": s.Mem.activeProviderCount(),
 	})
 }
@@ -154,14 +260,26 @@ func (s *Service) handleAdminStats(w http.ResponseWriter, _ *http.Request) {
 func (s *Service) handleListRequestLogs(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
-	writeJSON(w, http.StatusOK, map[string]any{"logs": s.Mem.listLogs(limit, offset)})
+	status, _ := strconv.Atoi(r.URL.Query().Get("status"))
+	logs, err := s.Audit.ListRequestLogsFiltered(r.Context(), RequestLogFilter{
+		Limit: limit, Offset: offset, Model: r.URL.Query().Get("model"), StatusCode: status,
+	})
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"logs": logs})
 }
 
 func (s *Service) handleGetRequestLog(w http.ResponseWriter, r *http.Request) {
 	id := pathParam(r, "id")
-	log, ok := s.Mem.getLog(id)
-	if !ok {
+	log, err := s.Audit.GetRequestLog(r.Context(), id)
+	if err == sql.ErrNoRows {
 		writeErr(w, http.StatusNotFound, "log not found")
+		return
+	}
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, log)

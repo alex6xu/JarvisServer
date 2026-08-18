@@ -69,6 +69,25 @@ type Env struct {
 // than exiting so the caller owns exit-code mapping.
 func SetupEnv(model, baseURL, protocol, providerName, apiKey string, noTools, noSkills bool, systemPrompt string, appendSystemPrompt []string, memEnabled bool, policy ToolPolicy) (Env, error) {
 	cwd, _ := os.Getwd()
+	return SetupEnvAt(cwd, model, baseURL, protocol, providerName, apiKey, noTools, noSkills, systemPrompt, appendSystemPrompt, memEnabled, policy)
+}
+
+// SetupEnvAt is SetupEnv with an explicit workspace root. It lets a long-lived
+// gateway run concurrent agents in different workspaces without process-wide
+// os.Chdir calls.
+func SetupEnvAt(cwd, model, baseURL, protocol, providerName, apiKey string, noTools, noSkills bool, systemPrompt string, appendSystemPrompt []string, memEnabled bool, policy ToolPolicy) (Env, error) {
+	absCwd, err := filepath.Abs(cwd)
+	if err != nil {
+		return Env{}, fmt.Errorf("resolve working directory: %w", err)
+	}
+	info, err := os.Stat(absCwd)
+	if err != nil {
+		return Env{}, fmt.Errorf("working directory: %w", err)
+	}
+	if !info.IsDir() {
+		return Env{}, fmt.Errorf("working directory is not a directory: %s", absCwd)
+	}
+	cwd = filepath.Clean(absCwd)
 	prov, resolvedName, err := provider.ResolveProvider(model, baseURL, protocol, providerName, os.Getenv)
 	if err != nil {
 		return Env{}, err

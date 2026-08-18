@@ -1,7 +1,9 @@
 package gateway
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"time"
@@ -143,15 +145,51 @@ func (s *Service) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		Type:           body.Type,
 		Prompt:         body.Prompt,
 	})
+	model := ""
+	if profile := s.Mem.findProfileByName(body.RouteProfile); profile != nil && len(profile.Models) > 0 {
+		model = profile.Models[0]
+	}
 	go func(id string) {
-		time.Sleep(2 * time.Second)
 		s.Mem.updateTask(id, func(t *AgentTask) {
-			t.Status = "completed"
-			t.Result = "Task accepted by gateway stub (wire to agent run in a later phase)."
-			t.FinishedAt = time.Now().UTC().Format(time.RFC3339)
+			t.Status = "running"
 		})
+		response, err := s.StartChat(context.Background(), ChatRequest{
+			Message: body.Prompt, Model: model, WorkspaceID: body.WorkspaceID, Mode: "coder",
+		})
+		if err != nil {
+			s.finishTask(id, "", nil, err)
+			return
+		}
+		run, ok := s.Runs.Get(response.RunID)
+		if !ok {
+			s.finishTask(id, "", nil, fmt.Errorf("run %s not found", response.RunID))
+			return
+		}
+		var result string
+		var steps []ToolStep
+		for event := range run.Subscribe(0) {
+			if event.Payload.Type == "done" {
+				result = event.Payload.Content
+				steps = event.Payload.ToolSteps
+			}
+		}
+		s.finishTask(id, result, steps, run.Err)
 	}(task.ID)
-	writeJSON(w, http.StatusOK, task)
+	writeJSON(w, http.StatusAccepted, task)
+}
+
+func (s *Service) finishTask(id, result string, steps []ToolStep, runErr error) {
+	s.Mem.updateTask(id, func(t *AgentTask) {
+		if runErr != nil {
+			t.Status = "failed"
+			t.Error = runErr.Error()
+		} else {
+			t.Status = "completed"
+			t.Result = result
+			t.ToolSteps = steps
+		}
+		t.FinishedAt = time.Now().UTC().Format(time.RFC3339)
+	})
 }
 
 func (s *Service) handleListTags(w http.ResponseWriter, _ *http.Request) {

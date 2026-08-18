@@ -36,6 +36,8 @@ web/.vite/
 
 # Local cache & temp
 .cache/
+.gocache/
+.pigo/
 tmp/
 temp/
 *.log

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -141,16 +142,12 @@ func (s *Service) handleListSessions(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Service) handleAuthMe(w http.ResponseWriter, r *http.Request) {
-	if !s.authOK(r) {
+	acct, ok := requestAccount(r)
+	if !ok {
 		writeErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	accts := s.Mem.listAccounts()
-	if len(accts) > 0 {
-		writeJSON(w, http.StatusOK, map[string]any{"account": accts[0]})
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]any{"account": stubAccount("dev")})
+	writeJSON(w, http.StatusOK, map[string]any{"account": acct})
 }
 
 func (s *Service) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
@@ -158,22 +155,19 @@ func (s *Service) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		Username string `json:"username"`
 		Password string `json:"password"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&body)
-	token := s.Opts.APIToken
-	if token == "" {
-		token = "dev-token"
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid json body")
+		return
 	}
-	username := body.Username
-	if username == "" {
-		username = "dev"
+	acct, err := s.Audit.Authenticate(r.Context(), body.Username, body.Password)
+	if err != nil {
+		writeErr(w, http.StatusUnauthorized, err.Error())
+		return
 	}
-	// Prefer in-memory account when present.
-	acct := stubAccount(username)
-	for _, a := range s.Mem.listAccounts() {
-		if a.Username == username || username == "dev" {
-			acct = a
-			break
-		}
+	_, token, err := s.Audit.IssueToken(r.Context(), acct.ID, "web-session", "sess_", 24*time.Hour)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"token":   token,
@@ -182,25 +176,38 @@ func (s *Service) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleAuthRegister(w http.ResponseWriter, r *http.Request) {
-	s.handleAuthLogin(w, r)
+	var body struct {
+		Username string `json:"username"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	acct, err := s.Audit.CreateAccount(r.Context(), body.Username, body.Email, "user", body.Password)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	_, token, err := s.Audit.IssueToken(r.Context(), acct.ID, "web-session", "sess_", 24*time.Hour)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"token": token, "account": acct})
 }
 
-func (s *Service) handleAuthLogout(w http.ResponseWriter, _ *http.Request) {
+func (s *Service) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
+	if raw := bearerToken(r); raw != "" {
+		_ = s.Audit.RevokeToken(r.Context(), raw)
+	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (s *Service) authOK(r *http.Request) bool {
-	if s.Opts.AuthMode == "none" {
-		auth := r.Header.Get("Authorization")
-		return strings.HasPrefix(auth, "Bearer ") || auth == ""
-	}
-	want := s.Opts.APIToken
-	if want == "" {
-		return true
-	}
-	got := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-	got = strings.TrimSpace(got)
-	return got == want
+	_, err := s.authenticateRequest(r)
+	return err == nil
 }
 
 func isNotFound(err error) bool {

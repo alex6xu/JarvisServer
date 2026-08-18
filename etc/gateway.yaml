@@ -1,5 +1,5 @@
 Name: gateway
-Host: 0.0.0.0
+Host: 127.0.0.1
 Port: 8080
 Timeout: 0
 Mode: dev
@@ -13,8 +13,10 @@ Middlewares:
 
 Agent:
   Model: openrouter/free
-  Approve: true
-  AuthMode: none
+  Approve: false
+  AuthMode: token
+  AuditRetentionDays: 30
+  AuditMaxBodyBytes: 1048576
   # Cwd: .
   # BaseURL: ""
   # Protocol: ""
@@ -24,4 +26,6 @@ Agent:
   # NoTools: false
   # NoSkills: false
   # WorkspacesRoot: ./workspaces
+  # DatabasePath: ./.pigo/gateway.db
   # APIToken: ""
+  # AdminPassword: "" # or set PIGO_ADMIN_PASSWORD

@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -65,7 +66,10 @@ func TestTranslateHandlerDeltaAndDone(t *testing.T) {
 
 func TestRunManagerAfterSeq(t *testing.T) {
 	m := NewRunManager()
-	st := m.Register("sess", "m", "", func() {})
+	st, err := m.Register("sess", "m", "", func() {})
+	if err != nil {
+		t.Fatal(err)
+	}
 	st.Publish(StreamEvent{Type: "delta", Content: "a"})
 	st.Publish(StreamEvent{Type: "delta", Content: "b"})
 	st.Finish(nil)
@@ -77,5 +81,57 @@ func TestRunManagerAfterSeq(t *testing.T) {
 	}
 	if len(seqs) != 1 || seqs[0] != 2 {
 		t.Fatalf("after_seq=1 got %v, want [2]", seqs)
+	}
+}
+
+func TestRunManagerPersistsAndReloadsEvents(t *testing.T) {
+	store, err := OpenGatewayStore(t.TempDir() + "/gateway.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	m := NewRunManager(store)
+	st, err := m.Register("sess", "m", "workspace", func() {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.Publish(StreamEvent{Type: "delta", Content: "a"})
+	st.Publish(StreamEvent{Type: "done", Content: "ab"})
+	st.Finish(nil)
+
+	reloaded, ok := NewRunManager(store).Get(st.ID)
+	if !ok {
+		t.Fatal("persisted run not found")
+	}
+	if reloaded.Status != runStatusDone || reloaded.LastSeq != 2 {
+		t.Fatalf("reloaded run = status %q seq %d", reloaded.Status, reloaded.LastSeq)
+	}
+	var events []StoredEvent
+	for event := range reloaded.Subscribe(1) {
+		events = append(events, event)
+	}
+	if len(events) != 1 || events[0].Payload.Content != "ab" {
+		t.Fatalf("replayed events: %#v", events)
+	}
+}
+
+func TestLoadRunMarksInterruptedRunAsError(t *testing.T) {
+	store, err := OpenGatewayStore(t.TempDir() + "/gateway.db")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	st := &RunState{ID: "run_interrupted", SessionID: "sess", Status: runStatusRunning}
+	if err := store.CreateRun(context.Background(), st); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := store.LoadRun(context.Background(), st.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Status != runStatusError || loaded.Err == nil {
+		t.Fatalf("loaded interrupted run = status %q err %v", loaded.Status, loaded.Err)
 	}
 }

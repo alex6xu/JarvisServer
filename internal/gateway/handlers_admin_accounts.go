@@ -3,6 +3,7 @@ package gateway
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/zeromicro/go-zero/rest/pathvar"
 )
@@ -29,14 +30,30 @@ func (s *Service) handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "new_password is required")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
-		"token":   "dev-token",
-		"account": stubAccount("dev"),
-	})
+	account, ok := requestAccount(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	if err := s.Audit.ChangePassword(r.Context(), account.ID, body.CurrentPassword, body.NewPassword); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	_, token, err := s.Audit.IssueToken(r.Context(), account.ID, "web-session", "sess_", 24*time.Hour)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"token": token, "account": account})
 }
 
-func (s *Service) handleListAccounts(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"accounts": s.Mem.listAccounts()})
+func (s *Service) handleListAccounts(w http.ResponseWriter, r *http.Request) {
+	accounts, err := s.Audit.ListAccounts(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"accounts": accounts})
 }
 
 func (s *Service) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
@@ -50,7 +67,7 @@ func (s *Service) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid json body")
 		return
 	}
-	acct, err := s.Mem.createAccount(body.Username, body.Email, body.Role, body.Password)
+	acct, err := s.Audit.CreateAccount(r.Context(), body.Username, body.Email, body.Role, body.Password)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -60,7 +77,7 @@ func (s *Service) handleCreateAccount(w http.ResponseWriter, r *http.Request) {
 
 func (s *Service) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 	id := parseInt(pathParam(r, "id"))
-	if err := s.Mem.deleteAccount(id); err != nil {
+	if err := s.Audit.DeleteAccount(r.Context(), id); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}

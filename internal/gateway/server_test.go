@@ -4,16 +4,18 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/zeromicro/go-zero/rest/pathvar"
 )
 
 func TestStubEndpoints(t *testing.T) {
-	svc, err := NewService(Options{Model: "test-model", Approve: true, NoTools: true})
+	svc, err := NewService(Options{Model: "test-model", Approve: true, NoTools: true, Cwd: t.TempDir(), AdminPassword: "test-password"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = svc.Close() })
 
 	t.Run("healthz", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
@@ -41,7 +43,7 @@ func TestStubEndpoints(t *testing.T) {
 	})
 
 	t.Run("login", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodPost, "/v1/auth/login", nil)
+		req := httptest.NewRequest(http.MethodPost, "/v1/auth/login", strings.NewReader(`{"username":"dev","password":"test-password"}`))
 		rr := httptest.NewRecorder()
 		svc.handleAuthLogin(rr, req)
 		if rr.Code != http.StatusOK {
@@ -80,10 +82,11 @@ func TestConfigToOptions(t *testing.T) {
 }
 
 func TestNewServerRegisters(t *testing.T) {
-	svc, err := NewService(Options{Model: "test-model", Approve: true, NoTools: true})
+	svc, err := NewService(Options{Model: "test-model", Approve: true, NoTools: true, Cwd: t.TempDir(), AdminPassword: "test-password"})
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = svc.Close() })
 	cfg := Config{}
 	cfg.Name = "gateway-test"
 	cfg.Host = "127.0.0.1"

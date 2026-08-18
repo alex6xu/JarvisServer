@@ -27,8 +27,16 @@ type Options struct {
 	AuthMode string
 	// APIToken is the shared bearer token when AuthMode=token. Empty accepts any.
 	APIToken string
+	// AdminPassword bootstraps the first dev administrator. Environment
+	// PIGO_ADMIN_PASSWORD is used when this is empty.
+	AdminPassword string
 	// WorkspacesRoot is the local directory for Coder workspaces (default: <cwd>/workspaces).
 	WorkspacesRoot string
+	// DatabasePath is the SQLite file used for chat and provider audit records.
+	// The default is <cwd>/.pigo/gateway.db.
+	DatabasePath       string
+	AuditRetentionDays int
+	AuditMaxBodyBytes  int
 }
 
 func (o Options) withDefaults() Options {
@@ -39,7 +47,13 @@ func (o Options) withDefaults() Options {
 		o.Model = "openrouter/free"
 	}
 	if o.AuthMode == "" {
-		o.AuthMode = "none"
+		o.AuthMode = "token"
+	}
+	if o.AuditRetentionDays == 0 {
+		o.AuditRetentionDays = 30
+	}
+	if o.AuditMaxBodyBytes <= 0 {
+		o.AuditMaxBodyBytes = 1 << 20
 	}
 	return o
 }

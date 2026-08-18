@@ -16,6 +16,23 @@ interface Channel {
   auth_mode?: string
 }
 
+interface RoutePreviewCandidate {
+  order: number
+  provider_id?: number
+  provider_name: string
+  model: string
+  base_url?: string
+  protocol?: string
+  priority: number
+  weight: number
+  is_default: boolean
+  health: {
+    consecutive_failures: number
+    circuit_open_until?: string
+    last_error?: string
+  }
+}
+
 type ProviderMode = 'api_key' | 'oauth'
 
 const CHANNEL_TYPE_SLUGS: Record<number, string> = {
@@ -379,6 +396,10 @@ function ProvidersPage({ accountId }: { accountId?: number }) {
   const [fetchingModels, setFetchingModels] = useState(false)
   const [availableModels, setAvailableModels] = useState<string[]>([])
   const [modelPick, setModelPick] = useState('')
+  const [routeModel, setRouteModel] = useState('')
+  const [routeCandidates, setRouteCandidates] = useState<RoutePreviewCandidate[]>([])
+  const [routeLoading, setRouteLoading] = useState(false)
+  const [routeError, setRouteError] = useState('')
 
   const fetchChannels = async () => {
     try {
@@ -401,6 +422,27 @@ function ProvidersPage({ accountId }: { accountId?: number }) {
       setClaudeConnected(!!data.connected)
     } catch {
       // ignore
+    }
+  }
+
+  const previewRoute = async () => {
+    setRouteLoading(true)
+    setRouteError('')
+    try {
+      const query = routeModel.trim() ? `?model=${encodeURIComponent(routeModel.trim())}` : ''
+      const res = await apiFetch(`/v1/admin/routes/preview${query}`, {}, accountId)
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setRouteCandidates([])
+        setRouteError(data.error || '无法生成路由计划')
+        return
+      }
+      setRouteCandidates(data.candidates || [])
+    } catch {
+      setRouteCandidates([])
+      setRouteError('网络错误')
+    } finally {
+      setRouteLoading(false)
     }
   }
 
@@ -588,6 +630,18 @@ function ProvidersPage({ accountId }: { accountId?: number }) {
     }
   }
 
+  const handleSetStatus = async (channel: Channel) => {
+    try {
+      const res = await apiFetch(`/v1/admin/providers/${channel.id}/status`, {
+        method: 'PUT',
+        body: JSON.stringify({ status: channel.status === 1 ? 0 : 1 }),
+      }, accountId)
+      if (res.ok) fetchChannels()
+    } catch (e) {
+      console.error('Failed to update provider status:', e)
+    }
+  }
+
   const parseModelsField = (raw: string): string[] => {
     const trimmed = raw.trim()
     if (!trimmed) return []
@@ -703,6 +757,68 @@ function ProvidersPage({ accountId }: { accountId?: number }) {
 
   return (
     <div className="space-y-6">
+      <div className="bg-card border border-border rounded-lg">
+        <div className="flex flex-col sm:flex-row sm:items-end gap-3 px-5 py-4 border-b border-border">
+          <div className="flex-1">
+            <label className="block text-[13px] font-medium text-foreground mb-1.5">路由预览</label>
+            <input
+              value={routeModel}
+              onChange={(e) => setRouteModel(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') previewRoute() }}
+              placeholder="模型 ID；留空使用默认路由"
+              className="w-full h-9 px-3 bg-background border border-border rounded-md text-[13px]"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={previewRoute}
+            disabled={routeLoading}
+            className="h-9 px-4 bg-primary text-primary-foreground rounded-md text-[13px] font-medium hover:bg-primary/90 disabled:opacity-50"
+          >
+            {routeLoading ? '计算中' : '查看顺序'}
+          </button>
+        </div>
+        {routeError && <p className="px-5 py-3 text-[12px] text-destructive">{routeError}</p>}
+        {routeCandidates.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">顺序</th>
+                  <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">提供商</th>
+                  <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">模型</th>
+                  <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">优先级</th>
+                  <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">权重</th>
+                  <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">健康状态</th>
+                </tr>
+              </thead>
+              <tbody>
+                {routeCandidates.map((candidate) => {
+                  const circuitOpen = candidate.health.circuit_open_until && new Date(candidate.health.circuit_open_until) > new Date()
+                  return (
+                    <tr key={`${candidate.order}-${candidate.provider_id || candidate.provider_name}`} className="border-b border-border last:border-0">
+                      <td className="px-5 py-3 text-[13px] text-foreground tabular-nums">{candidate.order}</td>
+                      <td className="px-5 py-3 text-[13px] text-foreground">
+                        {candidate.provider_name}
+                        {candidate.is_default && <span className="ml-2 text-[11px] text-primary">默认</span>}
+                      </td>
+                      <td className="px-5 py-3 text-[12px] text-muted-foreground font-mono">{candidate.model}</td>
+                      <td className="px-5 py-3 text-[13px] text-muted-foreground tabular-nums">{candidate.priority}</td>
+                      <td className="px-5 py-3 text-[13px] text-muted-foreground tabular-nums">{candidate.weight}</td>
+                      <td className="px-5 py-3 text-[12px]">
+                        <span className={circuitOpen ? 'text-destructive' : candidate.health.consecutive_failures ? 'text-amber-500' : 'text-success'}>
+                          {circuitOpen ? '熔断' : candidate.health.consecutive_failures ? `失败 ${candidate.health.consecutive_failures}` : '正常'}
+                        </span>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       {/* ---------- Subscription OAuth providers ---------- */}
       <div className="space-y-3">
         {claudeConfigured && (
@@ -752,6 +868,7 @@ function ProvidersPage({ accountId }: { accountId?: number }) {
           onEdit={openEdit}
           onDelete={handleDelete}
           onSetDefault={handleSetDefault}
+          onSetStatus={handleSetStatus}
         />
       </div>
 
@@ -766,6 +883,7 @@ function ProvidersPage({ accountId }: { accountId?: number }) {
         onEdit={openEdit}
         onDelete={handleDelete}
         onSetDefault={handleSetDefault}
+        onSetStatus={handleSetStatus}
       />
 
       <ProviderSection
@@ -778,6 +896,7 @@ function ProvidersPage({ accountId }: { accountId?: number }) {
         onEdit={openEdit}
         onDelete={handleDelete}
         onSetDefault={handleSetDefault}
+        onSetStatus={handleSetStatus}
       />
 
       {/* ---------- Add / Edit Modal ---------- */}
@@ -968,7 +1087,7 @@ function ProvidersPage({ accountId }: { accountId?: number }) {
 }
 
 function ProviderSection({
-  title, desc, onAdd, addLabel, emptyHint, channels, onEdit, onDelete, onSetDefault,
+  title, desc, onAdd, addLabel, emptyHint, channels, onEdit, onDelete, onSetDefault, onSetStatus,
   disabledAdd, disabledAddHint,
 }: {
   title: string
@@ -980,6 +1099,7 @@ function ProviderSection({
   onEdit: (c: Channel) => void
   onDelete: (id: number) => void
   onSetDefault: (id: number) => void
+  onSetStatus: (channel: Channel) => void
   disabledAdd?: boolean
   disabledAddHint?: string
 }) {
@@ -1053,6 +1173,9 @@ function ProviderSection({
                   </td>
                   <td className="px-5 py-3">
                     <div className="flex items-center gap-2">
+                      <button onClick={() => onSetStatus(channel)} className="text-[13px] text-muted-foreground hover:text-foreground font-medium">
+                        {channel.status === 1 ? '停用' : '启用'}
+                      </button>
                       <button onClick={() => onEdit(channel)} className="text-[13px] text-primary hover:text-primary/80 font-medium">编辑</button>
                       <button onClick={() => onDelete(channel.id)} className="text-[13px] text-destructive hover:text-destructive/80 font-medium">删除</button>
                     </div>

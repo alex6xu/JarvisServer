@@ -57,12 +57,26 @@ func (s *Service) listWorkspaces() ([]WorkspaceInfo, error) {
 	return out, nil
 }
 
-func (s *Service) workspaceDir(id string) string {
-	return filepath.Join(s.workspacesRoot(), filepath.Clean(id))
+func (s *Service) workspaceDir(id string) (string, error) {
+	if id == "" || id == "." || filepath.IsAbs(id) || strings.ContainsAny(id, `/\\`) {
+		return "", fmt.Errorf("invalid workspace id")
+	}
+	root, err := filepath.Abs(s.workspacesRoot())
+	if err != nil {
+		return "", err
+	}
+	target := filepath.Join(root, id)
+	if err := ensurePathWithin(root, target); err != nil {
+		return "", fmt.Errorf("invalid workspace id: %w", err)
+	}
+	return target, nil
 }
 
 func (s *Service) workspaceInfo(id string) (WorkspaceInfo, error) {
-	dir := s.workspaceDir(id)
+	dir, err := s.workspaceDir(id)
+	if err != nil {
+		return WorkspaceInfo{}, err
+	}
 	st, err := os.Stat(dir)
 	if err != nil {
 		return WorkspaceInfo{}, err
@@ -102,7 +116,10 @@ func (s *Service) createWorkspaceFromZip(name string, r io.ReaderAt, size int64)
 		return WorkspaceInfo{}, err
 	}
 	id := newID("ws")
-	dir := s.workspaceDir(id)
+	dir, err := s.workspaceDir(id)
+	if err != nil {
+		return WorkspaceInfo{}, err
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return WorkspaceInfo{}, err
 	}
@@ -125,13 +142,13 @@ func (s *Service) createWorkspaceFromZip(name string, r io.ReaderAt, size int64)
 }
 
 func extractZipFile(root string, f *zip.File) error {
-	name := filepath.Clean(f.Name)
-	if strings.HasPrefix(name, "..") {
+	name := filepath.Clean(filepath.FromSlash(f.Name))
+	if name == "." || filepath.IsAbs(name) {
 		return fmt.Errorf("invalid path in zip")
 	}
 	target := filepath.Join(root, name)
-	if !strings.HasPrefix(target, root) {
-		return fmt.Errorf("invalid path in zip")
+	if err := ensurePathWithin(root, target); err != nil {
+		return fmt.Errorf("invalid path in zip: %w", err)
 	}
 	if f.FileInfo().IsDir() {
 		return os.MkdirAll(target, 0o755)
@@ -154,7 +171,10 @@ func extractZipFile(root string, f *zip.File) error {
 }
 
 func (s *Service) deleteWorkspace(id string) error {
-	dir := s.workspaceDir(id)
+	dir, err := s.workspaceDir(id)
+	if err != nil {
+		return err
+	}
 	if _, err := os.Stat(dir); err != nil {
 		return fmt.Errorf("workspace not found")
 	}
@@ -162,7 +182,10 @@ func (s *Service) deleteWorkspace(id string) error {
 }
 
 func (s *Service) zipWorkspace(id string, w io.Writer) error {
-	dir := s.workspaceDir(id)
+	dir, err := s.workspaceDir(id)
+	if err != nil {
+		return err
+	}
 	if _, err := os.Stat(dir); err != nil {
 		return fmt.Errorf("workspace not found")
 	}
@@ -191,4 +214,23 @@ func (s *Service) zipWorkspace(id string, w io.Writer) error {
 		_, err = io.Copy(fw, f)
 		return err
 	})
+}
+
+func ensurePathWithin(root, target string) error {
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return err
+	}
+	absTarget, err := filepath.Abs(target)
+	if err != nil {
+		return err
+	}
+	rel, err := filepath.Rel(absRoot, absTarget)
+	if err != nil {
+		return err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return fmt.Errorf("path escapes workspace root")
+	}
+	return nil
 }

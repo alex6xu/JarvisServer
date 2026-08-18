@@ -11,61 +11,35 @@ import (
 
 // LLMRoute is the resolved model + wire settings for one chat run.
 type LLMRoute struct {
-	Model        string
-	BaseURL      string
-	Protocol     string
-	ProviderName string
-	APIKey       string
-	ProviderID   int
+	Model         string
+	BaseURL       string
+	Protocol      string
+	ProviderName  string
+	APIKey        string
+	ProviderID    int
 	ProviderLabel string
+	Priority      int  `json:"priority"`
+	Weight        int  `json:"weight"`
+	IsDefault     bool `json:"is_default"`
 }
 
 // resolveLLM picks a MemStore provider (by model match, else default) and maps it
 // onto SetupEnv arguments. Falls back to yaml/env Options when no usable provider exists.
 func (s *Service) resolveLLM(requestedModel string) (LLMRoute, error) {
-	requestedModel = strings.TrimSpace(requestedModel)
-	p := s.Mem.findProviderForModel(requestedModel)
-	if p == nil {
-		p = s.Mem.defaultProvider()
+	plan, err := s.resolveLLMPlan(requestedModel)
+	if err != nil {
+		return LLMRoute{}, err
 	}
-	if p == nil || !providerUsable(p) {
-		model := requestedModel
-		if model == "" {
-			model = s.Opts.Model
-		}
-		return LLMRoute{
-			Model:        model,
-			BaseURL:      s.Opts.BaseURL,
-			Protocol:     s.Opts.Protocol,
-			ProviderName: s.Opts.ProviderName,
-			APIKey:       s.Opts.APIKey,
-		}, nil
-	}
+	return plan.Candidates[0], nil
+}
 
-	models := parseProviderModels(p.Models)
-	model := requestedModel
+func (s *Service) resolveLLMPlan(requestedModel string) (RoutePlan, error) {
+	model := strings.TrimSpace(requestedModel)
 	if model == "" {
-		if len(models) > 0 {
-			model = models[0]
-		} else {
-			model = s.Opts.Model
-		}
+		model = s.Opts.Model
 	}
-
-	protocol, providerName := mapChannelType(p.Type, p.BaseURL)
-	if protocol == "openai" && strings.TrimSpace(p.BaseURL) == "" {
-		return LLMRoute{}, fmt.Errorf("provider %q (id=%d) requires base_url for OpenAI-compatible protocol", p.Name, p.ID)
-	}
-
-	return LLMRoute{
-		Model:         model,
-		BaseURL:       strings.TrimSpace(p.BaseURL),
-		Protocol:      protocol,
-		ProviderName:  providerName,
-		APIKey:        p.Key,
-		ProviderID:    p.ID,
-		ProviderLabel: p.Name,
-	}, nil
+	fallback := LLMRoute{Model: model, BaseURL: s.Opts.BaseURL, Protocol: s.Opts.Protocol, ProviderName: s.Opts.ProviderName, APIKey: s.Opts.APIKey}
+	return s.Router.Plan(s.Mem.listProviders(), requestedModel, fallback)
 }
 
 func providerUsable(p *Provider) bool {
@@ -178,27 +152,6 @@ func (m *MemStore) loadProvidersFromDisk() error {
 	}
 	m.nextProvID = int64(maxID)
 	return nil
-}
-
-func (m *MemStore) saveProvidersToDisk() error {
-	path := providersPersistPath()
-	if path == "" {
-		return fmt.Errorf("cannot resolve providers path")
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	m.mu.RLock()
-	list := make([]Provider, 0, len(m.providers))
-	for _, p := range m.providers {
-		list = append(list, *p)
-	}
-	m.mu.RUnlock()
-	data, err := json.MarshalIndent(list, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0o600)
 }
 
 func parseProviderID(s string) (int, error) {

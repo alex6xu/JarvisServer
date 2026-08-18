@@ -3,8 +3,11 @@ package gateway
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 )
@@ -28,19 +31,25 @@ type RunState struct {
 	Cancel      context.CancelFunc
 	Err         error
 
-	mu   sync.Mutex
-	subs map[chan StoredEvent]struct{}
-	done chan struct{}
+	mu    sync.Mutex
+	subs  map[chan StoredEvent]struct{}
+	done  chan struct{}
+	store *GatewayStore
 }
 
 // RunManager tracks in-process runs for SSE subscription and after_seq replay.
 type RunManager struct {
-	mu   sync.Mutex
-	runs map[string]*RunState
+	mu    sync.Mutex
+	runs  map[string]*RunState
+	store *GatewayStore
 }
 
-func NewRunManager() *RunManager {
-	return &RunManager{runs: make(map[string]*RunState)}
+func NewRunManager(store ...*GatewayStore) *RunManager {
+	var persistent *GatewayStore
+	if len(store) > 0 {
+		persistent = store[0]
+	}
+	return &RunManager{runs: make(map[string]*RunState), store: persistent}
 }
 
 func newRunID() string {
@@ -50,7 +59,7 @@ func newRunID() string {
 }
 
 // Register creates a running state and returns it. cancel cancels the run context.
-func (m *RunManager) Register(sessionID, model, workspaceID string, cancel context.CancelFunc) *RunState {
+func (m *RunManager) Register(sessionID, model, workspaceID string, cancel context.CancelFunc) (*RunState, error) {
 	st := &RunState{
 		ID:          newRunID(),
 		SessionID:   sessionID,
@@ -60,19 +69,49 @@ func (m *RunManager) Register(sessionID, model, workspaceID string, cancel conte
 		Cancel:      cancel,
 		subs:        make(map[chan StoredEvent]struct{}),
 		done:        make(chan struct{}),
+		store:       m.store,
 	}
 	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, active := range m.runs {
+		info := active.Info()
+		if active.SessionID == sessionID && info.Status == runStatusRunning {
+			return nil, fmt.Errorf("session already has an active run: %s", active.ID)
+		}
+	}
+	if m.store != nil {
+		if err := m.store.CreateRun(context.Background(), st); err != nil {
+			return nil, fmt.Errorf("persist run: %w", err)
+		}
+	}
 	m.runs[st.ID] = st
-	m.mu.Unlock()
-	return st
+	return st, nil
 }
 
 // Get returns a run by id.
 func (m *RunManager) Get(id string) (*RunState, bool) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	st, ok := m.runs[id]
-	return st, ok
+	m.mu.Unlock()
+	if ok || m.store == nil {
+		return st, ok
+	}
+	loaded, err := m.store.LoadRun(context.Background(), id)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			fmt.Fprintf(os.Stderr, "gateway: load run %s: %v\n", id, err)
+		}
+		return nil, false
+	}
+	loaded.store = m.store
+	m.mu.Lock()
+	if existing, exists := m.runs[id]; exists {
+		loaded = existing
+	} else {
+		m.runs[id] = loaded
+	}
+	m.mu.Unlock()
+	return loaded, true
 }
 
 // ActiveForSession returns the newest running run for a session, if any.
@@ -81,7 +120,8 @@ func (m *RunManager) ActiveForSession(sessionID string) *RunState {
 	defer m.mu.Unlock()
 	var best *RunState
 	for _, st := range m.runs {
-		if st.SessionID != sessionID || st.Status != runStatusRunning {
+		info := st.Info()
+		if st.SessionID != sessionID || info.Status != runStatusRunning {
 			continue
 		}
 		if best == nil || st.ID > best.ID {
@@ -105,6 +145,11 @@ func (st *RunState) Publish(ev StreamEvent) {
 	}
 	stored := StoredEvent{Seq: st.LastSeq, Payload: ev}
 	st.Events = append(st.Events, stored)
+	if st.store != nil {
+		if err := st.store.AppendRunEvent(context.Background(), st.ID, stored); err != nil {
+			fmt.Fprintf(os.Stderr, "gateway: persist event %s/%d: %v\n", st.ID, stored.Seq, err)
+		}
+	}
 	for ch := range st.subs {
 		select {
 		case ch <- stored:
@@ -134,6 +179,15 @@ func (st *RunState) Finish(err error) {
 		}
 	} else {
 		st.Status = runStatusDone
+	}
+	if st.store != nil {
+		errorText := ""
+		if err != nil {
+			errorText = err.Error()
+		}
+		if persistErr := st.store.FinishRun(context.Background(), st.ID, st.Status, errorText); persistErr != nil {
+			fmt.Fprintf(os.Stderr, "gateway: finish run %s: %v\n", st.ID, persistErr)
+		}
 	}
 	for ch := range st.subs {
 		close(ch)

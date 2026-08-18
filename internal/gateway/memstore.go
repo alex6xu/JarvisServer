@@ -63,6 +63,8 @@ type RouteProfile struct {
 
 type RequestLog struct {
 	ID               string `json:"id"`
+	RunID            string `json:"run_id,omitempty"`
+	SessionID        string `json:"session_id,omitempty"`
 	ProviderID       string `json:"provider_id,omitempty"`
 	ProviderName     string `json:"provider_name,omitempty"`
 	Model            string `json:"model"`
@@ -253,6 +255,21 @@ func (m *MemStore) listProviders() []Provider {
 	return out
 }
 
+func (m *MemStore) replaceProviders(providers []Provider) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.providers = make(map[int]*Provider, len(providers))
+	m.nextProvID = 0
+	for i := range providers {
+		p := providers[i]
+		cp := p
+		m.providers[p.ID] = &cp
+		if int64(p.ID) > m.nextProvID {
+			m.nextProvID = int64(p.ID)
+		}
+	}
+}
+
 func (m *MemStore) upsertProvider(id int, p Provider) Provider {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -306,6 +323,20 @@ func (m *MemStore) setDefaultProvider(id int) error {
 		x.IsDefault = 0
 	}
 	p.IsDefault = 1
+	return nil
+}
+
+func (m *MemStore) setProviderStatus(id, status int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	p, ok := m.providers[id]
+	if !ok {
+		return fmt.Errorf("provider not found")
+	}
+	if status != 0 && status != 1 {
+		return fmt.Errorf("provider status must be 0 or 1")
+	}
+	p.Status = status
 	return nil
 }
 
