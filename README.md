@@ -8,6 +8,7 @@
 - [特性一览](#特性一览)
 - [架构总览](#架构总览)
 - [安装与构建](#安装与构建)
+- [部署 Gateway 与 Web](#部署-gateway-与-web)
 - [快速开始](#快速开始)
 - [命令行参数](#命令行参数)
 - [模型与 Provider](#模型与-provider)
@@ -117,6 +118,14 @@ JARVIS_VERSION=v0.2.0 JARVIS_INSTALL_DIR="$HOME/bin" \
 ### 下载预编译二进制
 
 [Releases](https://github.com/alex6xu/jarvisserver/releases) 页面提供 Linux / macOS / Windows 的 amd64 与 arm64 预编译包（由 goreleaser 构建）。下载对应平台的压缩包解压即可使用。
+
+---
+
+## 部署 Gateway 与 Web
+
+生产环境推荐使用 Nginx 托管 `web/dist`，并将 `/v1` 和 `/healthz` 反向代理到
+仅监听回环地址的 Gateway。完整的构建、systemd、Nginx、HTTPS、SQLite 备份、升级与
+安全检查步骤见 [`docs/deployment.md`](docs/deployment.md)。
 
 ---
 
