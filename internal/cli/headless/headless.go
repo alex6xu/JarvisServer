@@ -13,12 +13,12 @@ import (
 	"io"
 	"strings"
 
-	"github.com/smallnest/pigo/internal/agentcore"
-	"github.com/smallnest/pigo/internal/cli/run"
-	"github.com/smallnest/pigo/internal/cli/ui"
-	"github.com/smallnest/pigo/internal/plugin"
-	"github.com/smallnest/pigo/internal/provider"
-	"github.com/smallnest/pigo/internal/runtime"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/cli/run"
+	"github.com/alex6xu/jarvisserver/internal/cli/ui"
+	"github.com/alex6xu/jarvisserver/internal/plugin"
+	"github.com/alex6xu/jarvisserver/internal/provider"
+	"github.com/alex6xu/jarvisserver/internal/runtime"
 )
 
 // RunParams carries the resolved inputs for one headless run. Mode and Env are
@@ -51,7 +51,7 @@ func Run(ctx context.Context, p RunParams, out, errOut io.Writer) int {
 	headlessPrompt := resolveHeadlessPluginCommand(p.Prompt, env.Plugins, errOut)
 	promptContent, err := ui.BuildUserContent(headlessPrompt)
 	if err != nil {
-		fmt.Fprintf(errOut, "pigo: %v\n", err)
+		fmt.Fprintf(errOut, "jarvis: %v\n", err)
 		return 1
 	}
 
@@ -61,7 +61,7 @@ func Run(ctx context.Context, p RunParams, out, errOut io.Writer) int {
 	// its prior messages ahead of the new prompt.
 	priorMsgs, hs, err := openHeadlessSession(p.ResumeID, p.Model, env.ProviderName, env.SysPrompt)
 	if err != nil {
-		fmt.Fprintf(errOut, "pigo: %v\n", err)
+		fmt.Fprintf(errOut, "jarvis: %v\n", err)
 		return 1
 	}
 	messages := append(priorMsgs, agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: promptContent})
@@ -75,7 +75,7 @@ func Run(ctx context.Context, p RunParams, out, errOut io.Writer) int {
 	// chain (default < global < project < env < --thinking-level flag).
 	thinking, err := run.ResolveThinkingLevel(p.ThinkingLevel)
 	if err != nil {
-		fmt.Fprintf(errOut, "pigo: %v\n", err)
+		fmt.Fprintf(errOut, "jarvis: %v\n", err)
 		return 2
 	}
 
@@ -99,7 +99,7 @@ func Run(ctx context.Context, p RunParams, out, errOut io.Writer) int {
 	}
 	set, herr := run.ResolveHookSet(env.Cwd, run.Trusted(env.Cwd))
 	if herr != nil {
-		fmt.Fprintf(errOut, "pigo: %v\n", herr)
+		fmt.Fprintf(errOut, "jarvis: %v\n", herr)
 		return 2
 	}
 	hookDeps := run.HookDeps{SessionID: hs.header.ID, ProjectDir: env.Cwd, WarnLog: errOut}
@@ -115,7 +115,7 @@ func Run(ctx context.Context, p RunParams, out, errOut io.Writer) int {
 	// the headless run non-zero; additionalContext is injected into this run only.
 	if d != nil {
 		if block, reason := run.DispatchUserPromptSubmit(ctx, d, &runCfg, hookDeps, headlessPrompt); block {
-			fmt.Fprintf(errOut, "pigo: prompt blocked by hook: %s\n", reason)
+			fmt.Fprintf(errOut, "jarvis: prompt blocked by hook: %s\n", reason)
 			return 1
 		}
 	}
@@ -131,10 +131,10 @@ func Run(ctx context.Context, p RunParams, out, errOut io.Writer) int {
 	// still resumable; a persistence failure is reported but does not mask a run
 	// error.
 	if perr := hs.persist(agentCtx); perr != nil {
-		fmt.Fprintf(errOut, "pigo: warning: could not persist session %s: %v\n", hs.header.ID, perr)
+		fmt.Fprintf(errOut, "jarvis: warning: could not persist session %s: %v\n", hs.header.ID, perr)
 	}
 	if runErr != nil {
-		fmt.Fprintf(errOut, "pigo: %v\n", runErr)
+		fmt.Fprintf(errOut, "jarvis: %v\n", runErr)
 		return 1
 	}
 	return 0
@@ -173,7 +173,7 @@ func resolveHeadlessPluginCommand(prompt string, mgr *plugin.Manager, notifyOut 
 		raw, _ := json.Marshal(args)
 		res, err := pc.Plugin.CallCommand(context.Background(), name, json.RawMessage(raw))
 		if err != nil {
-			fmt.Fprintf(notifyOut, "pigo: plugin command %q failed: %v\n", name, err)
+			fmt.Fprintf(notifyOut, "jarvis: plugin command %q failed: %v\n", name, err)
 			return prompt
 		}
 		for _, n := range res.Notifications {

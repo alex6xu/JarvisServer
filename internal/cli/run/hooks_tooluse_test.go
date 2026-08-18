@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/smallnest/pigo/internal/agentcore"
-	"github.com/smallnest/pigo/internal/agenttool"
-	"github.com/smallnest/pigo/internal/hooks"
-	"github.com/smallnest/pigo/internal/runtime"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/agenttool"
+	"github.com/alex6xu/jarvisserver/internal/hooks"
+	"github.com/alex6xu/jarvisserver/internal/runtime"
 )
 
 // recordingTool is a fake AgentTool that records whether Execute ran and echoes

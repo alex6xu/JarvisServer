@@ -12,7 +12,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
 )
 
 // EditTool performs exact string replacements in files under Root.

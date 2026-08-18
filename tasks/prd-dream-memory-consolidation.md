@@ -2,9 +2,9 @@
 
 ## Introduction
 
-pigo 已经具备一套持久记忆体系（`internal/memory/`）：按 scope（global / projects / sessions）与 type（user / feedback / project / reference / checkpoint / progress / notes）组织的 Markdown 记忆文件、`MEMORY.md` 索引、FTS 全文检索、以及会话 `checkpoint.md`。随着使用时间变长，记忆会**碎片化**：同一事实被多次记录、彼此矛盾、引用的文件路径已失效、单个 scope 下积累大量零散条目。检索质量下降，注入上下文的预算被浪费。
+jarvis 已经具备一套持久记忆体系（`internal/memory/`）：按 scope（global / projects / sessions）与 type（user / feedback / project / reference / checkpoint / progress / notes）组织的 Markdown 记忆文件、`MEMORY.md` 索引、FTS 全文检索、以及会话 `checkpoint.md`。随着使用时间变长，记忆会**碎片化**：同一事实被多次记录、彼此矛盾、引用的文件路径已失效、单个 scope 下积累大量零散条目。检索质量下降，注入上下文的预算被浪费。
 
-`/dream` 引入一个**周期性记忆固结**机制，模仿 MiMo Code 的同名能力。它由一个**独立子进程 Agent** 读取「当前项目 + 全局」的现有记忆文件与近期会话原始记录（session JSONL），执行**合并、去重、路径有效性校验、压缩，并主动剔除过期或矛盾的旧记忆**，把分散的记忆收敛成一份紧凑的「当前状态」，回写到 global 与当前 project 的记忆文件。触发方式为：会话启动时若距上次 dream ≥ 配置间隔（默认 7 天）则**静默后台触发**；也可手动 `/dream` 立即运行。目标是让 pigo「越用越懂你」——不必每次从零开始，而是带着对用户与项目的理解持续成长。
+`/dream` 引入一个**周期性记忆固结**机制，模仿 MiMo Code 的同名能力。它由一个**独立子进程 Agent** 读取「当前项目 + 全局」的现有记忆文件与近期会话原始记录（session JSONL），执行**合并、去重、路径有效性校验、压缩，并主动剔除过期或矛盾的旧记忆**，把分散的记忆收敛成一份紧凑的「当前状态」，回写到 global 与当前 project 的记忆文件。触发方式为：会话启动时若距上次 dream ≥ 配置间隔（默认 7 天）则**静默后台触发**；也可手动 `/dream` 立即运行。目标是让 jarvis「越用越懂你」——不必每次从零开始，而是带着对用户与项目的理解持续成长。
 
 面向读者：实现本功能的开发者或 AI Agent。
 
@@ -14,14 +14,14 @@ pigo 已经具备一套持久记忆体系（`internal/memory/`）：按 scope（
 - 会话启动时自动检测：距上次成功 dream ≥ 配置间隔（默认 7 天）则在后台静默触发，不阻塞用户当前会话。
 - 固结范围覆盖**当前项目记忆 + 全局记忆**，并读取**近期会话 JSONL 原始记录**提炼此前未沉淀的新记忆。
 - 固结操作包含：**合并**同类记忆、**去重**重复条目、**校验并清理**失效的文件/路径引用、**压缩**为紧凑当前态、**主动剔除**过期或与新信息矛盾的旧记忆。
-- 固结在**独立子进程**（`pigo --subagent-rpc`）中执行，与主会话崩溃隔离。
+- 固结在**独立子进程**（`jarvis --subagent-rpc`）中执行，与主会话崩溃隔离。
 - 触发间隔可通过 `config.toml` 配置（默认 7 天），并可关闭自动触发。
 - 每次固结后回写 `MEMORY.md` 索引并重建 FTS 检索，保证后续 `memory_search` 命中固结后的紧凑记忆。
 
 ## User Stories
 
 ### US-001: `[dream]` 配置表与间隔状态记录
-**Description:** As a pigo user, I want to configure the dream interval and have pigo track when dream last ran, so that auto-trigger fires at the right cadence and I can disable it.
+**Description:** As a jarvis user, I want to configure the dream interval and have jarvis track when dream last ran, so that auto-trigger fires at the right cadence and I can disable it.
 
 **Acceptance Criteria:**
 - [ ] `config.toml` 支持 `[dream]` 表，键：`enabled`（bool，默认 true）、`interval_days`（int，默认 7）；`enabled=false` 时永不自动触发。
@@ -34,7 +34,7 @@ pigo 已经具备一套持久记忆体系（`internal/memory/`）：按 scope（
 **Description:** As a developer, I need a dream Agent that runs in an isolated subprocess with a dedicated consolidation prompt, so consolidation never corrupts or blocks the parent session.
 
 **Acceptance Criteria:**
-- [ ] 复用现有 `pigo --subagent-rpc` 子进程机制启动一个 dream Agent，拥有全新上下文与文件读写工具。
+- [ ] 复用现有 `jarvis --subagent-rpc` 子进程机制启动一个 dream Agent，拥有全新上下文与文件读写工具。
 - [ ] dream Agent 使用专用系统提示词，明确其任务边界：仅在「当前 project + global」scope 内合并/去重/校验路径/压缩/剔除过期矛盾条目；禁止写入用户源码目录。
 - [ ] 子进程崩溃或超时不影响父会话；父会话捕获错误并记录 `last_status=failed`。
 - [ ] dream Agent 完成后返回一份结构化变更报告（合并 N、去重 N、清理失效路径 N、剔除过期 N、压缩前后条目/字节数）。
@@ -120,7 +120,7 @@ pigo 已经具备一套持久记忆体系（`internal/memory/`）：按 scope（
 - FR-4: 系统必须在会话启动且 `enabled=true` 且到期时，于后台独立子进程启动一次 dream。
 - FR-5: 系统必须提供 `/dream` slash 命令以手动即时触发固结。
 - FR-6: 系统必须支持 `/dream --dry-run`，执行分析但不写入文件。
-- FR-7: dream Agent 必须在 `pigo --subagent-rpc` 子进程中运行，与父会话崩溃隔离。
+- FR-7: dream Agent 必须在 `jarvis --subagent-rpc` 子进程中运行，与父会话崩溃隔离。
 - FR-8: dream Agent 必须仅在当前 project scope 与 global scope 的记忆文件范围内读写。
 - FR-9: dream Agent 必须合并语义重叠的记忆条目为单条。
 - FR-10: dream Agent 必须去除完全重复的记忆条目。
@@ -153,10 +153,10 @@ pigo 已经具备一套持久记忆体系（`internal/memory/`）：按 scope（
 ## Technical Considerations
 
 - 复用 `internal/memory`：scope/type 布局（`paths.go`）、`Reconcile`（`reconcile.go`，FTS 索引 + 删除文件剪枝）、`store.go`/`search.go`。dream 的「语义合并/剔除」是 Reconcile 之上的一层新逻辑，二者职责不同：Reconcile 负责索引一致性，dream 负责内容收敛。
-- 复用子进程 subagent 机制（`internal/runtime/subagent.go`、`pigo --subagent-rpc` over stdio JSON-RPC）与嵌套守卫（dream Agent 不应再 spawn 子 Agent）。
+- 复用子进程 subagent 机制（`internal/runtime/subagent.go`、`jarvis --subagent-rpc` over stdio JSON-RPC）与嵌套守卫（dream Agent 不应再 spawn 子 Agent）。
 - session JSONL 读取需定位当前项目相关会话文件（参考现有 session store 路径约定）。
 - dream 状态文件与记忆根解析需与现有 `memoryRoot` 解析保持一致（见 `store.go` 注释）。
-- 到期判定与启动触发挂载在 CLI run assembly（`cmd/pigo`）会话初始化路径，注意不拖慢冷启动。
+- 到期判定与启动触发挂载在 CLI run assembly（`cmd/jarvis`）会话初始化路径，注意不拖慢冷启动。
 - 并发锁：可用记忆根下的 lockfile 或状态文件中的 `running` 标记 + PID/时间戳，避免死锁遗留。
 
 ## Success Metrics

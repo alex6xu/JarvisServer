@@ -3,7 +3,7 @@
 > Wayfinder ticket #2 的产出。源码精读自 `/Users/chaoyuepan/ai/pi`：
 > `packages/agent/src/agent-loop.ts`、`packages/agent/src/types.ts`、
 > `packages/ai/src/types.ts`、`packages/ai/src/utils/event-stream.ts`。
-> 目的：为 pigo 的 US-001..006 提供 TS→Go 映射建议、控制流复刻要点与易错点。
+> 目的：为 jarvis 的 US-001..006 提供 TS→Go 映射建议、控制流复刻要点与易错点。
 
 ---
 
@@ -42,11 +42,11 @@ pi 的 content 块是 tagged union（`type` 字段判别）：
 AgentToolResult<T> { content []（Text|Image）; details T; terminate?: bool }
 ```
 
-Go：`details` 用泛型 `AgentToolResult[T any]` 或 `any`。pi 内部大量 `AgentToolResult<any>` → pigo 首版用 `any` 更省事，泛型可后加。`terminate` 是**批级**提示（见 §3.4）。
+Go：`details` 用泛型 `AgentToolResult[T any]` 或 `any`。pi 内部大量 `AgentToolResult<any>` → jarvis 首版用 `any` 更省事，泛型可后加。`terminate` 是**批级**提示（见 §3.4）。
 
 ### 1.3 AgentEvent（→ US-001 事件类型全集）
 
-10 种事件，pigo 必须全覆盖（PRD FR-24）：
+10 种事件，jarvis 必须全覆盖（PRD FR-24）：
 
 `agent_start` / `agent_end{messages}` / `turn_start` / `turn_end{message, toolResults}` /
 `message_start{message}` / `message_update{message, assistantMessageEvent}` / `message_end{message}` /
@@ -227,7 +227,7 @@ wg.Wait()
 // 再按 i 顺序造 tool-result 消息 & 发 message 事件
 ```
 - **保序靠按 index 回填 `results[i]`**（正是 PRD 说的"goroutine + index 回填"）。✅
-- **顺序性微妙点**：pi 的 parallel 里 `tool_execution_end` 在**完成顺序**发（thunk 内部），而 tool-result **message** 事件在**源顺序**发（Promise.all 之后）。若 pigo 想 100% 复刻，`tool_execution_end` 可在 goroutine 内发（完成序），message 事件循环外按序发。但多 goroutine 并发 `emit`（ch<-）会竞争 channel——**需要 emit 加锁或改为完成序也走收集后统一发**。首版建议：**tool_execution_end 也收集后按源序发**（比 pi 少一点实时性，但 emit 无并发竞争，更安全）。**记录为可接受偏差**。
+- **顺序性微妙点**：pi 的 parallel 里 `tool_execution_end` 在**完成顺序**发（thunk 内部），而 tool-result **message** 事件在**源顺序**发（Promise.all 之后）。若 jarvis 想 100% 复刻，`tool_execution_end` 可在 goroutine 内发（完成序），message 事件循环外按序发。但多 goroutine 并发 `emit`（ch<-）会竞争 channel——**需要 emit 加锁或改为完成序也走收集后统一发**。首版建议：**tool_execution_end 也收集后按源序发**（比 pi 少一点实时性，但 emit 无并发竞争，更安全）。**记录为可接受偏差**。
 - prepare 阶段每步后 `signal.aborted` 检查 → break（与 pi 一致）。
 
 ### 3.6 截断保护 failToolCallsFromTruncatedMessage（US-006 / FR-10）
@@ -263,7 +263,7 @@ wg.Wait()
 | `getSteeringMessages` | 每轮工具执行后 | 运行中插话 | 不抛，无则 [] |
 | `getFollowUpMessages` | agent 本要停时 | 排队等干完再继续 | 不抛，无则 [] |
 
-> pi 是 6 个"核心钩子"（PRD 列的 beforeToolCall/afterToolCall/prepareNextTurn/shouldStopAfterTurn/getSteeringMessages/getFollowUpMessages），另有 transformContext/convertToLlm/getApiKey 三个上下文/请求处理回调。pigo 都要有。
+> pi 是 6 个"核心钩子"（PRD 列的 beforeToolCall/afterToolCall/prepareNextTurn/shouldStopAfterTurn/getSteeringMessages/getFollowUpMessages），另有 transformContext/convertToLlm/getApiKey 三个上下文/请求处理回调。jarvis 都要有。
 
 **Go 映射**：全部作为 `AgentLoopConfig` 上的 **func 字段**（nil 判断 = "未提供"，正是 PRD 说的"可选回调 → struct 中 func 字段 + nil 判断"）。调用前 `if config.BeforeToolCall != nil`。"不得抛错"契约在 Go 里对应"不 panic"——但 Go 惯例是返回 error，此处应遵循 pi：钩子签名可返回 error，loop 捕获并转成安全回退/error tool result，而非 panic 逃逸。
 

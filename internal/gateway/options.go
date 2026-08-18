@@ -8,7 +8,7 @@ type Options struct {
 	Cwd string
 	// Model is the default model id when a chat request omits model.
 	Model string
-	// BaseURL / Protocol / ProviderName mirror pigo CLI provider selection.
+	// BaseURL / Protocol / ProviderName mirror jarvis CLI provider selection.
 	BaseURL      string
 	Protocol     string
 	ProviderName string

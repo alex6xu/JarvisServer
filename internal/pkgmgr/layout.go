@@ -1,16 +1,16 @@
-// This file defines pigo's install directory layout (#154): where each pi
-// package type is placed so pigo's existing discovery mechanisms load it with
+// This file defines jarvis's install directory layout (#154): where each pi
+// package type is placed so jarvis's existing discovery mechanisms load it with
 // no extra configuration. The paths intentionally match the conventions already
-// used elsewhere in cmd/pigo and internal/*:
+// used elsewhere in cmd/jarvis and internal/*:
 //
-//   - extensions → $PIGO_HOME/plugins   (internal/plugin.Discover)
-//   - prompts    → $PIGO_HOME/commands  (runtime.LoadUserCommandsDir)
-//   - themes     → $PIGO_HOME/themes    (no runtime consumer yet)
-//   - skills     → skills dir           (~/.agents/skills, PIGO_SKILLS_DIR override)
+//   - extensions → $JARVIS_HOME/plugins   (internal/plugin.Discover)
+//   - prompts    → $JARVIS_HOME/commands  (runtime.LoadUserCommandsDir)
+//   - themes     → $JARVIS_HOME/themes    (no runtime consumer yet)
+//   - skills     → skills dir           (~/.agents/skills, JARVIS_SKILLS_DIR override)
 //
-// Skills are the one exception to the $PIGO_HOME root: pigo loads skills from
-// ~/.agents/skills (overridable with PIGO_SKILLS_DIR), so SkillsDir honors that
-// rather than nesting under $PIGO_HOME.
+// Skills are the one exception to the $JARVIS_HOME root: jarvis loads skills from
+// ~/.agents/skills (overridable with JARVIS_SKILLS_DIR), so SkillsDir honors that
+// rather than nesting under $JARVIS_HOME.
 package pkgmgr
 
 import (
@@ -18,21 +18,21 @@ import (
 	"path/filepath"
 )
 
-// Home returns the pigo home directory: $PIGO_HOME, or ~/.pigo when unset. It
+// Home returns the jarvis home directory: $JARVIS_HOME, or ~/.jarvis when unset. It
 // returns "" when the home directory cannot be resolved and no override is set,
 // matching trust.DefaultPath's "unavailable" contract.
 func Home() string {
-	if dir := os.Getenv("PIGO_HOME"); dir != "" {
+	if dir := os.Getenv("JARVIS_HOME"); dir != "" {
 		return dir
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".pigo")
+	return filepath.Join(home, ".jarvis")
 }
 
-// PluginsDir returns $PIGO_HOME/plugins, where installed extensions (including
+// PluginsDir returns $JARVIS_HOME/plugins, where installed extensions (including
 // MCP adapters) are laid down for internal/plugin.Discover. It returns "" when
 // Home is unavailable.
 func PluginsDir() string {
@@ -43,7 +43,7 @@ func PluginsDir() string {
 	return filepath.Join(h, "plugins")
 }
 
-// CommandsDir returns $PIGO_HOME/commands, the legacy location for installed
+// CommandsDir returns $JARVIS_HOME/commands, the legacy location for installed
 // prompt/command templates (still loaded by runtime.LoadUserCommandsDir for
 // back-compat). New installs go to PromptsDir. It returns "" when Home is
 // unavailable.
@@ -55,7 +55,7 @@ func CommandsDir() string {
 	return filepath.Join(h, "commands")
 }
 
-// PromptsDir returns $PIGO_HOME/prompts, the pi-aligned location where installed
+// PromptsDir returns $JARVIS_HOME/prompts, the pi-aligned location where installed
 // prompt templates are laid down for runtime.LoadUserCommandsDir (which loads
 // both prompts/ and the legacy commands/). It returns "" when Home is
 // unavailable.
@@ -67,7 +67,7 @@ func PromptsDir() string {
 	return filepath.Join(h, "prompts")
 }
 
-// ThemesDir returns $PIGO_HOME/themes, where installed themes are stored. pigo
+// ThemesDir returns $JARVIS_HOME/themes, where installed themes are stored. jarvis
 // has no theme runtime yet, so this is a holding location for a future consumer.
 // It returns "" when Home is unavailable.
 func ThemesDir() string {
@@ -78,11 +78,11 @@ func ThemesDir() string {
 	return filepath.Join(h, "themes")
 }
 
-// SkillsDir returns the directory installed skills are placed in: PIGO_SKILLS_DIR
-// when set, else ~/.agents/skills — matching cmd/pigo's skill loader. It returns
+// SkillsDir returns the directory installed skills are placed in: JARVIS_SKILLS_DIR
+// when set, else ~/.agents/skills — matching cmd/jarvis's skill loader. It returns
 // "" when the home directory cannot be resolved and no override is set.
 func SkillsDir() string {
-	if dir := os.Getenv("PIGO_SKILLS_DIR"); dir != "" {
+	if dir := os.Getenv("JARVIS_SKILLS_DIR"); dir != "" {
 		return dir
 	}
 	home, err := os.UserHomeDir()

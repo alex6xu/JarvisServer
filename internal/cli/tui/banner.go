@@ -6,17 +6,17 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/smallnest/pigo/internal/provider"
-	"github.com/smallnest/pigo/internal/selfupdate"
+	"github.com/alex6xu/jarvisserver/internal/provider"
+	"github.com/alex6xu/jarvisserver/internal/selfupdate"
 )
 
 // This file builds the startup splash shown at the top of the transcript: the
-// pigo braille logo painted in a vertical rainbow gradient, with the session's
+// jarvis braille logo painted in a vertical rainbow gradient, with the session's
 // basic configuration (model, provider, protocol, thinking effort, directory)
 // laid out beside it. It is seeded once by withSession so it scrolls up as the
 // conversation grows, like a shell's login banner.
 
-// logoLines is the pigo braille-art logo, one string per row.
+// logoLines is the jarvis braille-art logo, one string per row.
 var logoLines = []string{
 	"⣿⣿⣿⣿⡿⠟⠛⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠙⣿",
 	"⣿⣿⡿⠋⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣼",
@@ -77,12 +77,12 @@ func renderBanner(theme Theme, opts Options, cwd string) string {
 			newVer := lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Bold(true).Render(latest)
 			rows[0][1] = rows[0][1] + "  →  " + newVer
 			upgradeHint = label.Render(strings.Repeat(" ", 11)) +
-				lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render("Run pigo update to upgrade")
+				lipgloss.NewStyle().Foreground(lipgloss.Color("214")).Render("Run jarvis update to upgrade")
 		}
 	}
 
 	var info strings.Builder
-	info.WriteString(title.Render("pigo") + "  " + theme.System.Render("Terminal AI coding assistant") + "\n\n")
+	info.WriteString(title.Render("jarvis") + "  " + theme.System.Render("Terminal AI coding assistant") + "\n\n")
 	for i, r := range rows {
 		if i > 0 {
 			info.WriteByte('\n')

@@ -2,7 +2,7 @@
 
 ## Introduction
 
-《用 Go 从零构建 Pi Agent》以 [pigo](https://github.com/smallnest/pigo) 源码为标本，庖丁解牛式逐层拆解一个命令行 AI Agent。引言（#202）与第 1 章（#204）已完成并入库，构建管线（pandoc → tectonic → ElegantBook）已跑通。
+《用 Go 从零构建 Pi Agent》以 [jarvis](https://github.com/alex6xu/jarvisserver) 源码为标本，庖丁解牛式逐层拆解一个命令行 AI Agent。引言（#202）与第 1 章（#204）已完成并入库，构建管线（pandoc → tectonic → ElegantBook）已跑通。
 
 本 PRD 覆盖**剩余全部正文写作单元**：第 2–10 章共 9 章正文 + 后记，合计 10 个独立可交付单元。每章锚定 `outline.md` 中列出的真实源码包与关键文件，读者可对照源码逐行印证。写作规范、图表/实验盒子/交叉引用约定沿用第 1 章既定模式（见 `book/README.md`「写作约定」）。
 
@@ -22,7 +22,7 @@
 - [ ] 新建 `book/chapter2.md`，锚定 `internal/agentcore/{message,content,event,event_stream,tool,hooks,helpers}.go`
 - [ ] 覆盖：Message/Content 建模与多模态表达；AgentEvent 密封接口与 10 种事件类型；Tool 抽象与 Hooks 契约
 - [ ] 一级标题无手写「第 N 章」编号，小节无手写「N.N」编号（编号交由 `--number-sections`）
-- [ ] 代码引用来自 pigo 真实源码，关键结构体/接口签名与仓库一致
+- [ ] 代码引用来自 jarvis 真实源码，关键结构体/接口签名与仓库一致
 - [ ] 加入 `book/build_pdf.sh` 的 CANDIDATES 后 `bash build_pdf.sh` 成功产出 PDF，无 LaTeX 报错
 
 ### US-002: 撰写第 3 章《两层 Agent 循环》
@@ -79,7 +79,7 @@
 **Description:** 作为读者，我想理解首次进入目录的信任决策与受信状态管理如何作为工具执行前的安全闸门。
 
 **Acceptance Criteria:**
-- [ ] 新建 `book/chapter8.md`，锚定 `internal/trust/manager.go` 与 `cmd/pigo/trust.go`
+- [ ] 新建 `book/chapter8.md`，锚定 `internal/trust/manager.go` 与 `cmd/jarvis/trust.go`
 - [ ] 覆盖：首次进入项目目录的信任决策流程；受信状态持久化与 CLI 呈现；作为 Bash/工具执行前安全闸门的作用
 - [ ] 标题无手写编号
 - [ ] 代码引用与仓库一致
@@ -89,8 +89,8 @@
 **Description:** 作为读者，我想理解进程隔离的子 Agent 与基于 JSON-RPC 的父子通信。
 
 **Acceptance Criteria:**
-- [ ] 新建 `book/chapter9.md`，锚定 `internal/runtime/subagent.go`、`cmd/pigo/subagent_rpc.go`、`internal/jsonrpc/{message,transport}.go`
-- [ ] 覆盖：`pigo --subagent-rpc` 子进程侧；JSON-RPC 2.0 over stdio 的 `subagent/run` 请求与结果回传；父侧 SubAgentTool 驱动与事件汇聚
+- [ ] 新建 `book/chapter9.md`，锚定 `internal/runtime/subagent.go`、`cmd/jarvis/subagent_rpc.go`、`internal/jsonrpc/{message,transport}.go`
+- [ ] 覆盖：`jarvis --subagent-rpc` 子进程侧；JSON-RPC 2.0 over stdio 的 `subagent/run` 请求与结果回传；父侧 SubAgentTool 驱动与事件汇聚
 - [ ] 标题无手写编号
 - [ ] 代码引用与仓库一致
 - [ ] `bash build_pdf.sh` 成功产出 PDF，无报错
@@ -99,14 +99,14 @@
 **Description:** 作为读者，我想理解 Skills、斜杠命令、Plugins 与包管理器如何让 Agent 可插拔生长。
 
 **Acceptance Criteria:**
-- [ ] 新建 `book/chapter10.md`，锚定 `internal/runtime/{skills,slashcommand}.go`、`internal/plugin/{plugin,manager,manifest,events}.go`、`internal/pkgmgr/{install,fetch,distribute,classify,lockfile,ref}.go`、`cmd/pigo/pkgcmd.go`
+- [ ] 新建 `book/chapter10.md`，锚定 `internal/runtime/{skills,slashcommand}.go`、`internal/plugin/{plugin,manager,manifest,events}.go`、`internal/pkgmgr/{install,fetch,distribute,classify,lockfile,ref}.go`、`cmd/jarvis/pkgcmd.go`
 - [ ] 覆盖：Skills 与斜杠命令挂载；Plugin 清单/管理器/事件系统；包管理器拉取/分类/分发/锁文件
 - [ ] 标题无手写编号
 - [ ] 代码引用与仓库一致
 - [ ] `bash build_pdf.sh` 成功产出 PDF，无报错
 
 ### US-010: 撰写后记《解牛之后》
-**Description:** 作为读者，我想在读完源码解剖后，理解 pigo 相对 pi 的设计取舍与可延伸方向。
+**Description:** 作为读者，我想在读完源码解剖后，理解 jarvis 相对 pi 的设计取舍与可延伸方向。
 
 **Acceptance Criteria:**
 - [ ] 新建 `book/afterword.md`，标题以 `{.unnumbered}` 标记（后记不参与章节编号，比照引言）
@@ -118,7 +118,7 @@
 - FR-1: 系统必须为第 2–10 章分别新增 `book/chapterN.md`（N=2..10）。
 - FR-2: 系统必须新增 `book/afterword.md` 作为后记，标题以 `{.unnumbered}` 标记。
 - FR-3: 每章正文标题必须不含手写「第 N 章」/「N.N」编号，编号交由 pandoc `--number-sections` 与文档类生成。
-- FR-4: 每章内容必须锚定 `outline.md` 指定的对应源码包与关键文件，代码引用与 pigo 仓库真实源码一致。
+- FR-4: 每章内容必须锚定 `outline.md` 指定的对应源码包与关键文件，代码引用与 jarvis 仓库真实源码一致。
 - FR-5: 图表标题若出现必须写作「图N-M」形式以触发 `crossref.lua` 打锚点；正文「图N-M」「第N章」引用沿用既定写法。
 - FR-6: 每章文件加入构建后，`bash build_pdf.sh` 必须无 LaTeX 报错地产出完整 PDF。
 - FR-7: 全书行文风格、术语与交叉引用必须与已完成的引言、第 1 章保持一致。
@@ -140,7 +140,7 @@
 ## Success Metrics
 
 - 10 个写作单元全部合入后，全书 PDF 含引言 + 10 章正文 + 后记，章节/小节/图表编号连续正确。
-- 每章关键源码引用可在 pigo 仓库中逐一对照到真实文件与符号。
+- 每章关键源码引用可在 jarvis 仓库中逐一对照到真实文件与符号。
 - 构建零报错。
 
 ## Experiments (可选配套)

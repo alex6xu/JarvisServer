@@ -20,8 +20,8 @@ package run
 import (
 	"context"
 
-	"github.com/smallnest/pigo/internal/hooks"
-	"github.com/smallnest/pigo/internal/runtime"
+	"github.com/alex6xu/jarvisserver/internal/hooks"
+	"github.com/alex6xu/jarvisserver/internal/runtime"
 )
 
 // DispatchSessionStart runs the SessionStart event once at run start. source is

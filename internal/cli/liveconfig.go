@@ -1,5 +1,5 @@
 // This file defines LiveConfig, the mutable run configuration a control command
-// may change mid-session. It was moved verbatim from cmd/pigo (the former
+// may change mid-session. It was moved verbatim from cmd/jarvis (the former
 // liveRunConfig) and exported so the run, repl, btw, status and goal
 // subpackages can read and mutate it through the Host contract. The run closure
 // reads it on every prompt, so a /model switch takes effect on the next turn.
@@ -9,8 +9,8 @@
 package cli
 
 import (
-	"github.com/smallnest/pigo/internal/agentcore"
-	"github.com/smallnest/pigo/internal/provider"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/provider"
 )
 
 // LiveConfig is the mutable run configuration a control command may change

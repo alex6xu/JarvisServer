@@ -2,7 +2,7 @@
 
 ## Introduction
 
-pigo 的 REPL 目前每次只跑「一个 prompt → 助手回复（可含多轮工具调用）→ 回到提示符」的单轮闭环。用户希望像 Claude Code / [pi-goal](https://pi.dev/packages/@narumitw/pi-goal) 那样：给一个高层目标后，让 agent **自主续跑**，直到它认为目标达成（显式调用 `goal_complete`）、遇到真正的僵局（`goal_blocked`），或触发安全阀（最大轮次 / 无进展）或 token 预算上限才停下。
+jarvis 的 REPL 目前每次只跑「一个 prompt → 助手回复（可含多轮工具调用）→ 回到提示符」的单轮闭环。用户希望像 Claude Code / [pi-goal](https://pi.dev/packages/@narumitw/pi-goal) 那样：给一个高层目标后，让 agent **自主续跑**，直到它认为目标达成（显式调用 `goal_complete`）、遇到真正的僵局（`goal_blocked`），或触发安全阀（最大轮次 / 无进展）或 token 预算上限才停下。
 
 技术路线（已确认）：
 - **范围** — 核心自主续跑 **+ token 预算**。不做目标队列、跨扩展 RPC、statusline。
@@ -44,7 +44,7 @@ pigo 的 REPL 目前每次只跑「一个 prompt → 助手回复（可含多轮
 **Description:** 作为使用者，我需要一个 `/goal` 命令来设置/查看/暂停/恢复/清空目标，并驱动自主续跑。
 
 **Acceptance Criteria:**
-- [x] `cmd/pigo/goal.go` 实现 `runGoal`，在 `cmd/pigo/repl.go` 主循环里拦截（与 `/compact`、`/fork` 同类，不走 slash Action 闭包），因为要跑 agent stream 且改共享状态
+- [x] `cmd/jarvis/goal.go` 实现 `runGoal`，在 `cmd/jarvis/repl.go` 主循环里拦截（与 `/compact`、`/fork` 同类，不走 slash Action 闭包），因为要跑 agent stream 且改共享状态
 - [x] `replDeps` 增加 `goal *agenttool.GoalState` 字段；`runInteractive` 初始化为空 idle state
 - [x] `/goal <objective>`：解析可选 `--tokens 100k/1m/N` 前缀（`parseGoalObjective`/`parseTokenBudget`）；`Start` 后调用 `runGoalLoop`
 - [x] `/goal`（裸）：打印状态（objective、status、iterations、tokens used/budget、elapsed、summary/blocked）
@@ -76,16 +76,16 @@ pigo 的 REPL 目前每次只跑「一个 prompt → 助手回复（可含多轮
 - 目标注入：`ReminderProvider` / `TodoReminderProvider`（`internal/runtime/reminder.go`）。
 - run 结束：工具 `Terminate`（`internal/agentcore/tool.go`）+ loop `allTerminate`（`loop.go:219`）。
 - token：`AssistantMessage.Usage.OutputTokens`（`internal/agentcore/message.go:61`）。
-- 命令拦截模式：`runManualCompact` / `runForkClone`（`cmd/pigo/repl.go`）。
-- run 组装：`streamRun`（`cmd/pigo/repl.go`）。
+- 命令拦截模式：`runManualCompact` / `runForkClone`（`cmd/jarvis/repl.go`）。
+- run 组装：`streamRun`（`cmd/jarvis/repl.go`）。
 - 工具骨架：`TodoTool` + `TodoStore`（`internal/agenttool/todo_tool.go`）。
 
-安全阀常量：`goalMaxAutomaticTurns=25`、`goalMaxNoProgress=3`（`cmd/pigo/goal.go`）。
+安全阀常量：`goalMaxAutomaticTurns=25`、`goalMaxNoProgress=3`（`cmd/jarvis/goal.go`）。
 
 ## Testing
 
 - [x] `internal/agenttool/goal_tool_test.go`：goal_complete 拒绝空/矛盾 summary、正常 summary 置 complete+Terminate；goal_blocked 记录 reason、要求 evidence；`RecordIteration` 计数；`Clear` 复位。
 - [x] `internal/runtime/reminder_test.go`：`GoalReminderProvider` 仅 active 时注入。
-- [x] `cmd/pigo/goal_test.go`：`goalFollowUpDecision` 各分支、`parseGoalObjective`/`parseTokenBudget` 解析、`goalTurnActivity` 累计。
+- [x] `cmd/jarvis/goal_test.go`：`goalFollowUpDecision` 各分支、`parseGoalObjective`/`parseTokenBudget` 解析、`goalTurnActivity` 累计。
 - [x] `go build ./...` + `go vet ./...` + `go test ./...` 全绿。
 - [ ] 端到端手测：REPL `/goal --tokens 50k 在当前目录创建 hello.txt 并写入 hi` → 观察自主续跑、goal_complete 结束、`/goal` 显示 complete、`/goal clear` 清空。

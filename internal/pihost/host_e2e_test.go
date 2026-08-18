@@ -21,8 +21,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/smallnest/pigo/internal/pihost"
-	"github.com/smallnest/pigo/internal/plugin"
+	"github.com/alex6xu/jarvisserver/internal/pihost"
+	"github.com/alex6xu/jarvisserver/internal/plugin"
 )
 
 // piSDKProbe mirrors pihost.mjs's own SDK resolution (loadSdk): try a direct
@@ -104,7 +104,7 @@ func TestPiHostExtensionE2E(t *testing.T) {
 	}
 
 	// Exercise the EMBEDDED host bytes: write pihost.Script to a temp .mjs so
-	// the test drives exactly what pigo ships, not a stray on-disk copy.
+	// the test drives exactly what jarvis ships, not a stray on-disk copy.
 	tmp := t.TempDir()
 	hostPath := filepath.Join(tmp, "pihost.mjs")
 	if err := os.WriteFile(hostPath, pihost.Script, 0o644); err != nil {

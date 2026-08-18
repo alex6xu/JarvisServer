@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/smallnest/pigo/internal/agentcore"
-	"github.com/smallnest/pigo/internal/provider"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/provider"
 )
 
 // fakeStream builds a StreamFn that replays a fixed sequence of events, pushing

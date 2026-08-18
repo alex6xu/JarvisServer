@@ -1,5 +1,5 @@
 // Command gateway serves the CodeGateway-compatible HTTP API via go-zero rest,
-// driving pigo's agentcore/runtime for the web/ React frontend.
+// driving jarvis's agentcore/runtime for the web/ React frontend.
 //
 //	go run ./cmd/gateway -f etc/gateway.yaml
 //
@@ -14,7 +14,7 @@ import (
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/core/logx"
 
-	"github.com/smallnest/pigo/internal/gateway"
+	"github.com/alex6xu/jarvisserver/internal/gateway"
 )
 
 var configFile = flag.String("f", "etc/gateway.yaml", "config file")

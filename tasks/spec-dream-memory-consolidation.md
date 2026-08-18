@@ -16,7 +16,7 @@
 ### 1.3 Design Decisions Summary
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| 子进程入口（Q1） | 新增 `pigo --dream` 内部标志，以自包含 headless agent 运行到完成、向 stdout 输出报告 JSON | `--subagent-rpc` 是父进程编排的 JSON-RPC 服务，需要驱动方常驻；周期性独立作业更适合"跑完即退"的一次性子进程，复用 headless 会话基建，天然崩溃隔离 |
+| 子进程入口（Q1） | 新增 `jarvis --dream` 内部标志，以自包含 headless agent 运行到完成、向 stdout 输出报告 JSON | `--subagent-rpc` 是父进程编排的 JSON-RPC 服务，需要驱动方常驻；周期性独立作业更适合"跑完即退"的一次性子进程，复用 headless 会话基建，天然崩溃隔离 |
 | 固结执行分工（Q2） | 混合：Go 确定性做去重候选/路径校验/索引重建；LLM 做合并、过期/矛盾判定、JSONL 提炼 | 确定性部分可单测、可控；语义部分交给 LLM。降低 LLM 误删风险 |
 | dream 模型（Q3） | 固定沿用主会话模型，不单独配置 | 保持一致的记忆理解质量；避免新增配置面。成本在 Non-Goals 之外由周期性触发天然摊薄 |
 | 状态与锁（Q4） | `state.json`（状态）+ 独立 `dream.lock`（`O_EXCL` 原子创建，含 PID+started_at，超时接管陈旧锁） | 锁与状态分离，崩溃不污染状态；`O_EXCL` 保证互斥；超时接管避免死锁遗留 |
@@ -36,7 +36,7 @@
   │  用户输入 /dream[ --dry-run]                          │
   └─► DreamScheduler.RunNow() ───────────────────────────┤
                                                           ▼
-                                    子进程: `pigo --dream [--dry-run] --cwd <proj>`
+                                    子进程: `jarvis --dream [--dry-run] --cwd <proj>`
                                                           │
                                     ┌─────────────────────┴─────────────────────┐
                                     │ dream runner (internal/dream)              │
@@ -61,16 +61,16 @@
 - **`Report`**：结构化变更统计（见 3.2）。
 - **`prompt.go`**：dream Agent 系统提示词常量。
 
-复用既有：`internal/memory`（`Store.Open`/`Root`/`Reconcile`/`paths`）、`internal/session`（`Store` 读 JSONL）、`internal/cli/headless`（agent 运行基建）、`cmd/pigo`（flag 解析、`--cwd`）。
+复用既有：`internal/memory`（`Store.Open`/`Root`/`Reconcile`/`paths`）、`internal/session`（`Store` 读 JSONL）、`internal/cli/headless`（agent 运行基建）、`cmd/jarvis`（flag 解析、`--cwd`）。
 
 ### 2.3 Module Interactions
-- **父进程**（`internal/cli/repl` 与 `cmd/pigo` 会话初始化）：调用 `dream.Scheduler`。`/dream` 拦截点与 `/compact`、`/rebuild` 同构（`repl.go` streamPrompt 循环内 `if line == "/dream" || strings.HasPrefix(line, "/dream ")`）。
-- **子进程**（`cmd/pigo` 解析 `--dream` → 调 `dream.Runner.Run`）：独立完成固结，`os.Exit(0/1)`，报告经 stdout。
+- **父进程**（`internal/cli/repl` 与 `cmd/jarvis` 会话初始化）：调用 `dream.Scheduler`。`/dream` 拦截点与 `/compact`、`/rebuild` 同构（`repl.go` streamPrompt 循环内 `if line == "/dream" || strings.HasPrefix(line, "/dream ")`）。
+- **子进程**（`cmd/jarvis` 解析 `--dream` → 调 `dream.Runner.Run`）：独立完成固结，`os.Exit(0/1)`，报告经 stdout。
 - **记忆写回后** 调 `memory.Reconcile(store)` 重建 FTS 索引 + 剪除已删文件行。
 
 ### 2.4 File Structure
 ```
-cmd/pigo/
+cmd/jarvis/
   main.go                         [MODIFY: 注册 --dream / --dream-dry-run 内部 flag，分派到 dream.Runner]
 internal/dream/                   [NEW 包]
   config.go                       [NEW: Config + 默认值]
@@ -167,8 +167,8 @@ type DreamConfig struct {
 | 手动 | `/dream` | 即时固结，打印全表报告 | 是 | 用户（TUI/REPL） |
 | 手动预演 | `/dream --dry-run` | 完整分析不写盘，打印将发生的变更 | 否 | 用户 |
 | 后台自动 | 会话启动隐式 | 到期且 enabled 时后台 spawn | 是 | Scheduler |
-| 子进程 | `pigo --dream [--dry-run] -C <projDir>` | 内部：真正执行固结，stdout 输出 Report JSON | 视 dry-run | 父进程 spawn |
-| headless | `pigo --dream ...`（同上） | 供脚本/CI 直接调用 | 视 dry-run | 用户脚本 |
+| 子进程 | `jarvis --dream [--dry-run] -C <projDir>` | 内部：真正执行固结，stdout 输出 Report JSON | 视 dry-run | 父进程 spawn |
+| headless | `jarvis --dream ...`（同上） | 供脚本/CI 直接调用 | 视 dry-run | 用户脚本 |
 
 `--dream` 为内部标志（`flag.BoolVar`，usage 标 `internal:`），与现有 `--subagent-rpc` 同级。父进程用 `os.Executable()` + `--dream -C <projDir>` spawn，继承记忆根/模型相关环境。
 
@@ -312,7 +312,7 @@ dream 不外发记忆内容到第三方（仅发给已配置的主模型 provide
 - `Runner.Run` 端到端（用 fake/stub LLM 或注入的决策函数）：构造含重复/失效路径/可合并条目的临时 memoryRoot，跑固结，断言文件收敛 + Report 计数 + `Reconcile` 生效 + `memory_search` 不再命中旧碎片。
 - `--dry-run`：断言磁盘无变化、state 未更新、报告标 DryRun。
 - 幂等：连续两次 Run，第二次 Report 全 0、字节不变。
-- 子进程契约：`pigo --dream` 输出可解析 Report JSON、退出码正确。
+- 子进程契约：`jarvis --dream` 输出可解析 Report JSON、退出码正确。
 - 后台触发：Scheduler 到期时 spawn；`enabled=false` 或未到期时不 spawn。
 
 ### 9.3 Edge Case Tests
@@ -338,7 +338,7 @@ dream 不外发记忆内容到第三方（仅发给已配置的主模型 provide
 ### 10.1 Phases
 1. **基础设施**（无 LLM 依赖，纯确定性、易测）：`config` 表 + `state` + `lock` + `scheduler.Due`。
 2. **确定性 plan**：`plan.go`（枚举/去重/路径校验/相似度配对）+ `report.go`。
-3. **子进程入口**：`cmd/pigo` `--dream` 分派 + `Runner` 骨架（先支持 dry-run 与确定性部分，LLM 决策用注入接口）。
+3. **子进程入口**：`cmd/jarvis` `--dream` 分派 + `Runner` 骨架（先支持 dry-run 与确定性部分，LLM 决策用注入接口）。
 4. **LLM apply**：接主会话模型，dream 提示词，合并/剔除 + `distill` JSONL 提炼；写回 + `Reconcile`。
 5. **父进程集成**：`/dream` 拦截 + 报告打印；会话启动 `MaybeRunBackground` 后台触发 + 一行摘要提示。
 6. **文档**：slash-commands / configuration / features 三页双语更新。
@@ -357,7 +357,7 @@ dream 不外发记忆内容到第三方（仅发给已配置的主模型 provide
 | #9 文档三页双语更新 | 2.4 | US-009 | medium | #7 |
 
 ### 10.3 Incremental Delivery
-Phase 1–3 可先合入（无行为暴露，纯内部）。Phase 4–5 完成后 `pigo --dream --dry-run` 即可脚本化验证（headless）。Phase 7 暴露 `/dream`。Phase 8 打开自动触发——此前 `[dream].enabled` 即使为 true 也因无 scheduler 挂载而不生效，天然等价 dark launch。
+Phase 1–3 可先合入（无行为暴露，纯内部）。Phase 4–5 完成后 `jarvis --dream --dry-run` 即可脚本化验证（headless）。Phase 7 暴露 `/dream`。Phase 8 打开自动触发——此前 `[dream].enabled` 即使为 true 也因无 scheduler 挂载而不生效，天然等价 dark launch。
 
 ---
 
@@ -380,5 +380,5 @@ Phase 1–3 可先合入（无行为暴露，纯内部）。Phase 4–5 完成�
 ### 11.3 Assumptions
 - `memory` 包对外可获取 `memoryRoot` 且 `Reconcile` 可独立调用（已由 `Store.Root()`/`reconcile.go` 证实）。
 - `session.Store` 可枚举并按项目/时间过滤会话（`List()`/`SessionHeader` 提供 UpdatedAt；项目归属字段若缺失需在 header 补充，作为 #6 的前置小改动）。
-- 主会话模型配置在子进程可经环境/config 复用（`cmd/pigo` 现有解析路径覆盖）。
+- 主会话模型配置在子进程可经环境/config 复用（`cmd/jarvis` 现有解析路径覆盖）。
 - 后台 spawn 采用 `os.Executable() + --dream -C <projDir>`，继承必要环境变量。

@@ -10,7 +10,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
 )
 
 // RenderToolResult prints a tool result to out: the todo tool's result is shown

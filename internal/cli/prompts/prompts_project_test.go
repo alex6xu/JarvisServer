@@ -1,6 +1,6 @@
 package prompts
 
-// Tests for project-level .pigo/prompts (US-006, #337): loaded at the project
+// Tests for project-level .jarvis/prompts (US-006, #337): loaded at the project
 // tier only when the project is trusted, overrides global same-name templates,
 // and is suppressed by --no-prompt-templates.
 
@@ -8,22 +8,22 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/smallnest/pigo/internal/cli"
-	"github.com/smallnest/pigo/internal/cli/testutil"
-	"github.com/smallnest/pigo/internal/runtime"
+	"github.com/alex6xu/jarvisserver/internal/cli"
+	"github.com/alex6xu/jarvisserver/internal/cli/testutil"
+	"github.com/alex6xu/jarvisserver/internal/runtime"
 )
 
 // TestBuildSlashRegistryLoadsProjectPromptsTrusted: with the project trusted,
-// .pigo/prompts/*.md loads at the project tier.
+// .jarvis/prompts/*.md loads at the project tier.
 func TestBuildSlashRegistryLoadsProjectPromptsTrusted(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("PIGO_HOME", home) // empty global
+	t.Setenv("JARVIS_HOME", home) // empty global
 	cwdTmp := t.TempDir()
-	testutil.WritePrompt(t, cwdTmp, filepath.Join(".pigo", "prompts"), "review.md", "Review: $ARGUMENTS")
+	testutil.WritePrompt(t, cwdTmp, filepath.Join(".jarvis", "prompts"), "review.md", "Review: $ARGUMENTS")
 
 	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
 		PromptTemplateSources{
-			ProjectDir:     filepath.Join(cwdTmp, ".pigo", "prompts"),
+			ProjectDir:     filepath.Join(cwdTmp, ".jarvis", "prompts"),
 			ProjectTrusted: true,
 		})
 	if err != nil {
@@ -39,16 +39,16 @@ func TestBuildSlashRegistryLoadsProjectPromptsTrusted(t *testing.T) {
 }
 
 // TestBuildSlashRegistryProjectPromptsUntrustedSkipped: when the project is not
-// trusted, .pigo/prompts is not loaded.
+// trusted, .jarvis/prompts is not loaded.
 func TestBuildSlashRegistryProjectPromptsUntrustedSkipped(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("PIGO_HOME", home)
+	t.Setenv("JARVIS_HOME", home)
 	cwdTmp := t.TempDir()
-	testutil.WritePrompt(t, cwdTmp, filepath.Join(".pigo", "prompts"), "review.md", "Review: $ARGUMENTS")
+	testutil.WritePrompt(t, cwdTmp, filepath.Join(".jarvis", "prompts"), "review.md", "Review: $ARGUMENTS")
 
 	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
 		PromptTemplateSources{
-			ProjectDir:     filepath.Join(cwdTmp, ".pigo", "prompts"),
+			ProjectDir:     filepath.Join(cwdTmp, ".jarvis", "prompts"),
 			ProjectTrusted: false,
 		})
 	if err != nil {
@@ -59,20 +59,20 @@ func TestBuildSlashRegistryProjectPromptsUntrustedSkipped(t *testing.T) {
 	}
 }
 
-// TestBuildSlashRegistryProjectMissingDirNoError: a missing .pigo/prompts is
+// TestBuildSlashRegistryProjectMissingDirNoError: a missing .jarvis/prompts is
 // not an error (most projects don't have one).
 func TestBuildSlashRegistryProjectMissingDirNoError(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("PIGO_HOME", home)
-	cwdTmp := t.TempDir() // no .pigo/prompts created
+	t.Setenv("JARVIS_HOME", home)
+	cwdTmp := t.TempDir() // no .jarvis/prompts created
 
 	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
 		PromptTemplateSources{
-			ProjectDir:     filepath.Join(cwdTmp, ".pigo", "prompts"),
+			ProjectDir:     filepath.Join(cwdTmp, ".jarvis", "prompts"),
 			ProjectTrusted: true,
 		})
 	if err != nil {
-		t.Fatalf("missing .pigo/prompts should not error, got %v", err)
+		t.Fatalf("missing .jarvis/prompts should not error, got %v", err)
 	}
 	if reg == nil {
 		t.Fatal("registry is nil")
@@ -83,16 +83,16 @@ func TestBuildSlashRegistryProjectMissingDirNoError(t *testing.T) {
 // same-named global one (project tier wins, global shadowed).
 func TestBuildSlashRegistryProjectOverridesGlobal(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("PIGO_HOME", home)
+	t.Setenv("JARVIS_HOME", home)
 	// global
 	testutil.WritePrompt(t, home, "prompts", "dup.md", "FROM GLOBAL")
 	// project
 	cwdTmp := t.TempDir()
-	testutil.WritePrompt(t, cwdTmp, filepath.Join(".pigo", "prompts"), "dup.md", "FROM PROJECT")
+	testutil.WritePrompt(t, cwdTmp, filepath.Join(".jarvis", "prompts"), "dup.md", "FROM PROJECT")
 
 	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
 		PromptTemplateSources{
-			ProjectDir:     filepath.Join(cwdTmp, ".pigo", "prompts"),
+			ProjectDir:     filepath.Join(cwdTmp, ".jarvis", "prompts"),
 			ProjectTrusted: true,
 		})
 	if err != nil {
@@ -120,14 +120,14 @@ func TestBuildSlashRegistryProjectOverridesGlobal(t *testing.T) {
 // suppresses project prompts too.
 func TestBuildSlashRegistryNoPromptTemplatesDisablesProject(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("PIGO_HOME", home)
+	t.Setenv("JARVIS_HOME", home)
 	cwdTmp := t.TempDir()
-	testutil.WritePrompt(t, cwdTmp, filepath.Join(".pigo", "prompts"), "review.md", "Review: $ARGUMENTS")
+	testutil.WritePrompt(t, cwdTmp, filepath.Join(".jarvis", "prompts"), "review.md", "Review: $ARGUMENTS")
 
 	reg, err := BuildSlashRegistry(&cli.LiveConfig{Model: "test", ProviderName: "test"}, nil, nil,
 		PromptTemplateSources{
 			Disable:        true,
-			ProjectDir:     filepath.Join(cwdTmp, ".pigo", "prompts"),
+			ProjectDir:     filepath.Join(cwdTmp, ".jarvis", "prompts"),
 			ProjectTrusted: true,
 		})
 	if err != nil {

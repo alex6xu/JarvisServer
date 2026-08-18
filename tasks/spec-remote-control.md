@@ -29,7 +29,7 @@ This SPEC specifies how to add a `/remote-control` built-in slash command that s
 
 ### 2.1 System Context
 ```
-┌─────────────────────────── pigo process ───────────────────────────┐
+┌─────────────────────────── jarvis process ───────────────────────────┐
 │                                                                     │
 │  main goroutine: REPL loop (repl.go)                                │
 │    reads input ◀── inputSource (stdin ∪ remote) ── bufio.Reader     │
@@ -181,7 +181,7 @@ No data migration. Additive-only: when `deps.remote == nil`, all code paths beha
 
 ### 4.2 Request/Response Schemas
 - Pairing URL printed to terminal: `http://<lan-ip>:<port>/pair?t=<64-hex-chars>`.
-- Session cookie: `pigo_rc=<opaque 256-bit>; HttpOnly; SameSite=Strict; Path=/`. (No `Secure` flag: LAN is plain HTTP; documented in §7.)
+- Session cookie: `jarvis_rc=<opaque 256-bit>; HttpOnly; SameSite=Strict; Path=/`. (No `Secure` flag: LAN is plain HTTP; documented in §7.)
 - WebSocket messages: `Frame` JSON (§3.2). Server→client: `output`, `confirm`, `status`. Client→server: `input`, `decide`.
 - Input frame validation: `Text` trimmed; empty rejected server-side (mirrors SPA disabling send).
 
@@ -226,7 +226,7 @@ GET /pair?t=T:
   if tok == nil or tok.used or now > tok.expiresAt: 401           // FR-9
   tok.used = true                                                 // one-time
   cred = tokenStore.IssueSession()                                // FR-8
-  Set-Cookie pigo_rc=cred; 302 → "/"
+  Set-Cookie jarvis_rc=cred; 302 → "/"
 ```
 
 **Output mirroring (US-005 · FR-10, FR-17)**

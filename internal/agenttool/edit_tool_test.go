@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
 )
 
 func runEdit(t *testing.T, tool *EditTool, args map[string]any) agentcore.AgentToolResult {

@@ -1,5 +1,5 @@
 // This file parses and validates the package reference a user passes to
-// `pigo install` (#155). pi packages are published to npm, so a reference looks
+// `jarvis install` (#155). pi packages are published to npm, so a reference looks
 // like `npm:pi-mcp-adapter`, `npm:@scope/name`, or either form with a version
 // suffix (`npm:pi-mcp-adapter@1.2.3`). Parsing is deliberately strict: an
 // unsupported source prefix or an invalid npm package name is rejected up front,

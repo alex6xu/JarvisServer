@@ -37,7 +37,7 @@ func TestInstallExtensionEndToEnd(t *testing.T) {
 		t.Skip("fake npm shell script + extension install are POSIX-only")
 	}
 	home := t.TempDir()
-	t.Setenv("PIGO_HOME", home)
+	t.Setenv("JARVIS_HOME", home)
 
 	fakeNPMForInstall(t, map[string]string{
 		"package/package.json": `{"name":"pi-demo","version":"1.2.0","bin":"./cli.js"}`,
@@ -86,8 +86,8 @@ func TestInstallMultiType(t *testing.T) {
 	}
 	home := t.TempDir()
 	skills := t.TempDir()
-	t.Setenv("PIGO_HOME", home)
-	t.Setenv("PIGO_SKILLS_DIR", skills)
+	t.Setenv("JARVIS_HOME", home)
+	t.Setenv("JARVIS_SKILLS_DIR", skills)
 
 	fakeNPMForInstall(t, map[string]string{
 		"package/package.json": `{"name":"combo","version":"1.0.0","bin":"./x.js","pi":{"types":["extension","skill"]}}`,
@@ -117,7 +117,7 @@ func TestInstallUnrecognized(t *testing.T) {
 		t.Skip("POSIX-only")
 	}
 	home := t.TempDir()
-	t.Setenv("PIGO_HOME", home)
+	t.Setenv("JARVIS_HOME", home)
 
 	fakeNPMForInstall(t, map[string]string{
 		"package/package.json": `{"name":"lodash","version":"4.0.0"}`,

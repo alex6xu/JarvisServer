@@ -13,11 +13,11 @@ import (
 	"io"
 	"sort"
 
-	"github.com/smallnest/pigo/internal/agentcore"
-	"github.com/smallnest/pigo/internal/cli/ui"
-	"github.com/smallnest/pigo/internal/compaction"
-	"github.com/smallnest/pigo/internal/memory"
-	"github.com/smallnest/pigo/internal/runtime"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/cli/ui"
+	"github.com/alex6xu/jarvisserver/internal/compaction"
+	"github.com/alex6xu/jarvisserver/internal/memory"
+	"github.com/alex6xu/jarvisserver/internal/runtime"
 )
 
 // scopeOrder is the display order for memory scopes. Scopes not listed here are

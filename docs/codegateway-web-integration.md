@@ -1,7 +1,7 @@
-# CodeGateway Web 与 pigo agentcore 集成设计
+# CodeGateway Web 与 jarvis agentcore 集成设计
 
 > 版本：v0.1 · 日期：2026-08-12  
-> 目标：将 `web/`（CodeGateway React 前端）接入本仓库的 `agentcore` / `runtime`，使浏览器端 Chat/Coder 能驱动 pigo agent 运行。
+> 目标：将 `web/`（CodeGateway React 前端）接入本仓库的 `agentcore` / `runtime`，使浏览器端 Chat/Coder 能驱动 jarvis agent 运行。
 
 ---
 
@@ -27,10 +27,10 @@ agentcore + runtime             ← 【已实现，仅 CLI 暴露】
 ```
 
 - `web/vite.config.ts` 将 `/v1` 代理到 `http://localhost:8080`
-- Go 侧（pigo）目前只有 REPL / headless / TUI / remotecontrol / subagent RPC，**没有 HTTP 网关**
+- Go 侧（jarvis）目前只有 REPL / headless / TUI / remotecontrol / subagent RPC，**没有 HTTP 网关**
 - `web/` 与 `internal/agentcore` 之间缺少适配层
 
-### 1.3 pigo 已有的 agent 运行接缝
+### 1.3 jarvis 已有的 agent 运行接缝
 
 CLI 三种驱动方式均收敛到同一核心：
 
@@ -89,7 +89,7 @@ runtime.StartRun(ctx, agentCtx, runCfg)
                             │ HTTP /v1/*
                             ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  cmd/gateway/main.go          ← 新入口（或 pigo --serve）    │
+│  cmd/gateway/main.go          ← 新入口（或 jarvis --serve）    │
 │  internal/gateway/                                          │
 │    server.go      路由、中间件、静态资源（可选）              │
 │    auth.go        MVP: 单用户 token / 跳过认证                │
@@ -138,8 +138,8 @@ internal/gateway/
 
 入口二选一（推荐 A）：
 
-- **A. 独立二进制** `cmd/gateway/main.go`：专门跑 Web 服务，内部 import pigo 库
-- **B. 扩展 pigo** `pigo serve --addr :8080`：与 CLI 共用 `cmd/pigo/main.go`
+- **A. 独立二进制** `cmd/gateway/main.go`：专门跑 Web 服务，内部 import jarvis 库
+- **B. 扩展 jarvis** `jarvis serve --addr :8080`：与 CLI 共用 `cmd/jarvis/main.go`
 
 MVP 推荐 **A**，避免 CLI 与 HTTP 服务生命周期纠缠。
 
@@ -202,7 +202,7 @@ MVP 只需实现 **P0**；P1 的 `/v1/models` 可返回固定列表 stub。
 
 ### 5.1 协议差异
 
-| pigo `AgentEvent` | Web SSE |
+| jarvis `AgentEvent` | Web SSE |
 |-------------------|---------|
 | `message_update` + OnText delta | `{ type: "delta", content }` |
 | `tool_execution_start/end` | `{ type: "tool_step", step }` |
@@ -210,7 +210,7 @@ MVP 只需实现 **P0**；P1 的 `/v1/models` 可返回固定列表 stub。
 | run 失败 | `{ type: "error", content }` |
 | steering 注入（若有） | `{ type: "user_injected", content }` |
 
-pigo 原生 stream-json 使用 `eventEnvelope()`（`internal/runtime/headless.go`），字段名与 web 不同，**不能直接透传**。
+jarvis 原生 stream-json 使用 `eventEnvelope()`（`internal/runtime/headless.go`），字段名与 web 不同，**不能直接透传**。
 
 ### 5.2 推荐翻译实现（参考 TUI bridge）
 
@@ -255,7 +255,7 @@ func NewStreamHandler(pub Publisher, model string, steps *ToolStepCollector) run
 
 ### 5.3 序号（after_seq）与断点续传
 
-前端 `useRunEventStream` 支持 `after_seq` 重连；pigo stream-json **无内置 seq**。
+前端 `useRunEventStream` 支持 `after_seq` 重连；jarvis stream-json **无内置 seq**。
 
 方案：
 
@@ -306,7 +306,7 @@ type RunState struct {
 
 复用 `internal/session` JSONL：
 
-| Web 概念 | pigo 概念 |
+| Web 概念 | jarvis 概念 |
 |----------|-----------|
 | `session_id` | `SessionHeader.ID` |
 | `messages[]` | JSONL 行 → `AgentContext.Messages` |
@@ -484,7 +484,7 @@ approve = true               # MVP 自动批准工具
 no_tools = false
 
 [session]
-dir = ""                     # 默认 ~/.pigo/sessions
+dir = ""                     # 默认 ~/.jarvis/sessions
 
 [auth]
 mode = "none"                # none | token | jwt
@@ -494,7 +494,7 @@ api_key = "dev-key"
 root = "./workspaces"        # Coder 模式根目录
 ```
 
-环境变量可复用 pigo 现有：`OPENROUTER_API_KEY`、`PIGO_HOME` 等。
+环境变量可复用 jarvis 现有：`OPENROUTER_API_KEY`、`JARVIS_HOME` 等。
 
 ---
 
@@ -559,7 +559,7 @@ root = "./workspaces"        # Coder 模式根目录
 |------|------|
 | 事件协议长期双轨 | 中期可考虑让 web 直接消费 stream-json，减少 translate 层 |
 | 工具确认无 Web UI | MVP `--approve`；Phase 2 加 WS confirm |
-| 多租户与 pigo 单用户模型冲突 | gateway 层做 account → provider 路由，不动 agentcore |
+| 多租户与 jarvis 单用户模型冲突 | gateway 层做 account → provider 路由，不动 agentcore |
 | Run 泄漏 / goroutine 泄漏 | RunManager 超时取消；ctx 传播；客户端断开取消 pump |
 | session 格式与 web 消息模型不一致 | 单独写 `session_to_api.go` 转换层 |
 
@@ -645,4 +645,4 @@ cd web && npm run dev
 
 HTTP 层使用 go-zero `rest.Server`（薄路由/CORS/配置）；`Service` / `RunManager` / `translate` 业务逻辑不变。
 
-Providers 页面写入的通道会持久化到 `~/.pigo/gateway-providers.json`，`POST /v1/agent/chat` 通过 `resolveLLM` 选用默认/匹配模型的 Provider（key、base_url、协议）调用真实 LLM；未配置可用 Provider 时回退到 `etc/gateway.yaml` / 环境变量。
+Providers 页面写入的通道会持久化到 `~/.jarvis/gateway-providers.json`，`POST /v1/agent/chat` 通过 `resolveLLM` 选用默认/匹配模型的 Provider（key、base_url、协议）调用真实 LLM；未配置可用 Provider 时回退到 `etc/gateway.yaml` / 环境变量。

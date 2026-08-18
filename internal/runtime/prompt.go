@@ -1,4 +1,4 @@
-// This file implements system-prompt assembly (US-021, #40), the pigo port of
+// This file implements system-prompt assembly (US-021, #40), the jarvis port of
 // pi's prompt construction. A run's system prompt is built from three layers,
 // in order:
 //

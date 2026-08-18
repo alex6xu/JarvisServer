@@ -2,20 +2,20 @@
 
 ## Introduction
 
-本功能为 pigo 增加两项能力，参考 MiMo-Code（opencode 的分支）的实现：
+本功能为 jarvis 增加两项能力，参考 MiMo-Code（opencode 的分支）的实现：
 
 1. **持久记忆系统（Persistent Memory）** — 让 agent 把跨会话有价值的知识（用户偏好、项目决策、经验反馈、外部资源指针、检查点摘要）写入磁盘上的 Markdown 文件，并通过一个 **SQLite FTS5 全文索引**支持按相关度检索，在会话开始或需要时自动注入相关记忆，从而不必每次重新学习项目上下文。
 
 2. **无限上下文（Infinite Context）** — 当对话逼近模型上下文窗口上限时，不再简单地做一次性有损压缩，而是结合两种机制：(a) **检查点重建**——在最近一个成功检查点处插入边界，早期消息坍缩为检查点摘要、近期消息逐字保留；(b) **检索召回**——按需从持久记忆库检索相关片段回注上下文。二者叠加，使 agent 能在超长/多会话任务中持续保持关键上下文而不溢出。
 
-pigo 当前已有：基于文件的 auto-memory 约定（`MEMORY.md` 索引 + 类型化记忆文件，见系统提示词）、`internal/compaction` 的有损摘要式压缩、`internal/session` 的会话持久化、`internal/runtime` 的 per-turn system-reminder 注入机制。本功能在这些既有基础上**增量增强**，默认开启（可通过配置关闭）。
+jarvis 当前已有：基于文件的 auto-memory 约定（`MEMORY.md` 索引 + 类型化记忆文件，见系统提示词）、`internal/compaction` 的有损摘要式压缩、`internal/session` 的会话持久化、`internal/runtime` 的 per-turn system-reminder 注入机制。本功能在这些既有基础上**增量增强**，默认开启（可通过配置关闭）。
 
 本文档面向实现者（可能是初级工程师或 AI agent），术语尽量直白。
 
 ## Goals
 
-- 提供一个跨会话持久、可全文检索（SQLite FTS5 + BM25 排序）的记忆库，复用 pigo 现有 `MEMORY.md` + 类型化记忆文件的磁盘布局。
-- 记忆写入由 agent 通过工具主动完成（对齐 pigo 现状），系统提示词引导其行为；无需引入后台自动写入子系统。
+- 提供一个跨会话持久、可全文检索（SQLite FTS5 + BM25 排序）的记忆库，复用 jarvis 现有 `MEMORY.md` + 类型化记忆文件的磁盘布局。
+- 记忆写入由 agent 通过工具主动完成（对齐 jarvis 现状），系统提示词引导其行为；无需引入后台自动写入子系统。
 - 在检索前对磁盘记忆文件做懒重建索引（reconcile），覆盖工具外的手工编辑；用 `size-mtime` 指纹避免重复索引。
 - 会话开始/恢复时自动注入相关记忆；agent 也可显式检索。
 - 实现"无限上下文"：检查点重建（分层摘要坍缩 + 近期逐字保留）与检索召回二者结合，在逼近窗口上限时保留关键上下文，无可用检查点时回退到现有有损压缩。
@@ -25,13 +25,13 @@ pigo 当前已有：基于文件的 auto-memory 约定（`MEMORY.md` 索引 + �
 ## User Stories
 
 ### US-001: 引入 SQLite FTS5 记忆存储层
-**Description:** As a pigo 开发者, I want 一个纯 Go 的 SQLite + FTS5 存储层, so that 记忆文件可被全文索引与按相关度检索，且不引入 CGO 依赖。
+**Description:** As a jarvis 开发者, I want 一个纯 Go 的 SQLite + FTS5 存储层, so that 记忆文件可被全文索引与按相关度检索，且不引入 CGO 依赖。
 
 **Acceptance Criteria:**
 - [ ] 新增 `internal/memory` 包，选用纯 Go SQLite 驱动（如 `modernc.org/sqlite`，精确 pin 版本）。
 - [ ] 建表：`memory_index`（path 主键、scope、scope_id、type、body、fingerprint、last_indexed_at）+ FTS5 虚拟表 `memory_fts`（tokenize=`unicode61 remove_diacritics 1`，`content=memory_index`）。
 - [ ] 建立 INSERT/DELETE/UPDATE 同步触发器，保持 FTS 索引与内容表一致。
-- [ ] 数据库文件落在 pigo 数据目录下（如 `~/.claude/projects/<slug>/memory.db` 或全局数据目录），路径可配置。
+- [ ] 数据库文件落在 jarvis 数据目录下（如 `~/.claude/projects/<slug>/memory.db` 或全局数据目录），路径可配置。
 - [ ] 迁移在首次访问时幂等创建；已存在则跳过。
 - [ ] 单元测试覆盖建表、触发器同步、重复迁移安全。
 - [ ] `go build ./...` / `go vet ./...` / `go test ./...` 通过。
@@ -41,7 +41,7 @@ pigo 当前已有：基于文件的 auto-memory 约定（`MEMORY.md` 索引 + �
 
 **Acceptance Criteria:**
 - [ ] 支持 scope：`global`（跨项目用户偏好）、`projects`（项目级）、`sessions`（会话级），可选 `cc`（Claude Code 兼容目录）。
-- [ ] 支持 type：`user` / `feedback` / `project` / `reference`（对齐 pigo 现有类型化记忆）+ `checkpoint` / `progress` / `notes` / `free`。
+- [ ] 支持 type：`user` / `feedback` / `project` / `reference`（对齐 jarvis 现有类型化记忆）+ `checkpoint` / `progress` / `notes` / `free`。
 - [ ] 从路径模式与 YAML frontmatter（`metadata.type`）推断 type；无法判定时归为 `free`。
 - [ ] `resolveProjectId(absRepoPath)` 用 sha256(路径) 前 12 位生成稳定 project id。
 - [ ] 路径构造有防目录穿越保护（拒绝 `..` 与前导 `/`）。
@@ -77,7 +77,7 @@ pigo 当前已有：基于文件的 auto-memory 约定（`MEMORY.md` 索引 + �
 
 **Acceptance Criteria:**
 - [ ] 在 `internal/agenttool` 注册记忆工具：至少 `memory_search`（检索）；写入复用现有 Write/Edit（写到记忆目录）或提供 `memory_write`。
-- [ ] 写入的文件带规范 frontmatter（name/description/metadata.type），与 pigo 现有类型化记忆格式一致。
+- [ ] 写入的文件带规范 frontmatter（name/description/metadata.type），与 jarvis 现有类型化记忆格式一致。
 - [ ] 写入后索引在下次检索的懒 reconcile 中自动更新（无需显式重建调用）。
 - [ ] 系统提示词更新：说明记忆工具的存在、何时写/读、类型语义（复用现有 auto-memory 提示词，补充检索工具用法）。
 - [ ] 写入路径受防目录穿越保护。
@@ -133,7 +133,7 @@ pigo 当前已有：基于文件的 auto-memory 约定（`MEMORY.md` 索引 + �
 **Description:** As a 用户, I want 通过配置调节记忆与上下文行为并能整体关闭, so that 我可以按需裁剪。
 
 **Acceptance Criteria:**
-- [ ] 新增配置键（对齐 pigo 现有 config 分层）：`memory.enabled`（默认 true）、`memory.reconcile_on_search`（默认 true）、`memory.search_score_floor`（默认 0.15）、`memory.cc_index`（默认 false）。
+- [ ] 新增配置键（对齐 jarvis 现有 config 分层）：`memory.enabled`（默认 true）、`memory.reconcile_on_search`（默认 true）、`memory.search_score_floor`（默认 0.15）、`memory.cc_index`（默认 false）。
 - [ ] `checkpoint.thresholds`（默认 `["40%","60%","80%"]`）、`checkpoint.reserved`、`checkpoint.push_caps.*`（per-section 注入上限）。
 - [ ] `compaction.max_context`（可为 token 数 / "300K" / "1M" / "50%"，始终被 provider 上限钳制，仅能下调触发点）。
 - [ ] 默认全部开启且零迁移（复用现有记忆目录）；`memory.enabled=false` 时完全退回现有行为。
@@ -185,7 +185,7 @@ pigo 当前已有：基于文件的 auto-memory 约定（`MEMORY.md` 索引 + �
 
 ## Design Considerations
 
-- 复用 pigo 现有记忆目录布局（`~/.claude/projects/<slug>/memory/` 的 `MEMORY.md` + 类型化文件）与系统提示词中已定义的类型语义（user/feedback/project/reference）。
+- 复用 jarvis 现有记忆目录布局（`~/.claude/projects/<slug>/memory/` 的 `MEMORY.md` + 类型化文件）与系统提示词中已定义的类型语义（user/feedback/project/reference）。
 - 复用 per-turn system-reminder 注入通道（`internal/runtime/reminder.go`）做记忆/召回注入，确保注入内容不进入持久历史。
 - 进行态提示复用已实现的 spinner pin 机制（"Compacting conversation…"），新增 "Preparing conversation context…"。
 - 检查点摘要复用 `internal/compaction/summary.go` 的摘要 LLM 调用能力，避免重复实现。

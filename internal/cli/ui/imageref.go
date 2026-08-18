@@ -15,7 +15,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
 )
 
 // imageRefPattern matches the two supported image-reference syntaxes:

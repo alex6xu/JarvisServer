@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
 )
 
 // execWebSearch runs the tool with a fake transport and a fixed environment.

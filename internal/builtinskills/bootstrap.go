@@ -1,10 +1,10 @@
-// This file holds the first-run bootstrap: on the first launch (per pigo home),
+// This file holds the first-run bootstrap: on the first launch (per jarvis home),
 // the built-in skill collections in Manifest are copied into the user's skills
 // directory so they load as /skill-name commands with no manual install.
 //
 // The flow is designed to be silent and non-blocking (a failed bootstrap must
-// never stop pigo from starting) and idempotent (skills already present are left
-// untouched, so a user's edits are never clobbered). A state file under the pigo
+// never stop jarvis from starting) and idempotent (skills already present are left
+// untouched, so a user's edits are never clobbered). A state file under the jarvis
 // home records which collections+versions have been installed, so a completed
 // bootstrap is skipped on later launches and a bumped collection Version
 // re-triggers installation of any still-missing skills.
@@ -20,7 +20,7 @@ import (
 	"path/filepath"
 )
 
-// stateFileName is the bootstrap record kept under the pigo home directory. It
+// stateFileName is the bootstrap record kept under the jarvis home directory. It
 // maps a collection name to the version last installed, so Bootstrap can decide
 // per collection whether work remains.
 const stateFileName = "builtin-skills.json"
@@ -31,32 +31,32 @@ type state struct {
 }
 
 // Bootstrap installs any not-yet-installed built-in skill collections into
-// skillsDir, recording progress under pigoHome. It is safe to call on every
+// skillsDir, recording progress under jarvisHome. It is safe to call on every
 // launch: collections already recorded at their current Version are skipped, and
 // individual skills whose target directory already exists are left untouched.
 //
 // It never returns an error — bootstrap is best-effort and must not block
 // startup — but writes a one-line note per failure to logw when logw is non-nil
 // (callers pass a writer only in debug/verbose mode, keeping normal runs silent).
-// Empty pigoHome or skillsDir disables bootstrap (home unresolved): nothing is
+// Empty jarvisHome or skillsDir disables bootstrap (home unresolved): nothing is
 // installed and nothing is logged.
-func Bootstrap(pigoHome, skillsDir string, logw io.Writer) {
-	bootstrap(Manifest(), pigoHome, skillsDir, logw)
+func Bootstrap(jarvisHome, skillsDir string, logw io.Writer) {
+	bootstrap(Manifest(), jarvisHome, skillsDir, logw)
 }
 
 // bootstrap is the testable core of Bootstrap, parameterized on the manifest so
 // tests can inject synthetic collections without touching the embedded set.
-func bootstrap(sets []Set, pigoHome, skillsDir string, logw io.Writer) {
+func bootstrap(sets []Set, jarvisHome, skillsDir string, logw io.Writer) {
 	logf := func(format string, a ...any) {
 		if logw != nil {
 			fmt.Fprintf(logw, format, a...)
 		}
 	}
-	if pigoHome == "" || skillsDir == "" {
+	if jarvisHome == "" || skillsDir == "" {
 		return // home unresolved; nothing we can safely do
 	}
 
-	st := loadState(filepath.Join(pigoHome, stateFileName))
+	st := loadState(filepath.Join(jarvisHome, stateFileName))
 
 	changed := false
 	for _, set := range sets {
@@ -83,7 +83,7 @@ func bootstrap(sets []Set, pigoHome, skillsDir string, logw io.Writer) {
 	}
 
 	if changed {
-		if err := saveState(pigoHome, st); err != nil {
+		if err := saveState(jarvisHome, st); err != nil {
 			logf("builtinskills: could not save state: %v\n", err)
 		}
 	}
@@ -163,15 +163,15 @@ func loadState(p string) state {
 	return st
 }
 
-// saveState writes the bootstrap record under pigoHome, creating the home
+// saveState writes the bootstrap record under jarvisHome, creating the home
 // directory if needed.
-func saveState(pigoHome string, st state) error {
-	if err := os.MkdirAll(pigoHome, 0o755); err != nil {
+func saveState(jarvisHome string, st state) error {
+	if err := os.MkdirAll(jarvisHome, 0o755); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(st, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(pigoHome, stateFileName), data, 0o644)
+	return os.WriteFile(filepath.Join(jarvisHome, stateFileName), data, 0o644)
 }

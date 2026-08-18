@@ -28,8 +28,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/smallnest/pigo/internal/agentcore"
-	"github.com/smallnest/pigo/internal/session"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/session"
 )
 
 // defaultTranscriptBudget bounds the total bytes of session transcript text fed
@@ -58,20 +58,20 @@ type SessionSource interface {
 }
 
 // resolveSessionStore opens the default session store rooted at
-// $PIGO_HOME/sessions (else ~/.pigo/sessions), mirroring
+// $JARVIS_HOME/sessions (else ~/.jarvis/sessions), mirroring
 // headless.SessionStore's resolution. It is duplicated here rather than imported
 // to keep internal/dream free of a dependency on the CLI assembly layer, exactly
 // as ResolveMemoryRoot duplicates the memory-root resolution. A resolution
 // failure yields a nil source and no error: distillation then degrades to a
 // no-op rather than failing the whole dream run.
 func resolveSessionStore() (SessionSource, error) {
-	dir := os.Getenv("PIGO_HOME")
+	dir := os.Getenv("JARVIS_HOME")
 	if dir == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return nil, nil
 		}
-		dir = filepath.Join(home, ".pigo")
+		dir = filepath.Join(home, ".jarvis")
 	}
 	store, err := session.NewStore(filepath.Join(dir, "sessions"))
 	if err != nil {

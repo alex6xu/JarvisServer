@@ -1,15 +1,15 @@
 package tui
 
 import (
-	"github.com/smallnest/pigo/internal/agentcore"
-	"github.com/smallnest/pigo/internal/plugin"
-	"github.com/smallnest/pigo/internal/provider"
-	"github.com/smallnest/pigo/internal/runtime"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/plugin"
+	"github.com/alex6xu/jarvisserver/internal/provider"
+	"github.com/alex6xu/jarvisserver/internal/runtime"
 )
 
 // Options carries the resolved run configuration into Run. It deliberately
 // mirrors repl.Options (see internal/cli/repl/interactive.go) field-for-field so
-// cmd/pigo's dispatch can map the same assembled environment to either path, and
+// cmd/jarvis's dispatch can map the same assembled environment to either path, and
 // so downstream nodes can port the REPL's session/live/slash/trust wiring into
 // the TUI without reshaping the entry seam. This skeleton node does not yet
 // consume most fields — they are here to lock the contract.

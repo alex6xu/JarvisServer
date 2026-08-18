@@ -19,8 +19,8 @@ package run
 import (
 	"context"
 
-	"github.com/smallnest/pigo/internal/hooks"
-	"github.com/smallnest/pigo/internal/runtime"
+	"github.com/alex6xu/jarvisserver/internal/hooks"
+	"github.com/alex6xu/jarvisserver/internal/runtime"
 )
 
 // DispatchUserPromptSubmit runs the UserPromptSubmit event for a prompt about to

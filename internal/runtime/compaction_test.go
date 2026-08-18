@@ -12,9 +12,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/smallnest/pigo/internal/agentcore"
-	"github.com/smallnest/pigo/internal/compaction"
-	"github.com/smallnest/pigo/internal/provider"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/compaction"
+	"github.com/alex6xu/jarvisserver/internal/provider"
 )
 
 // bigUserMessages returns n user messages each carrying `chars` characters, used

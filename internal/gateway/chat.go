@@ -8,15 +8,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/smallnest/pigo/internal/agentcore"
-	"github.com/smallnest/pigo/internal/cli/headless"
-	"github.com/smallnest/pigo/internal/cli/run"
-	"github.com/smallnest/pigo/internal/cli/ui"
-	"github.com/smallnest/pigo/internal/plugin"
-	"github.com/smallnest/pigo/internal/provider"
-	"github.com/smallnest/pigo/internal/runtime"
-	"github.com/smallnest/pigo/internal/session"
-	"github.com/smallnest/pigo/internal/trust"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/cli/headless"
+	"github.com/alex6xu/jarvisserver/internal/cli/run"
+	"github.com/alex6xu/jarvisserver/internal/cli/ui"
+	"github.com/alex6xu/jarvisserver/internal/plugin"
+	"github.com/alex6xu/jarvisserver/internal/provider"
+	"github.com/alex6xu/jarvisserver/internal/runtime"
+	"github.com/alex6xu/jarvisserver/internal/session"
+	"github.com/alex6xu/jarvisserver/internal/trust"
 )
 
 // Service owns shared gateway state and starts agent runs.

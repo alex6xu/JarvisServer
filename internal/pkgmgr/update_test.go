@@ -44,7 +44,7 @@ func TestUpdateToNewerVersion(t *testing.T) {
 		t.Skip("fake npm shell script is POSIX-only")
 	}
 	home := t.TempDir()
-	t.Setenv("PIGO_HOME", home)
+	t.Setenv("JARVIS_HOME", home)
 	whichFile := filepath.Join(t.TempDir(), "which")
 
 	tarballs := map[string]map[string]string{
@@ -106,7 +106,7 @@ func TestUpdateUpToDate(t *testing.T) {
 		t.Skip("POSIX-only")
 	}
 	home := t.TempDir()
-	t.Setenv("PIGO_HOME", home)
+	t.Setenv("JARVIS_HOME", home)
 	whichFile := filepath.Join(t.TempDir(), "which")
 
 	tarballs := map[string]map[string]string{

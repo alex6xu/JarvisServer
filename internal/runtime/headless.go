@@ -22,7 +22,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
 )
 
 // HeadlessMode selects how a headless run reports its progress and result.

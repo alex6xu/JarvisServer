@@ -7,12 +7,12 @@ package status
 // This lets the status tests run without the package-main REPL harness.
 
 import (
-	"github.com/smallnest/pigo/internal/agentcore"
-	"github.com/smallnest/pigo/internal/cli"
-	"github.com/smallnest/pigo/internal/provider"
-	"github.com/smallnest/pigo/internal/runtime"
-	"github.com/smallnest/pigo/internal/session"
-	"github.com/smallnest/pigo/internal/trust"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/cli"
+	"github.com/alex6xu/jarvisserver/internal/provider"
+	"github.com/alex6xu/jarvisserver/internal/runtime"
+	"github.com/alex6xu/jarvisserver/internal/session"
+	"github.com/alex6xu/jarvisserver/internal/trust"
 )
 
 type fakeHost struct {

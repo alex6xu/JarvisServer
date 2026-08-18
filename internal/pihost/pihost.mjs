@@ -1,14 +1,14 @@
 #!/usr/bin/env node
-// pihost.mjs — pigo's embedded pi-extension host.
+// pihost.mjs — jarvis's embedded pi-extension host.
 //
-// pigo ships this single ESM file (embedded via go:embed, see #264) and writes
-// it to disk next to an installed pi extension. pigo launches it as an ordinary
+// jarvis ships this single ESM file (embedded via go:embed, see #264) and writes
+// it to disk next to an installed pi extension. jarvis launches it as an ordinary
 // plugin subprocess and speaks line-delimited JSON-RPC 2.0 over its stdio,
 // exactly as it speaks to any other plugin (see internal/plugin, internal/jsonrpc).
 //
 // The host loads a pi extension using pi's real runtime
 // (@earendil-works/pi-coding-agent) and re-exposes its registered tools and
-// commands over pigo's plugin protocol:
+// commands over jarvis's plugin protocol:
 //
 //   initialize                    -> Manifest {name, version, tools[], commands[]}
 //   tools/call {name, arguments}  -> {content, isError}
@@ -17,12 +17,12 @@
 //   event {type, data} (notify)   -> best-effort runner.emit
 //   shutdown (notify)             -> graceful exit
 //
-// Design invariant: pi actions that pigo does not drive (session/model mutation,
+// Design invariant: pi actions that jarvis does not drive (session/model mutation,
 // interactive UI, provider registration, widgets, ...) are inert no-ops that
 // NEVER throw. Loading and basic tool/command use must not crash the host.
 //
 // Argv contract:  node pihost.mjs <pkgDir> [extra args...]
-// Launch cwd:     the session cwd (pigo launches the host there).
+// Launch cwd:     the session cwd (jarvis launches the host there).
 //
 // See docs/superpowers/specs/2026-07-24-pi-extension-host-design.md (§1-§3).
 
@@ -37,7 +37,7 @@ const PKG = "@earendil-works/pi-coding-agent";
 // Diagnostics
 // ---------------------------------------------------------------------------
 
-/** Write one diagnostic line to stderr (pigo pipes plugin stderr through). */
+/** Write one diagnostic line to stderr (jarvis pipes plugin stderr through). */
 function diag(msg) {
   try {
     process.stderr.write(`pihost: ${msg}\n`);
@@ -136,7 +136,7 @@ async function loadSdk() {
 // JSON-Schema-shaped object annotated with TypeBox symbol keys ([Kind], etc.).
 // JSON.stringify drops symbol-keyed properties, so a round-trip yields a clean
 // JSON Schema object. Degrade to a permissive object schema when absent or
-// unserializable so tool registration on the pigo side never fails.
+// unserializable so tool registration on the jarvis side never fails.
 // ---------------------------------------------------------------------------
 function toJsonSchema(parameters) {
   if (parameters && typeof parameters === "object") {
@@ -201,7 +201,7 @@ function captureNotify(message, type) {
 // ---------------------------------------------------------------------------
 // Action bridging (§2)
 //
-// pigo drives the agent loop, not pi, so these actions are stubs or capture
+// jarvis drives the agent loop, not pi, so these actions are stubs or capture
 // buffers. Read-only context values are sensible constants. Mutation actions
 // and interactive UI are inert. NOTHING throws.
 // ---------------------------------------------------------------------------
@@ -363,8 +363,8 @@ async function main() {
     fatal(`no pi extensions loaded from ${absPkgDir}`);
   }
 
-  // --- Build the runner and bind pigo-appropriate action bridges. ---
-  // sessionManager/modelRegistry are only touched by mutation paths pigo never
+  // --- Build the runner and bind jarvis-appropriate action bridges. ---
+  // sessionManager/modelRegistry are only touched by mutation paths jarvis never
   // drives; the runner tolerates minimal stand-ins for tool/command use.
   let runner;
   try {
@@ -484,7 +484,7 @@ function serve(runner, manifest, toolDefsByName, commandsByName) {
   });
 
   rl.on("close", () => {
-    // stdin EOF: pigo closed the pipe. Exit cleanly.
+    // stdin EOF: jarvis closed the pipe. Exit cleanly.
     process.exit(0);
   });
 }

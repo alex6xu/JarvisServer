@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/smallnest/pigo/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
 )
 
 // TestCheckpointRoundTrip is the core acceptance check: a written checkpoint

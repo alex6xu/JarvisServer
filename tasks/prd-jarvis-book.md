@@ -2,7 +2,7 @@
 
 ## 引言 / Overview
 
-为 pigo 项目编写一本技术书，采用"庖丁解牛"式的拆解：不讲空泛原理，而是**顺着 pigo 的真实源码**，逐个模块剖开一个命令行 AI Agent 是怎样从 `main()` 一路运转到一次完整对话的。
+为 jarvis 项目编写一本技术书，采用"庖丁解牛"式的拆解：不讲空泛原理，而是**顺着 jarvis 的真实源码**，逐个模块剖开一个命令行 AI Agent 是怎样从 `main()` 一路运转到一次完整对话的。
 
 本书排版**完全复刻**参考书 [bojieli/ai-agent-book](https://github.com/bojieli/ai-agent-book) 的管线：Markdown 章节 → pandoc → xelatex → ElegantBook 文档类（cyan 主题），配 `preamble.tex`（Palatino 字体）、`cover.tex`、lua 过滤器与生成式配图，最终产出单一 PDF。
 
@@ -14,7 +14,7 @@
 
 - 在项目根目录建立 `book/` 目录，复刻参考书的构建/排版管线，本地可一键构建 PDF。
 - 产出中文「引言」，交代核心公式（Agent = LLM + 上下文 + 工具）与本书的拆解方法论。
-- 产出覆盖 pigo 全部核心模块的 10 章大纲，每章明确对应的源码包/文件。
+- 产出覆盖 jarvis 全部核心模块的 10 章大纲，每章明确对应的源码包/文件。
 - 详写第 1 章《全景与骨架》作为样章，风格、结构、配图、实验框可作为后续章节模板。
 - 章节层级与体例对齐参考书：H1 章 / H2 节 / H3 小节 + 「实验 N-M ★」框 + 「本章小结」+「思考题」。
 
@@ -31,13 +31,13 @@
 - [ ] `book/README.md` 写明依赖（pandoc、xelatex/miktex、ElegantBook 文档类）与 `bash build_pdf.sh` 用法。
 - [ ] 根 `.gitignore` 忽略 `book/*.pdf` 等构建产物（源码入库、产物不入库）。
 
-### US-002：撰写全书 10 章大纲（映射 pigo 源码）
-**Description:** 作为读者，我想先看到全书骨架，知道每章拆解 pigo 的哪个模块。
+### US-002：撰写全书 10 章大纲（映射 jarvis 源码）
+**Description:** 作为读者，我想先看到全书骨架，知道每章拆解 jarvis 的哪个模块。
 
 **Acceptance Criteria:**
 - [ ] 在 `book/README.md`（或 `book/outline.md`）给出「内容速览」表：章号 / 主题 / 一句话核心 / 对应源码包。
 - [ ] 10 章覆盖：CLI 装配与运行架构、agentcore 抽象、两层 Agent 循环、Provider 层与传输、工具系统、上下文压缩、会话持久化、项目信任与安全、子 Agent 编排、可扩展性生态（Skills/Plugins/包管理）。
-- [ ] 每章列出对应的 `internal/*` 或 `cmd/pigo` 包/关键文件，可与仓库现有代码逐一对上。
+- [ ] 每章列出对应的 `internal/*` 或 `cmd/jarvis` 包/关键文件，可与仓库现有代码逐一对上。
 - [ ] 引言与后记在大纲中列明。
 
 ### US-003：撰写引言 introduction.md
@@ -45,18 +45,18 @@
 
 **Acceptance Criteria:**
 - [ ] `book/introduction.md`：H1 标题 + 若干 H2 节。
-- [ ] 阐明 Agent = LLM + 上下文 + 工具，并说明 pigo 如何是 pi 的 Go 复刻。
+- [ ] 阐明 Agent = LLM + 上下文 + 工具，并说明 jarvis 如何是 pi 的 Go 复刻。
 - [ ] 说明本书的读法：对照源码与 commit，逐模块拆解。
 - [ ] 给出阅读路径建议与前置知识（Go、LLM API 基础）。
 - [ ] 引用（cross-ref）后续章节，语言为中文。
 
 ### US-004：详写样章——第 1 章《全景与骨架：从 main() 到一次对话》
-**Description:** 作为读者，我想通过第 1 章建立 pigo 的全局心智模型，并作为后续章节的写作模板。
+**Description:** 作为读者，我想通过第 1 章建立 jarvis 的全局心智模型，并作为后续章节的写作模板。
 
 **Acceptance Criteria:**
 - [ ] `book/chapter1.md`：H1 章标题，≥4 个 H2 节，含若干 H3 小节。
-- [ ] 拆解 `cmd/pigo` 的运行装配：`setupAgentEnv`、`newRunConfig`、REPL 与 headless（`-p` / stream-json）两条驱动路径，引用真实文件与符号（形如 `cmd/pigo/run.go`）。
-- [ ] 嵌入运行架构图（复用 `docs/pigo-runtime.*` 转换的 SVG，见 US-005）。
+- [ ] 拆解 `cmd/jarvis` 的运行装配：`setupAgentEnv`、`newRunConfig`、REPL 与 headless（`-p` / stream-json）两条驱动路径，引用真实文件与符号（形如 `cmd/jarvis/run.go`）。
+- [ ] 嵌入运行架构图（复用 `docs/jarvis-runtime.*` 转换的 SVG，见 US-005）。
 - [ ] 含至少 1 个「实验 N-M ★」框（例如：用 `-p` 跑一次无头对话并观察 stream-json 首个事件的 session_id）。
 - [ ] 章末含「本章小结」与「思考题」两节，对齐参考书体例。
 - [ ] 正文引用的代码路径/符号与仓库当前代码一致（抽查通过）。
@@ -65,7 +65,7 @@
 **Description:** 作为读者，我想在第 1 章看到清晰的运行架构图。
 
 **Acceptance Criteria:**
-- [ ] 在 `book/images/` 放入第 1 章配图（如 `fig1-1.svg`），内容为 pigo 高层运行架构（可基于 `docs/pigo-runtime.architecture.json` 重绘/导出为 SVG）。
+- [ ] 在 `book/images/` 放入第 1 章配图（如 `fig1-1.svg`），内容为 jarvis 高层运行架构（可基于 `docs/jarvis-runtime.architecture.json` 重绘/导出为 SVG）。
 - [ ] 图在 `chapter1.md` 中通过标准 Markdown 图片语法引用，并有图题（供 `crossref.lua` 编号）。
 - [ ] 构建 PDF 时图片被 xelatex 正确嵌入（SVG 经 rsvg-convert 或等价途径）。
 
@@ -84,7 +84,7 @@
 - FR-3：构建须启用 `--toc --toc-depth=3 --number-sections`，章节编号由文档类产生（正文标题不手动编号）。
 - FR-4：`preamble.tex` 须配置中文字体与跨平台回退，保证 macOS 与 Linux 均可构建。
 - FR-5：`experiment_box.lua` 须把「实验」段落渲染为带样式的实验框。
-- FR-6：`book/README.md` 须列出 10 章大纲，并把每章映射到具体的 pigo 源码包/文件。
+- FR-6：`book/README.md` 须列出 10 章大纲，并把每章映射到具体的 jarvis 源码包/文件。
 - FR-7：须提供 `introduction.md`、`chapter1.md` 两篇中文正文，体例对齐参考书。
 - FR-8：第 1 章须嵌入至少一张运行架构 SVG 配图，并可被交叉引用编号。
 - FR-9：每篇正文章节须以「本章小结」与「思考题」收尾。
@@ -97,12 +97,12 @@
 - **不**内置任何外部实验/训练仓库。
 - **不**配置 CI / GitHub Actions 自动构建与发布 Release。
 - **不**制作 EPUB（仅 PDF）。
-- **不**修改 pigo 自身的 Go 代码或功能。
+- **不**修改 jarvis 自身的 Go 代码或功能。
 
 ## Design Considerations
 
 - 体例对齐参考书：H1=章、H2=节、H3=小节；「实验 N-M ★/★★/★★★」框标注难度；章末「本章小结」+「思考题」。
-- 配图优先复用已有的 `docs/pigo-runtime.*`（archify 生成）导出为 SVG，风格统一。
+- 配图优先复用已有的 `docs/jarvis-runtime.*`（archify 生成）导出为 SVG，风格统一。
 - 书名暂定《Write Pi Agent in Go》，可在评审时调整。
 
 ## Technical Considerations
