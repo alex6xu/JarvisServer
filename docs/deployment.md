@@ -30,7 +30,7 @@ Provider 请求审计和 RunEvent。
 - GitHub、Claude OAuth 和 ASR 接口在未配置时会返回不可用，不能视为已经完成的生产能力。
 - 仓库暂未提供官方 Dockerfile 或 Kubernetes 清单。本指南以 Linux 二进制部署为主。
 
-### 1.1 当前分支的构建门禁
+### 1.1 部署构建门禁
 
 任何部署都必须先通过：
 
@@ -38,13 +38,8 @@ Provider 请求审计和 RunEvent。
 go test ./internal/gateway ./cmd/gateway
 ```
 
-截至 2026-08-18，当前合并提交中仍有少量文件导入旧模块
-`github.com/smallnest/pigo`，而 `go.mod` 已改为
-`github.com/alex6xu/jarvisserver`。在这些导入改为新模块路径之前，Gateway 无法编译，
-不得部署。
-
-同时，Gateway 的默认数据库目录和部分环境变量仍残留 `.pigo` / `PIGO_*` 命名。
-生产配置应显式填写 `DatabasePath` 和 `AdminPassword`，不要依赖这些默认值。
+构建、测试和 Web 生产打包由 `.github/workflows/ci.yml` 持续验证。生产配置仍应显式填写
+`DatabasePath` 和 `AdminPassword`，避免部署环境差异影响数据位置和首次账号初始化。
 
 ## 2. 环境要求
 

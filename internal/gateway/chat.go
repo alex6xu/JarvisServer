@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/alex6xu/jarvisserver/internal/agentcore"
-	"github.com/alex6xu/jarvisserver/internal/cli/headless"
 	"github.com/alex6xu/jarvisserver/internal/cli/run"
 	"github.com/alex6xu/jarvisserver/internal/cli/ui"
 	"github.com/alex6xu/jarvisserver/internal/plugin"
@@ -40,11 +39,12 @@ func NewService(opts Options) (*Service, error) {
 		}
 		opts.Cwd = cwd
 	}
-	store, err := headless.SessionStore()
+	stateRoot := filepath.Join(opts.Cwd, ".jarvis")
+	store, err := session.NewStore(filepath.Join(stateRoot, "sessions"))
 	if err != nil {
 		return nil, fmt.Errorf("session store: %w", err)
 	}
-	mgr, err := trust.NewManager("")
+	mgr, err := trust.NewManager(filepath.Join(stateRoot, "trust.json"))
 	if err != nil {
 		return nil, fmt.Errorf("trust manager: %w", err)
 	}
@@ -53,7 +53,7 @@ func NewService(opts Options) (*Service, error) {
 	}
 	dbPath := opts.DatabasePath
 	if dbPath == "" {
-		dbPath = filepath.Join(opts.Cwd, ".pigo", "gateway.db")
+		dbPath = filepath.Join(opts.Cwd, ".jarvis", "gateway.db")
 	}
 	audit, err := OpenGatewayStore(dbPath)
 	if err != nil {
@@ -69,7 +69,7 @@ func NewService(opts Options) (*Service, error) {
 	}
 	adminPassword := opts.AdminPassword
 	if adminPassword == "" {
-		adminPassword = os.Getenv("PIGO_ADMIN_PASSWORD")
+		adminPassword = os.Getenv("JARVIS_ADMIN_PASSWORD")
 	}
 	count, err := audit.AccountCount(context.Background())
 	if err != nil {

@@ -28,12 +28,12 @@ type Options struct {
 	// APIToken is the shared bearer token when AuthMode=token. Empty accepts any.
 	APIToken string
 	// AdminPassword bootstraps the first dev administrator. Environment
-	// PIGO_ADMIN_PASSWORD is used when this is empty.
+	// JARVIS_ADMIN_PASSWORD is used when this is empty.
 	AdminPassword string
 	// WorkspacesRoot is the local directory for Coder workspaces (default: <cwd>/workspaces).
 	WorkspacesRoot string
 	// DatabasePath is the SQLite file used for chat and provider audit records.
-	// The default is <cwd>/.pigo/gateway.db.
+	// The default is <cwd>/.jarvis/gateway.db.
 	DatabasePath       string
 	AuditRetentionDays int
 	AuditMaxBodyBytes  int

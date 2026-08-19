@@ -165,14 +165,14 @@ type ProviderExchange struct {
 }
 
 func defaultGatewayDBPath() (string, error) {
-	if home := os.Getenv("PIGO_HOME"); home != "" {
+	if home := os.Getenv("JARVIS_HOME"); home != "" {
 		return filepath.Join(home, "gateway.db"), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".pigo", "gateway.db"), nil
+	return filepath.Join(home, ".jarvis", "gateway.db"), nil
 }
 
 func OpenGatewayStore(path string) (*GatewayStore, error) {

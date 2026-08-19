@@ -26,6 +26,6 @@ Agent:
   # NoTools: false
   # NoSkills: false
   # WorkspacesRoot: ./workspaces
-  # DatabasePath: ./.pigo/gateway.db
+  # DatabasePath: ./.jarvis/gateway.db
   # APIToken: ""
-  # AdminPassword: "" # or set PIGO_ADMIN_PASSWORD
+  # AdminPassword: "" # or set JARVIS_ADMIN_PASSWORD

@@ -502,37 +502,37 @@ root = "./workspaces"        # Coder 模式根目录
 
 ### Phase 0 — 脚手架（1–2 天）
 
-- [ ] 创建 `internal/gateway/` 包与 `cmd/gateway/main.go`
-- [ ] 实现 `GET /healthz`、`GET /v1/models` stub
-- [ ] 本地验证：`go run ./cmd/gateway` + `cd web && npm run dev`
+- [x] 创建 `internal/gateway/` 包与 `cmd/gateway/main.go`
+- [x] 实现 `GET /healthz`、`GET /v1/models`
+- [x] 本地验证：`go run ./cmd/gateway` + `cd web && npm run dev`
 
 ### Phase 1 — Chat MVP（3–5 天）
 
-- [ ] `POST /v1/agent/chat` + `GET /v1/agent/runs/{id}/events`
-- [ ] `translate/sse.go`：delta / tool_step / done / error
-- [ ] `RunManager`：内存事件 log + after_seq
-- [ ] 复用 `run.SetupEnv` + `runtime.StartRun`
-- [ ] Chat 页端到端：发消息 → 流式显示
+- [x] `POST /v1/agent/chat` + `GET /v1/agent/runs/{id}/events`
+- [x] SSE 翻译：delta / tool_step / done / error
+- [x] `RunManager`：SQLite 事件日志 + 内存订阅 + after_seq
+- [x] 复用 `run.SetupEnvAt` + `runtime.StartRun`
+- [x] Chat 页端到端：发消息 → 流式显示
 
 ### Phase 2 — 会话持久化（2–3 天）
 
-- [ ] `GET /v1/agent/sessions/{id}` 对齐 `SessionRestorePayload`
-- [ ] `GET /v1/agent/sessions` 列表
-- [ ] `useSessionRestore` 完整流程（刷新页面恢复对话）
-- [ ] turn 结束写 JSONL
+- [x] `GET /v1/agent/sessions/{id}` 对齐 `SessionRestorePayload`
+- [x] `GET /v1/agent/sessions` 列表
+- [x] `useSessionRestore` 完整流程（刷新页面恢复对话）
+- [x] turn 结束写 JSONL
 
 ### Phase 3 — Coder + Workspace（3–5 天）
 
-- [ ] `/v1/workspaces` CRUD（本地目录）
-- [ ] CoderPage 对接 workspace_id
-- [ ] 上传/下载（可复用 `web/src/lib/workspaceUpload.ts` 协议）
+- [x] `/v1/workspaces` CRUD（本地目录）
+- [x] CoderPage 对接 workspace_id
+- [x] 上传/下载（复用 `web/src/lib/workspaceUpload.ts` 协议）
 
 ### Phase 4 — Admin / 多租户（按需）
 
-- [ ] 认证：`/v1/auth/*`
-- [ ] Provider 管理：`/v1/admin/providers`
-- [ ] 多账户、`X-Account-ID` 路由
-- [ ] 对接 `internal/provider` 凭据存储
+- [x] 认证：`/v1/auth/*`
+- [x] Provider 管理：`/v1/admin/providers`
+- [ ] 多账户资源隔离和 account_id 数据域
+- [ ] Provider 凭据加密或外部 Secret 引用
 
 ### Phase 5 — 高级功能（按需）
 
@@ -628,10 +628,11 @@ curl -N "http://localhost:8080/v1/agent/runs/{run_id}/events?after_seq=0"
 
 | 阶段 | 状态 | 说明 |
 |------|------|------|
-| Phase 0 | ✅ | `cmd/gateway` + `internal/gateway`，`/healthz`、`/v1/models`、auth stub |
+| Phase 0 | ✅ | `cmd/gateway` + `internal/gateway`，`/healthz`、`/v1/models` |
 | Phase 1 | ✅ | `POST /v1/agent/chat` + SSE `.../events` + translate + RunManager |
 | Phase 2 | ✅ 基础 | `GET /v1/agent/sessions`、`GET /v1/agent/sessions/{id}` + JSONL 持久化 |
-| Phase 3+ | ✅ 接口已齐 | Admin/Workspace/Tags/Tasks 可用；GitHub/Claude OAuth/ASR 为 stub（返回未配置） |
+| Phase 3 | ✅ 基础 | Workspace、Provider、账号、Token 和请求审计可用；多账户资源隔离待完善 |
+| Phase 4+ | 进行中 | Tags/Tasks 有基础接口；GitHub、Claude OAuth、ASR 返回未配置 |
 
 ### 启动
 
@@ -640,9 +641,9 @@ curl -N "http://localhost:8080/v1/agent/runs/{run_id}/events?after_seq=0"
 go run ./cmd/gateway -f etc/gateway.yaml
 
 cd web && npm run dev
-# 浏览器打开 http://localhost:3000 ，任意账号登录后即可 Chat
+# 浏览器打开 http://localhost:3000，使用已初始化的账号登录
 ```
 
 HTTP 层使用 go-zero `rest.Server`（薄路由/CORS/配置）；`Service` / `RunManager` / `translate` 业务逻辑不变。
 
-Providers 页面写入的通道会持久化到 `~/.jarvis/gateway-providers.json`，`POST /v1/agent/chat` 通过 `resolveLLM` 选用默认/匹配模型的 Provider（key、base_url、协议）调用真实 LLM；未配置可用 Provider 时回退到 `etc/gateway.yaml` / 环境变量。
+Providers 页面写入的通道会持久化到 Gateway SQLite。`POST /v1/agent/chat` 通过路由计划选择默认或匹配模型的 Provider，并在首个安全输出前支持候选切换；未配置可用 Provider 时回退到 `etc/gateway.yaml` 的启动级配置。

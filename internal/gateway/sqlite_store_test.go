@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/smallnest/pigo/internal/agentcore"
-	"github.com/smallnest/pigo/internal/provider"
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/provider"
 )
 
 func newTestGatewayStore(t *testing.T) *GatewayStore {

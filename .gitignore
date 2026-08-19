@@ -38,6 +38,7 @@ web/.vite/
 .cache/
 .gocache/
 .pigo/
+.jarvis/
 tmp/
 temp/
 *.log
