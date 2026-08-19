@@ -118,6 +118,30 @@ func (s *Service) handleRunEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Service) handleCancelRun(w http.ResponseWriter, r *http.Request) {
+	runID := pathParam(r, "runId")
+	if !s.Runs.Cancel(runID) {
+		writeErr(w, http.StatusNotFound, "run not found")
+		return
+	}
+	st, _ := s.Runs.Get(runID)
+	writeJSON(w, http.StatusAccepted, map[string]any{"run": st.Info()})
+}
+
+func (s *Service) handleListRunAttempts(w http.ResponseWriter, r *http.Request) {
+	runID := pathParam(r, "runId")
+	if _, ok := s.Runs.Get(runID); !ok {
+		writeErr(w, http.StatusNotFound, "run not found")
+		return
+	}
+	attempts, err := s.Audit.ListRunAttempts(r.Context(), runID)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"attempts": attempts})
+}
+
 func (s *Service) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	id := pathParam(r, "sessionId")
 	resp, err := s.GetSession(id)

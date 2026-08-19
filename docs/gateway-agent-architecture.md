@@ -203,9 +203,11 @@ Provider 密钥只保存加密后的 secret 或外部 Secret 引用。API 返回
 
 ### Phase 3：Runtime 边界
 
-- Runtime 通过 `CompletionRouter` 获取流，不再接收固定 Provider。
-- 为每个 turn 持久化 attempt 和 checkpoint。
-- 恢复进程重启后的 Run，完善取消与超时语义。
+- [x] Runtime 通过 `CompletionRouter` 获取流，不再接收固定 Provider。
+- [x] 为每个 turn 持久化 attempt 和 checkpoint。
+- [x] 重启后恢复事件与检查点，并将未完成 Run 安全收敛为 `interrupted`；不自动重放可能已有副作用的工具。
+- [x] 增加幂等取消、Run 总超时和 `cancelled` / `timed_out` / `interrupted` 状态语义。
+- [x] 提供 `GET /v1/admin/runs/{id}/attempts` 路由审计接口。
 
 ### Phase 4：网关化扩展
 

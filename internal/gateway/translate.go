@@ -191,7 +191,7 @@ func NewTranslateHandler(pub PublishFunc, model, sessionID string, extraOnEvent 
 			return
 		}
 		st.finished = true
-		if err != nil && !contextCanceled(err) {
+		if err != nil && !contextTerminated(err) {
 			st.pub(StreamEvent{
 				Type:      "error",
 				Content:   err.Error(),
@@ -213,4 +213,8 @@ func NewTranslateHandler(pub PublishFunc, model, sessionID string, extraOnEvent 
 
 func contextCanceled(err error) bool {
 	return errors.Is(err, context.Canceled)
+}
+
+func contextTerminated(err error) bool {
+	return contextCanceled(err) || errors.Is(err, context.DeadlineExceeded)
 }

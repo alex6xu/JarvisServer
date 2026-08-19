@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -134,6 +135,12 @@ func NewService(opts Options) (*Service, error) {
 		_ = audit.Close()
 		return nil, fmt.Errorf("initialize provider router: %w", err)
 	}
+	if recovered, err := audit.RecoverInterruptedRuns(context.Background()); err != nil {
+		_ = audit.Close()
+		return nil, fmt.Errorf("recover interrupted runs: %w", err)
+	} else if recovered > 0 {
+		fmt.Fprintf(os.Stderr, "gateway: recovered %d interrupted run(s)\n", recovered)
+	}
 	return &Service{
 		Opts:    opts,
 		Runs:    NewRunManager(audit),
@@ -247,8 +254,15 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 		baseOnEvent = n.Handle
 	}
 
-	runCtx, cancel := context.WithCancel(context.Background())
-	state, err := s.Runs.Register(hs.header.ID, model, req.WorkspaceID, cancel)
+	var runCtx context.Context
+	var cancel context.CancelFunc
+	if s.Opts.RunTimeout > 0 {
+		runCtx, cancel = context.WithTimeout(context.Background(), s.Opts.RunTimeout)
+	} else {
+		runCtx, cancel = context.WithCancel(context.Background())
+	}
+	deadline, _ := runCtx.Deadline()
+	state, err := s.Runs.Register(hs.header.ID, model, req.WorkspaceID, cancel, deadline)
 	if err != nil {
 		cancel()
 		closeEnv(env)
@@ -265,7 +279,7 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 		return ChatResponse{}, fmt.Errorf("record chat request: %w", err)
 	}
 
-	routedProvider, err := s.buildRoutedProvider(plan, env.Provider, state.ID, hs.header.ID)
+	routedProvider, err := s.buildRoutedProvider(req.Model, plan, state.ID, hs.header.ID, req.WorkspaceID, req.Mode, state.Publish)
 	if err != nil {
 		cancel()
 		state.Finish(err)
@@ -300,7 +314,9 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 		if drainErr != nil {
 			status = runStatusError
 			errorText = drainErr.Error()
-			if contextCanceled(drainErr) {
+			if errors.Is(drainErr, context.DeadlineExceeded) {
+				status = runStatusTimedOut
+			} else if contextCanceled(drainErr) {
 				status = runStatusCancelled
 			}
 		} else if stopReason == agentcore.StopReasonError || stopReason == agentcore.StopReasonAborted {
@@ -323,17 +339,13 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 	}, nil
 }
 
-func (s *Service) buildRoutedProvider(plan RoutePlan, primary provider.Provider, runID, sessionID string) (*failoverProvider, error) {
+func (s *Service) instantiateRoutePlan(plan RoutePlan, runID, sessionID string) ([]routedCandidate, error) {
 	candidates := make([]routedCandidate, 0, len(plan.Candidates))
-	for i, route := range plan.Candidates {
-		candidateProvider := primary
-		if i > 0 {
-			resolved, _, err := provider.ResolveProvider(route.Model, route.BaseURL, route.Protocol, route.ProviderName, os.Getenv)
-			if err != nil {
-				s.Router.Observe(route.ProviderID, err)
-				continue
-			}
-			candidateProvider = resolved
+	for _, route := range plan.Candidates {
+		candidateProvider, _, err := provider.ResolveProvider(route.Model, route.BaseURL, route.Protocol, route.ProviderName, os.Getenv)
+		if err != nil {
+			s.Router.Observe(route.ProviderID, err)
+			continue
 		}
 		label := route.ProviderLabel
 		if label == "" {
@@ -348,7 +360,27 @@ func (s *Service) buildRoutedProvider(plan RoutePlan, primary provider.Provider,
 	if len(candidates) == 0 {
 		return nil, fmt.Errorf("provider router: no candidates could be initialized")
 	}
-	return &failoverProvider{candidates: candidates, router: s.Router}, nil
+	return candidates, nil
+}
+
+func (s *Service) buildRoutedProvider(requestedModel string, initial RoutePlan, runID, sessionID, workspaceID, mode string, publish func(StreamEvent)) (*failoverProvider, error) {
+	initialCandidates, err := s.instantiateRoutePlan(initial, runID, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	return &failoverProvider{
+		candidates: initialCandidates, router: s.Router, store: s.Audit, runID: runID,
+		sessionID: sessionID, workspaceID: workspaceID, mode: mode, publish: publish,
+		planner: func(ctx context.Context) (RoutePlan, []routedCandidate, error) {
+			_ = ctx
+			plan, err := s.resolveLLMPlan(requestedModel)
+			if err != nil {
+				return RoutePlan{}, nil, err
+			}
+			candidates, err := s.instantiateRoutePlan(plan, runID, sessionID)
+			return plan, candidates, err
+		},
+	}, nil
 }
 
 func finalAssistantResult(messages agentcore.MessageList, start int) (text, stopReason, errorMessage string) {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/alex6xu/jarvisserver/internal/agentcore"
 )
@@ -116,7 +117,7 @@ func TestRunManagerPersistsAndReloadsEvents(t *testing.T) {
 	}
 }
 
-func TestLoadRunMarksInterruptedRunAsError(t *testing.T) {
+func TestRecoverInterruptedRunPreservesCheckpointAndEvent(t *testing.T) {
 	store, err := OpenGatewayStore(t.TempDir() + "/gateway.db")
 	if err != nil {
 		t.Fatal(err)
@@ -126,12 +127,58 @@ func TestLoadRunMarksInterruptedRunAsError(t *testing.T) {
 	if err := store.CreateRun(context.Background(), st); err != nil {
 		t.Fatal(err)
 	}
+	if err := store.SaveRunCheckpoint(context.Background(), RunCheckpoint{
+		RunID: st.ID, Turn: 1, SessionID: st.SessionID, Model: "m",
+		Messages: agentcore.MessageList{agentcore.UserMessage{
+			RoleField: agentcore.RoleUser,
+			Content:   agentcore.ContentList{agentcore.NewTextContent("resume me")},
+		}},
+		CreatedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if recovered, err := store.RecoverInterruptedRuns(context.Background()); err != nil || recovered != 1 {
+		t.Fatalf("recover = %d, %v", recovered, err)
+	}
 
 	loaded, err := store.LoadRun(context.Background(), st.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Status != runStatusError || loaded.Err == nil {
+	if loaded.Status != runStatusInterrupted || loaded.Err == nil {
 		t.Fatalf("loaded interrupted run = status %q err %v", loaded.Status, loaded.Err)
+	}
+	if loaded.LastSeq != 1 || loaded.Events[0].Payload.Type != "run.interrupted" {
+		t.Fatalf("recovery events = %#v", loaded.Events)
+	}
+	checkpoint, err := store.LoadLatestRunCheckpoint(context.Background(), st.ID)
+	if err != nil || checkpoint.Turn != 1 {
+		t.Fatalf("checkpoint = %+v, %v", checkpoint, err)
+	}
+}
+
+func TestRunManagerCancelAndTimeoutStates(t *testing.T) {
+	m := NewRunManager()
+	ctx, cancel := context.WithCancel(context.Background())
+	st, err := m.Register("cancel-session", "m", "", cancel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !m.Cancel(st.ID) || !m.Cancel(st.ID) {
+		t.Fatal("cancel must be idempotent")
+	}
+	<-ctx.Done()
+	st.Finish(ctx.Err())
+	if st.Info().Status != runStatusCancelled {
+		t.Fatalf("cancel status = %q", st.Info().Status)
+	}
+
+	timed, err := m.Register("timeout-session", "m", "", func() {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	timed.Finish(context.DeadlineExceeded)
+	if timed.Info().Status != runStatusTimedOut {
+		t.Fatalf("timeout status = %q", timed.Info().Status)
 	}
 }

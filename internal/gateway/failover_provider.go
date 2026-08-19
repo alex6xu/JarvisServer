@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
+	"time"
 
 	"github.com/alex6xu/jarvisserver/internal/agentcore"
 	"github.com/alex6xu/jarvisserver/internal/provider"
+	corerouter "github.com/alex6xu/jarvisserver/internal/router"
 )
 
 type routedCandidate struct {
@@ -14,19 +17,24 @@ type routedCandidate struct {
 	provider provider.Provider
 }
 
-// failoverProvider tries candidates in plan order until one produces meaningful
-// model output. Once output begins, the attempt is committed and never replayed.
+type turnPlanner func(context.Context) (RoutePlan, []routedCandidate, error)
+
+// failoverProvider replans before every completion call (one LLM turn), then
+// tries candidates until meaningful output commits the attempt.
 type failoverProvider struct {
-	candidates []routedCandidate
-	router     *ProviderRouter
+	candidates  []routedCandidate // fixed candidates are retained for focused tests.
+	planner     turnPlanner
+	router      *ProviderRouter
+	store       *GatewayStore
+	runID       string
+	sessionID   string
+	workspaceID string
+	mode        string
+	publish     func(StreamEvent)
+	turn        atomic.Int64
 }
 
-func (p *failoverProvider) Name() string {
-	if len(p.candidates) == 0 {
-		return "router"
-	}
-	return p.candidates[0].provider.Name()
-}
+func (p *failoverProvider) Name() string { return "router" }
 
 func (p *failoverProvider) Models() []provider.Model {
 	var out []provider.Model
@@ -37,31 +45,65 @@ func (p *failoverProvider) Models() []provider.Model {
 }
 
 func (p *failoverProvider) StreamCompletion(ctx context.Context, req provider.CompletionRequest) (*provider.AssistantMessageEventStream, error) {
-	if len(p.candidates) == 0 {
+	turn := int(p.turn.Add(1))
+	plan := RoutePlan{}
+	candidates := p.candidates
+	if p.planner != nil {
+		var err error
+		plan, candidates, err = p.planner(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if len(candidates) == 0 {
 		return nil, errors.New("provider router: no candidates")
 	}
+	if p.store != nil && p.runID != "" {
+		checkpoint := RunCheckpoint{RunID: p.runID, Turn: turn, SessionID: p.sessionID,
+			WorkspaceID: p.workspaceID, Mode: p.mode, Model: req.Model,
+			SystemPrompt: req.Context.SystemPrompt, Messages: req.Context.Messages, CreatedAt: time.Now().UTC()}
+		if err := p.store.SaveRunCheckpoint(context.Background(), checkpoint); err != nil {
+			return nil, fmt.Errorf("save run checkpoint: %w", err)
+		}
+	}
 	out := provider.NewAssistantMessageEventStream(0)
-	go p.run(ctx, req, out)
+	go p.run(ctx, req, out, turn, plan, candidates)
 	return out, nil
 }
 
-func (p *failoverProvider) run(ctx context.Context, req provider.CompletionRequest, out *provider.AssistantMessageEventStream) {
+func (p *failoverProvider) run(ctx context.Context, req provider.CompletionRequest, out *provider.AssistantMessageEventStream, turn int, plan RoutePlan, candidates []routedCandidate) {
 	defer out.Close()
 	var lastErr error
-	for _, candidate := range p.candidates {
+	for ordinal, candidate := range candidates {
+		attempt := RunAttempt{ID: newID("attempt"), RunID: p.runID,
+			EndpointID: fmt.Sprintf("provider_%d", candidate.route.ProviderID), ProviderID: candidate.route.ProviderID,
+			Model: candidate.route.Model, Ordinal: ordinal + 1, Turn: turn, Status: "running",
+			RouteReason: plan.Reason, PolicyRevision: plan.PolicyRev, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+		if p.store != nil && p.runID != "" {
+			if err := p.store.CreateRunAttempt(context.Background(), attempt); err != nil {
+				lastErr = err
+				continue
+			}
+		}
+		if p.publish != nil {
+			p.publish(StreamEvent{Type: "route.selected", Model: candidate.route.Model,
+				AttemptID: attempt.ID, Timestamp: time.Now().UTC().Format(time.RFC3339Nano)})
+		}
+		started := time.Now()
 		attemptReq := req
 		attemptReq.Model = candidate.route.Model
 		attemptReq.Config.APIKey = candidate.route.APIKey
 		stream, err := candidate.provider.StreamCompletion(ctx, attemptReq)
 		if err != nil {
 			lastErr = err
-			p.router.Observe(candidate.route.ProviderID, err)
+			p.finishAttempt(&attempt, started, time.Time{}, "failed", "before_stream", err)
 			continue
 		}
 
 		buffered := make([]provider.AssistantMessageEvent, 0, 2)
 		committed := false
 		attemptFailed := false
+		var firstToken time.Time
 		for ev := range stream.Events() {
 			if !committed {
 				switch e := ev.(type) {
@@ -70,52 +112,119 @@ func (p *failoverProvider) run(ctx context.Context, req provider.CompletionReque
 					continue
 				case provider.StreamErrorEvent:
 					lastErr = providerEventError(e)
-					p.router.Observe(candidate.route.ProviderID, lastErr)
 					attemptFailed = true
+					p.finishAttempt(&attempt, started, firstToken, "failed", "before_output", lastErr)
 					continue
 				default:
 					committed = true
+					firstToken = time.Now()
 					for _, pending := range buffered {
 						if err := out.Emit(ctx, pending); err != nil {
+							p.finishAttempt(&attempt, started, firstToken, attemptStatusForError(err), "during_stream", err)
 							return
 						}
 					}
 				}
 			}
+			switch ev.(type) {
+			case provider.StreamTextEvent:
+				attempt.ProducedOutput = true
+			case provider.StreamToolCallEvent:
+				attempt.ProducedToolCall = true
+			}
 			if err := out.Emit(ctx, ev); err != nil {
+				p.finishAttempt(&attempt, started, firstToken, attemptStatusForError(err), "during_stream", err)
 				return
 			}
 			switch e := ev.(type) {
 			case provider.StreamDoneEvent:
-				p.router.Observe(candidate.route.ProviderID, nil)
+				if e.Message.Usage != nil {
+					attempt.InputTokens = e.Message.Usage.InputTokens
+					attempt.OutputTokens = e.Message.Usage.OutputTokens
+				}
+				p.finishAttempt(&attempt, started, firstToken, "done", "", nil)
 				return
 			case provider.StreamErrorEvent:
-				p.router.Observe(candidate.route.ProviderID, providerEventError(e))
+				lastErr = providerEventError(e)
+				stage := "after_output"
+				if attempt.ProducedToolCall {
+					stage = "after_tool_call"
+				}
+				p.finishAttempt(&attempt, started, firstToken, "failed", stage, lastErr)
 				return
 			}
 		}
 		if committed {
 			result, resultErr := stream.Result(context.Background())
+			if result.Usage != nil {
+				attempt.InputTokens = result.Usage.InputTokens
+				attempt.OutputTokens = result.Usage.OutputTokens
+			}
 			if resultErr != nil {
 				lastErr = resultErr
 				_ = out.Emit(context.Background(), provider.StreamErrorEvent{Message: errorAssistant(candidate.route, resultErr), Err: resultErr})
 			} else {
 				_ = out.Emit(context.Background(), provider.StreamDoneEvent{Message: result})
 			}
-			p.router.Observe(candidate.route.ProviderID, resultErr)
+			stage := ""
+			if resultErr != nil {
+				stage = "after_output"
+			}
+			p.finishAttempt(&attempt, started, firstToken, statusForError(resultErr), stage, resultErr)
 			return
 		}
 		if attemptFailed {
 			continue
 		}
 		lastErr = errors.New("provider stream ended before producing output")
-		p.router.Observe(candidate.route.ProviderID, lastErr)
+		p.finishAttempt(&attempt, started, firstToken, "failed", "before_output", lastErr)
 	}
 	if lastErr == nil {
 		lastErr = errors.New("all provider candidates failed")
 	}
-	last := p.candidates[len(p.candidates)-1].route
+	last := candidates[len(candidates)-1].route
 	_ = out.Emit(context.Background(), provider.StreamErrorEvent{Message: errorAssistant(last, lastErr), Err: lastErr})
+}
+
+func (p *failoverProvider) finishAttempt(attempt *RunAttempt, started, firstToken time.Time, status, stage string, runErr error) {
+	finished := time.Now().UTC()
+	attempt.Status = status
+	attempt.FailureStage = stage
+	attempt.LatencyMs = finished.Sub(started).Milliseconds()
+	if !firstToken.IsZero() {
+		attempt.FirstTokenMs = firstToken.Sub(started).Milliseconds()
+	}
+	attempt.FinishedAt = finished.Format(time.RFC3339Nano)
+	if runErr != nil {
+		attempt.Error = runErr.Error()
+		attempt.ErrorCategory = classifyProviderError(runErr)
+	}
+	if p.store != nil && p.runID != "" {
+		_ = p.store.FinishRunAttempt(context.Background(), *attempt)
+	}
+	if p.router != nil && !contextTerminated(runErr) {
+		_ = p.router.ObserveResult(corerouter.AttemptResult{EndpointID: attempt.EndpointID, RunID: attempt.RunID,
+			AttemptID: attempt.ID, Success: runErr == nil, ErrorCategory: attempt.ErrorCategory,
+			ErrorText: attempt.Error, Latency: time.Duration(attempt.LatencyMs) * time.Millisecond,
+			FirstToken: time.Duration(attempt.FirstTokenMs) * time.Millisecond, OccurredAt: finished})
+	}
+}
+
+func statusForError(err error) string {
+	if err != nil {
+		return "failed"
+	}
+	return "done"
+}
+
+func attemptStatusForError(err error) string {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return runStatusTimedOut
+	}
+	if errors.Is(err, context.Canceled) {
+		return runStatusCancelled
+	}
+	return "failed"
 }
 
 func providerEventError(ev provider.StreamErrorEvent) error {
@@ -129,8 +238,7 @@ func providerEventError(ev provider.StreamErrorEvent) error {
 }
 
 func errorAssistant(route LLMRoute, err error) agentcore.AssistantMessage {
-	return agentcore.AssistantMessage{
-		RoleField: agentcore.RoleAssistant, Provider: route.ProviderLabel, Model: route.Model,
-		StopReason: agentcore.StopReasonError, ErrorMessage: fmt.Sprintf("all provider routes failed: %v", err),
-	}
+	return agentcore.AssistantMessage{RoleField: agentcore.RoleAssistant, Provider: route.ProviderLabel,
+		Model: route.Model, StopReason: agentcore.StopReasonError,
+		ErrorMessage: fmt.Sprintf("all provider routes failed: %v", err)}
 }

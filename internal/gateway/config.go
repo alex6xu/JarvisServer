@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/zeromicro/go-zero/rest"
 )
@@ -31,6 +32,7 @@ type AgentConf struct {
 	DatabasePath             string `json:",optional"`
 	AuditRetentionDays       int    `json:",default=30"`
 	AuditMaxBodyBytes        int    `json:",default=1048576"`
+	RunTimeoutSeconds        int    `json:",default=1800"`
 	AllowPrivateProviderURLs bool   `json:",optional"`
 }
 
@@ -63,6 +65,7 @@ func (c Config) ToOptions() Options {
 		DatabasePath:             c.Agent.DatabasePath,
 		AuditRetentionDays:       c.Agent.AuditRetentionDays,
 		AuditMaxBodyBytes:        c.Agent.AuditMaxBodyBytes,
+		RunTimeout:               time.Duration(c.Agent.RunTimeoutSeconds) * time.Second,
 		AllowPrivateProviderURLs: c.Agent.AllowPrivateProviderURLs,
 	}.withDefaults()
 }

@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -69,10 +70,14 @@ VALUES (?, ?, ?, 0, 1)`, endpointID, model, capabilities); err != nil {
 }
 
 func (s *GatewayStore) CreateRun(ctx context.Context, st *RunState) error {
+	deadline := ""
+	if !st.Deadline.IsZero() {
+		deadline = st.Deadline.UTC().Format(time.RFC3339Nano)
+	}
 	_, err := s.db.ExecContext(ctx, `
-INSERT INTO runs(id, session_id, model, workspace_id, status, created_at)
-VALUES (?, ?, ?, ?, ?, ?)`, st.ID, st.SessionID, st.Model, st.WorkspaceID, st.Status,
-		time.Now().UTC().Format(time.RFC3339Nano))
+INSERT INTO runs(id, session_id, model, workspace_id, status, created_at, deadline_at)
+VALUES (?, ?, ?, ?, ?, ?, NULLIF(?, ''))`, st.ID, st.SessionID, st.Model, st.WorkspaceID, st.Status,
+		time.Now().UTC().Format(time.RFC3339Nano), deadline)
 	return err
 }
 
@@ -94,9 +99,10 @@ UPDATE runs SET status = ?, error = ?, finished_at = ? WHERE id = ?`, status, er
 func (s *GatewayStore) LoadRun(ctx context.Context, id string) (*RunState, error) {
 	st := &RunState{ID: id, subs: make(map[chan StoredEvent]struct{}), done: make(chan struct{})}
 	var errorText string
+	var deadline sql.NullString
 	err := s.db.QueryRowContext(ctx, `
-SELECT session_id, model, workspace_id, status, error FROM runs WHERE id = ?`, id).Scan(
-		&st.SessionID, &st.Model, &st.WorkspaceID, &st.Status, &errorText)
+SELECT session_id, model, workspace_id, status, error, deadline_at FROM runs WHERE id = ?`, id).Scan(
+		&st.SessionID, &st.Model, &st.WorkspaceID, &st.Status, &errorText, &deadline)
 	if err != nil {
 		return nil, err
 	}
@@ -117,10 +123,12 @@ SELECT session_id, model, workspace_id, status, error FROM runs WHERE id = ?`, i
 		st.Events = append(st.Events, event)
 		st.LastSeq = event.Seq
 	}
+	if deadline.Valid {
+		st.Deadline, _ = time.Parse(time.RFC3339Nano, deadline.String)
+	}
 	if st.Status == runStatusRunning {
-		st.Status = runStatusError
-		errorText = "gateway restarted during run"
-		_ = s.FinishRun(ctx, id, st.Status, errorText)
+		st.Status = runStatusInterrupted
+		errorText = "gateway restarted before run completion"
 	}
 	close(st.done)
 	if errorText != "" {

@@ -13,10 +13,12 @@ import (
 )
 
 const (
-	runStatusRunning   = "running"
-	runStatusDone      = "done"
-	runStatusError     = "error"
-	runStatusCancelled = "cancelled"
+	runStatusRunning     = "running"
+	runStatusDone        = "done"
+	runStatusError       = "error"
+	runStatusCancelled   = "cancelled"
+	runStatusTimedOut    = "timed_out"
+	runStatusInterrupted = "interrupted"
 )
 
 // RunState holds one agent run's sequenced event log and live subscribers.
@@ -29,6 +31,7 @@ type RunState struct {
 	Events      []StoredEvent
 	LastSeq     int64
 	Cancel      context.CancelFunc
+	Deadline    time.Time
 	Err         error
 
 	mu    sync.Mutex
@@ -59,7 +62,7 @@ func newRunID() string {
 }
 
 // Register creates a running state and returns it. cancel cancels the run context.
-func (m *RunManager) Register(sessionID, model, workspaceID string, cancel context.CancelFunc) (*RunState, error) {
+func (m *RunManager) Register(sessionID, model, workspaceID string, cancel context.CancelFunc, deadline ...time.Time) (*RunState, error) {
 	st := &RunState{
 		ID:          newRunID(),
 		SessionID:   sessionID,
@@ -70,6 +73,9 @@ func (m *RunManager) Register(sessionID, model, workspaceID string, cancel conte
 		subs:        make(map[chan StoredEvent]struct{}),
 		done:        make(chan struct{}),
 		store:       m.store,
+	}
+	if len(deadline) > 0 {
+		st.Deadline = deadline[0]
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -86,6 +92,25 @@ func (m *RunManager) Register(sessionID, model, workspaceID string, cancel conte
 	}
 	m.runs[st.ID] = st
 	return st, nil
+}
+
+// Cancel requests cancellation of a run. It is idempotent for terminal runs.
+func (m *RunManager) Cancel(id string) bool {
+	st, ok := m.Get(id)
+	if !ok {
+		return false
+	}
+	st.mu.Lock()
+	if st.Status != runStatusRunning {
+		st.mu.Unlock()
+		return true
+	}
+	cancel := st.Cancel
+	st.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	return true
 }
 
 // Get returns a run by id.
@@ -143,6 +168,9 @@ func (st *RunState) Publish(ev StreamEvent) {
 	if ev.Model == "" {
 		ev.Model = st.Model
 	}
+	if ev.Timestamp == "" {
+		ev.Timestamp = time.Now().UTC().Format(time.RFC3339Nano)
+	}
 	stored := StoredEvent{Seq: st.LastSeq, Payload: ev}
 	st.Events = append(st.Events, stored)
 	if st.store != nil {
@@ -172,7 +200,9 @@ func (st *RunState) Finish(err error) {
 	}
 	st.Err = err
 	if err != nil {
-		if contextCanceled(err) {
+		if errors.Is(err, context.DeadlineExceeded) {
+			st.Status = runStatusTimedOut
+		} else if contextCanceled(err) {
 			st.Status = runStatusCancelled
 		} else {
 			st.Status = runStatusError
@@ -225,11 +255,15 @@ func (st *RunState) WaitDone() {
 func (st *RunState) Info() ActiveRunInfo {
 	st.mu.Lock()
 	defer st.mu.Unlock()
-	return ActiveRunInfo{
+	info := ActiveRunInfo{
 		ID:          st.ID,
 		Status:      st.Status,
 		LastSeq:     st.LastSeq,
 		Model:       st.Model,
 		WorkspaceID: st.WorkspaceID,
 	}
+	if !st.Deadline.IsZero() {
+		info.DeadlineAt = st.Deadline.UTC().Format(time.RFC3339Nano)
+	}
+	return info
 }

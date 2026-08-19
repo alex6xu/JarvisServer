@@ -35,6 +35,8 @@ type StreamEvent struct {
 	Step      *ToolStep  `json:"step,omitempty"`
 	ToolSteps []ToolStep `json:"tool_steps,omitempty"`
 	Seq       int64      `json:"seq,omitempty"`
+	AttemptID string     `json:"attempt_id,omitempty"`
+	Timestamp string     `json:"timestamp,omitempty"`
 }
 
 // StoredEvent is one sequenced SSE payload kept for after_seq replay.
@@ -50,6 +52,7 @@ type ActiveRunInfo struct {
 	LastSeq     int64  `json:"last_seq"`
 	Model       string `json:"model,omitempty"`
 	WorkspaceID string `json:"workspace_id,omitempty"`
+	DeadlineAt  string `json:"deadline_at,omitempty"`
 }
 
 // RestoredMessage matches web RestoredSessionMessage.

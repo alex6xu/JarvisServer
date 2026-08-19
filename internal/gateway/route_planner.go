@@ -48,8 +48,10 @@ func NewPersistentProviderRouter(store corerouter.HealthStore, policy corerouter
 
 func (r *ProviderRouter) Plan(providers []Provider, requestedModel string, fallback LLMRoute) (RoutePlan, error) {
 	endpoints := make([]corerouter.Endpoint, 0, len(providers))
+	providersByID := make(map[int]Provider, len(providers))
 	for i := range providers {
 		provider := providers[i]
+		providersByID[provider.ID] = provider
 		if !providerUsable(&provider) {
 			continue
 		}
@@ -85,9 +87,10 @@ func (r *ProviderRouter) Plan(providers []Provider, requestedModel string, fallb
 	out := RoutePlan{RequestedModel: requestedModel, Reason: plan.Reason, PolicyRev: plan.PolicyRev}
 	for _, candidate := range plan.Candidates {
 		endpoint := candidate.Endpoint
+		_, driverName := mapChannelType(providersByID[endpoint.ProviderID].Type, endpoint.BaseURL)
 		out.Candidates = append(out.Candidates, LLMRoute{
 			Model: candidate.Model, BaseURL: endpoint.BaseURL, Protocol: endpoint.Protocol,
-			APIKey: endpoint.Credential, ProviderID: endpoint.ProviderID,
+			ProviderName: driverName, APIKey: endpoint.Credential, ProviderID: endpoint.ProviderID,
 			ProviderLabel: endpoint.ProviderName, Priority: endpoint.Priority,
 			Weight: endpoint.Weight, IsDefault: endpoint.Default,
 		})

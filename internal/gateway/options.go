@@ -1,5 +1,7 @@
 package gateway
 
+import "time"
+
 // Options configures the HTTP gateway server.
 type Options struct {
 	// Addr is the listen address (default ":8080").
@@ -37,6 +39,8 @@ type Options struct {
 	DatabasePath       string
 	AuditRetentionDays int
 	AuditMaxBodyBytes  int
+	// RunTimeout bounds one asynchronous agent run. A negative value disables it.
+	RunTimeout time.Duration
 	// AllowPrivateProviderURLs permits custom providers on private/link-local networks.
 	AllowPrivateProviderURLs bool
 }
@@ -56,6 +60,9 @@ func (o Options) withDefaults() Options {
 	}
 	if o.AuditMaxBodyBytes <= 0 {
 		o.AuditMaxBodyBytes = 1 << 20
+	}
+	if o.RunTimeout == 0 {
+		o.RunTimeout = 30 * time.Minute
 	}
 	return o
 }

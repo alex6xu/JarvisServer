@@ -157,6 +157,7 @@ Agent:
 
   AuditRetentionDays: 30
   AuditMaxBodyBytes: 1048576
+  RunTimeoutSeconds: 1800
 
   # false：不自动授予命令、写文件等副作用工具的信任。
   # 需要无人值守运行 Coder 时，只能在隔离良好的专用 Workspace 中谨慎设为 true。
@@ -188,6 +189,7 @@ sudo chmod 0640 /etc/jarvis/gateway.yaml
 - 如果通过管理界面配置 Provider，Key 会写入 SQLite，应保证数据库权限为 `0600`。
 - `AuditRetentionDays` 小于 0 时可禁用启动清理；生产环境不建议无限保留审计正文。
 - `AuditMaxBodyBytes` 限制单个 Provider 请求或响应的审计体积，不限制 Workspace 上传大小。
+- `RunTimeoutSeconds` 限制单次 Agent Run 的总时长；设为负数可禁用，生产环境建议保留有限超时。
 
 ## 6. systemd 服务
 

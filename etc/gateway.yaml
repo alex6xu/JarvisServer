@@ -17,6 +17,7 @@ Agent:
   AuthMode: token
   AuditRetentionDays: 30
   AuditMaxBodyBytes: 1048576
+  RunTimeoutSeconds: 1800
   AllowPrivateProviderURLs: false
   # Cwd: .
   # BaseURL: ""

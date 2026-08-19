@@ -156,3 +156,58 @@ func TestFailoverProviderDoesNotReplayAfterOutput(t *testing.T) {
 		t.Fatalf("sawError=%v fallback calls=%d", sawError, unused.calls)
 	}
 }
+
+func TestFailoverProviderReplansAndPersistsEveryTurn(t *testing.T) {
+	store := newTestGatewayStore(t)
+	run := &RunState{ID: "run_turns", SessionID: "session_turns", Model: "m", Status: runStatusRunning}
+	if err := store.CreateRun(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	success := &scriptedProvider{name: "success", events: []provider.AssistantMessageEvent{
+		provider.StreamTextEvent{Partial: assistant("ok", "")},
+		provider.StreamDoneEvent{Message: agentcore.AssistantMessage{
+			RoleField:  agentcore.RoleAssistant,
+			Content:    agentcore.ContentList{agentcore.NewTextContent("ok")},
+			StopReason: agentcore.StopReasonEndTurn,
+			Usage:      &agentcore.Usage{InputTokens: 12, OutputTokens: 4},
+		}},
+	}}
+	plans := 0
+	routed := &failoverProvider{
+		router: NewProviderRouter(), store: store, runID: run.ID, sessionID: run.SessionID,
+		planner: func(context.Context) (RoutePlan, []routedCandidate, error) {
+			plans++
+			plan := RoutePlan{Reason: "test", PolicyRev: 7, Candidates: []LLMRoute{{ProviderID: 3, Model: "m"}}}
+			return plan, []routedCandidate{{route: plan.Candidates[0], provider: success}}, nil
+		},
+	}
+	req := provider.CompletionRequest{Model: "m", Context: provider.LlmContext{
+		SystemPrompt: "system",
+		Messages: agentcore.MessageList{agentcore.UserMessage{
+			RoleField: agentcore.RoleUser,
+			Content:   agentcore.ContentList{agentcore.NewTextContent("question")},
+		}},
+	}}
+	for turn := 0; turn < 2; turn++ {
+		stream, err := routed.StreamCompletion(context.Background(), req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for range stream.Events() {
+		}
+	}
+	if plans != 2 || success.calls != 2 {
+		t.Fatalf("plans/calls = %d/%d", plans, success.calls)
+	}
+	attempts, err := store.ListRunAttempts(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(attempts) != 2 || attempts[0].Turn != 1 || attempts[1].Turn != 2 || attempts[1].PolicyRevision != 7 || attempts[1].InputTokens != 12 || attempts[1].OutputTokens != 4 {
+		t.Fatalf("attempts = %#v", attempts)
+	}
+	checkpoint, err := store.LoadLatestRunCheckpoint(context.Background(), run.ID)
+	if err != nil || checkpoint.Turn != 2 {
+		t.Fatalf("checkpoint = %+v, %v", checkpoint, err)
+	}
+}

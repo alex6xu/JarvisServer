@@ -163,10 +163,54 @@ CREATE TABLE IF NOT EXISTS health_samples (
 CREATE INDEX IF NOT EXISTS idx_health_samples_endpoint_created ON health_samples(endpoint_id, created_at DESC);
 `
 
+const runtimeRoutingSchema = `
+ALTER TABLE runs ADD COLUMN deadline_at TEXT;
+
+CREATE TABLE IF NOT EXISTS run_attempts (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    endpoint_id TEXT NOT NULL,
+    provider_id INTEGER NOT NULL DEFAULT 0,
+    model TEXT NOT NULL,
+    ordinal INTEGER NOT NULL,
+    turn INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    failure_stage TEXT NOT NULL DEFAULT '',
+    route_reason TEXT NOT NULL DEFAULT '',
+    policy_revision INTEGER NOT NULL DEFAULT 0,
+    error_category TEXT NOT NULL DEFAULT '',
+    error TEXT NOT NULL DEFAULT '',
+    latency_ms INTEGER NOT NULL DEFAULT 0,
+    first_token_ms INTEGER NOT NULL DEFAULT 0,
+	input_tokens INTEGER NOT NULL DEFAULT 0,
+	output_tokens INTEGER NOT NULL DEFAULT 0,
+    produced_output INTEGER NOT NULL DEFAULT 0,
+    produced_tool_call INTEGER NOT NULL DEFAULT 0,
+    side_effects INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_run_attempts_run_turn ON run_attempts(run_id, turn, ordinal);
+
+CREATE TABLE IF NOT EXISTS run_checkpoints (
+    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    turn INTEGER NOT NULL,
+    session_id TEXT NOT NULL,
+    workspace_id TEXT NOT NULL DEFAULT '',
+    mode TEXT NOT NULL DEFAULT '',
+    model TEXT NOT NULL,
+    system_prompt TEXT NOT NULL DEFAULT '',
+    messages_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(run_id, turn)
+);
+`
+
 var gatewayMigrations = []gatewayMigration{
 	{version: 1, name: "gateway_base", schema: gatewaySchema},
 	{version: 2, name: "control_plane_repositories", schema: controlPlaneSchema},
 	{version: 3, name: "provider_router", schema: routerSchema},
+	{version: 4, name: "runtime_routing", schema: runtimeRoutingSchema},
 }
 
 func applyGatewayMigrations(db *sql.DB) error {

@@ -26,6 +26,7 @@ func apiRoutes(svc *Service) []rest.Route {
 
 		// Agent sessions / chat / import (static paths before :param)
 		{Method: http.MethodPost, Path: "/v1/agent/chat", Handler: svc.handleChat},
+		{Method: http.MethodPost, Path: "/v1/agent/runs/:runId/cancel", Handler: svc.handleCancelRun},
 		{Method: http.MethodGet, Path: "/v1/agent/sessions", Handler: svc.handleListSessions},
 		{Method: http.MethodPost, Path: "/v1/agent/sessions/import/preview", Handler: svc.handleImportPreview},
 		{Method: http.MethodPost, Path: "/v1/agent/sessions/import", Handler: svc.handleImportSession},
@@ -91,6 +92,7 @@ func apiRoutes(svc *Service) []rest.Route {
 		{Method: http.MethodGet, Path: "/v1/admin/route-policies", Handler: svc.handleListRoutePolicies},
 		{Method: http.MethodPost, Path: "/v1/admin/route-policies", Handler: svc.handlePublishRoutePolicy},
 		{Method: http.MethodPut, Path: "/v1/admin/route-policies/:id", Handler: svc.handlePublishRoutePolicy},
+		{Method: http.MethodGet, Path: "/v1/admin/runs/:runId/attempts", Handler: svc.handleListRunAttempts},
 
 		// Admin stats / logs / route profiles
 		{Method: http.MethodGet, Path: "/v1/admin/stats", Handler: svc.handleAdminStats},
