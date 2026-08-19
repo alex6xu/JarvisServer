@@ -304,5 +304,9 @@ func (s *Service) handleCreateRouteProfile(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	p := s.Mem.createProfile(body.Name, body.Purpose, body.Models)
+	if err := s.Control.UpsertRouteProfile(r.Context(), p); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, p)
 }

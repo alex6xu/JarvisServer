@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"archive/zip"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -53,6 +54,7 @@ func (s *Service) listWorkspaces() ([]WorkspaceInfo, error) {
 			continue
 		}
 		out = append(out, info)
+		_ = s.Control.UpsertWorkspace(context.Background(), info)
 	}
 	return out, nil
 }
@@ -138,7 +140,14 @@ func (s *Service) createWorkspaceFromZip(name string, r io.ReaderAt, size int64)
 		name = id
 	}
 	_ = os.WriteFile(filepath.Join(dir, ".workspace.json"), []byte(fmt.Sprintf(`{"name":%q}`, name)), 0o644)
-	return s.workspaceInfo(id)
+	info, err := s.workspaceInfo(id)
+	if err != nil {
+		return WorkspaceInfo{}, err
+	}
+	if err := s.Control.UpsertWorkspace(context.Background(), info); err != nil {
+		return WorkspaceInfo{}, err
+	}
+	return info, nil
 }
 
 func extractZipFile(root string, f *zip.File) error {
@@ -178,7 +187,10 @@ func (s *Service) deleteWorkspace(id string) error {
 	if _, err := os.Stat(dir); err != nil {
 		return fmt.Errorf("workspace not found")
 	}
-	return os.RemoveAll(dir)
+	if err := os.RemoveAll(dir); err != nil {
+		return err
+	}
+	return s.Control.DeleteWorkspace(context.Background(), id)
 }
 
 func (s *Service) zipWorkspace(id string, w io.Writer) error {

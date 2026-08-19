@@ -20,13 +20,14 @@ import (
 
 // Service owns shared gateway state and starts agent runs.
 type Service struct {
-	Opts   Options
-	Runs   *RunManager
-	Store  *session.Store
-	Audit  *GatewayStore
-	Router *ProviderRouter
-	Trust  *trust.Manager
-	Mem    *MemStore
+	Opts    Options
+	Runs    *RunManager
+	Store   SessionRepository
+	Control ControlRepository
+	Audit   *GatewayStore
+	Router  *ProviderRouter
+	Trust   *trust.Manager
+	Mem     *MemStore
 }
 
 // NewService constructs a Service with session store and trust manager.
@@ -40,7 +41,7 @@ func NewService(opts Options) (*Service, error) {
 		opts.Cwd = cwd
 	}
 	stateRoot := filepath.Join(opts.Cwd, ".jarvis")
-	store, err := session.NewStore(filepath.Join(stateRoot, "sessions"))
+	legacyStore, err := session.NewStore(filepath.Join(stateRoot, "sessions"))
 	if err != nil {
 		return nil, fmt.Errorf("session store: %w", err)
 	}
@@ -60,6 +61,10 @@ func NewService(opts Options) (*Service, error) {
 		return nil, fmt.Errorf("gateway store: %w", err)
 	}
 	audit.maxAuditBodyBytes = opts.AuditMaxBodyBytes
+	if err := importLegacySessions(legacyStore, audit); err != nil {
+		_ = audit.Close()
+		return nil, fmt.Errorf("import legacy sessions: %w", err)
+	}
 	if opts.AuditRetentionDays > 0 {
 		before := time.Now().AddDate(0, 0, -opts.AuditRetentionDays)
 		if err := audit.PruneAudit(context.Background(), before); err != nil {
@@ -111,14 +116,19 @@ func NewService(opts Options) (*Service, error) {
 		}
 	}
 	mem.replaceProviders(storedProviders)
+	if err := initializeControlPlane(context.Background(), audit, mem, opts.Model); err != nil {
+		_ = audit.Close()
+		return nil, err
+	}
 	return &Service{
-		Opts:   opts,
-		Runs:   NewRunManager(audit),
-		Store:  store,
-		Audit:  audit,
-		Router: NewProviderRouter(),
-		Trust:  mgr,
-		Mem:    mem,
+		Opts:    opts,
+		Runs:    NewRunManager(audit),
+		Store:   audit,
+		Control: audit,
+		Audit:   audit,
+		Router:  NewProviderRouter(),
+		Trust:   mgr,
+		Mem:     mem,
 	}, nil
 }
 
@@ -349,7 +359,7 @@ func closeEnv(env run.Env) {
 }
 
 type sessionHandle struct {
-	store     *session.Store
+	store     SessionRepository
 	header    session.SessionHeader
 	curLeaf   string
 	persisted int

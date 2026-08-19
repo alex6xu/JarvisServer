@@ -13,10 +13,6 @@ import (
 )
 
 const gatewaySchema = `
-PRAGMA journal_mode = WAL;
-PRAGMA foreign_keys = ON;
-PRAGMA busy_timeout = 5000;
-
 CREATE TABLE IF NOT EXISTS accounts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT NOT NULL UNIQUE COLLATE NOCASE,
@@ -193,9 +189,13 @@ func OpenGatewayStore(path string) (*GatewayStore, error) {
 		return nil, fmt.Errorf("open gateway database: %w", err)
 	}
 	db.SetMaxOpenConns(1)
-	if _, err := db.Exec(gatewaySchema); err != nil {
+	if _, err := db.Exec(`PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;`); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("initialize gateway database: %w", err)
+		return nil, fmt.Errorf("configure gateway database: %w", err)
+	}
+	if err := applyGatewayMigrations(db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("migrate gateway database: %w", err)
 	}
 	return &GatewayStore{db: db}, nil
 }

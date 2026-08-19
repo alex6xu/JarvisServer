@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"time"
 )
 
@@ -145,14 +146,21 @@ func (s *Service) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		Type:           body.Type,
 		Prompt:         body.Prompt,
 	})
+	if err := s.Control.UpsertAgentTask(r.Context(), task); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
 	model := ""
 	if profile := s.Mem.findProfileByName(body.RouteProfile); profile != nil && len(profile.Models) > 0 {
 		model = profile.Models[0]
 	}
 	go func(id string) {
-		s.Mem.updateTask(id, func(t *AgentTask) {
+		running, _ := s.Mem.updateTask(id, func(t *AgentTask) {
 			t.Status = "running"
 		})
+		if err := s.Control.UpsertAgentTask(context.Background(), running); err != nil {
+			fmt.Fprintf(os.Stderr, "gateway: persist running task %s: %v\n", id, err)
+		}
 		response, err := s.StartChat(context.Background(), ChatRequest{
 			Message: body.Prompt, Model: model, WorkspaceID: body.WorkspaceID, Mode: "coder",
 		})
@@ -179,7 +187,7 @@ func (s *Service) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) finishTask(id, result string, steps []ToolStep, runErr error) {
-	s.Mem.updateTask(id, func(t *AgentTask) {
+	task, ok := s.Mem.updateTask(id, func(t *AgentTask) {
 		if runErr != nil {
 			t.Status = "failed"
 			t.Error = runErr.Error()
@@ -190,6 +198,11 @@ func (s *Service) finishTask(id, result string, steps []ToolStep, runErr error) 
 		}
 		t.FinishedAt = time.Now().UTC().Format(time.RFC3339)
 	})
+	if ok {
+		if err := s.Control.UpsertAgentTask(context.Background(), task); err != nil {
+			fmt.Fprintf(os.Stderr, "gateway: persist finished task %s: %v\n", id, err)
+		}
+	}
 }
 
 func (s *Service) handleListTags(w http.ResponseWriter, _ *http.Request) {

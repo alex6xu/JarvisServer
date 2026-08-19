@@ -403,6 +403,16 @@ func (m *MemStore) listProfiles() []RouteProfile {
 	return out
 }
 
+func (m *MemStore) replaceProfiles(profiles []RouteProfile) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.profiles = make(map[string]*RouteProfile, len(profiles))
+	for i := range profiles {
+		profile := profiles[i]
+		m.profiles[profile.ID] = &profile
+	}
+}
+
 func (m *MemStore) createProfile(name, purpose string, models []string) RouteProfile {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -468,6 +478,16 @@ func (m *MemStore) listTasks() []AgentTask {
 	return out
 }
 
+func (m *MemStore) replaceTasks(tasks []AgentTask) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.tasks = make(map[string]*AgentTask, len(tasks))
+	for i := range tasks {
+		task := tasks[i]
+		m.tasks[task.ID] = &task
+	}
+}
+
 func (m *MemStore) createTask(t AgentTask) AgentTask {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -482,12 +502,14 @@ func (m *MemStore) createTask(t AgentTask) AgentTask {
 	return t
 }
 
-func (m *MemStore) updateTask(id string, fn func(*AgentTask)) {
+func (m *MemStore) updateTask(id string, fn func(*AgentTask)) (AgentTask, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if t, ok := m.tasks[id]; ok {
 		fn(t)
+		return *t, true
 	}
+	return AgentTask{}, false
 }
 
 func (m *MemStore) listTags() []Tag {
@@ -498,6 +520,16 @@ func (m *MemStore) listTags() []Tag {
 		out = append(out, *t)
 	}
 	return out
+}
+
+func (m *MemStore) replaceTags(tags []Tag) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.tags = make(map[string]*Tag, len(tags))
+	for i := range tags {
+		tag := tags[i]
+		m.tags[tag.Slug] = &tag
+	}
 }
 
 func (m *MemStore) getTag(slug string) (*Tag, bool) {
