@@ -80,6 +80,11 @@ func (s *Service) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid json body")
 		return
 	}
+	if err := validateProviderInput(p); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	p = normalizeProviderConfig(p)
 	out := s.Mem.upsertProvider(0, p)
 	if err := s.persistProviders(r.Context()); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -100,6 +105,11 @@ func (s *Service) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid json body")
 		return
 	}
+	if err := validateProviderInput(p); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	p = normalizeProviderConfig(p)
 	out := s.Mem.upsertProvider(id, p)
 	if err := s.persistProviders(r.Context()); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -284,22 +294,26 @@ func (s *Service) handlePublishRoutePolicy(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Service) handleRoutePreview(w http.ResponseWriter, r *http.Request) {
-	plan, err := s.resolveLLMPlan(r.URL.Query().Get("model"))
+	purpose := normalizeRoutePurpose(RoutePurpose(r.URL.Query().Get("purpose")))
+	plan, err := s.resolveLLMPlanForPurpose(r.URL.Query().Get("model"), purpose, 0)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
 	}
 	type previewCandidate struct {
-		Order        int            `json:"order"`
-		ProviderID   int            `json:"provider_id,omitempty"`
-		ProviderName string         `json:"provider_name"`
-		Model        string         `json:"model"`
-		BaseURL      string         `json:"base_url,omitempty"`
-		Protocol     string         `json:"protocol,omitempty"`
-		Priority     int            `json:"priority"`
-		Weight       int            `json:"weight"`
-		Default      bool           `json:"is_default"`
-		Health       ProviderHealth `json:"health"`
+		Order         int            `json:"order"`
+		ProviderID    int            `json:"provider_id,omitempty"`
+		ProviderName  string         `json:"provider_name"`
+		Model         string         `json:"model"`
+		BaseURL       string         `json:"base_url,omitempty"`
+		Protocol      string         `json:"protocol,omitempty"`
+		Priority      int            `json:"priority"`
+		Weight        int            `json:"weight"`
+		Default       bool           `json:"is_default"`
+		ContextWindow int            `json:"context_window"`
+		QualityTier   int            `json:"quality_tier"`
+		CostPerMTok   float64        `json:"cost_per_mtok"`
+		Health        ProviderHealth `json:"health"`
 	}
 	out := make([]previewCandidate, 0, len(plan.Candidates))
 	for i, candidate := range plan.Candidates {
@@ -311,10 +325,12 @@ func (s *Service) handleRoutePreview(w http.ResponseWriter, r *http.Request) {
 			Order: i + 1, ProviderID: candidate.ProviderID, ProviderName: name,
 			Model: candidate.Model, BaseURL: candidate.BaseURL, Protocol: candidate.Protocol,
 			Priority: candidate.Priority, Weight: candidate.Weight, Default: candidate.IsDefault,
-			Health: s.Router.Health(candidate.ProviderID),
+			ContextWindow: candidate.ContextWindow, QualityTier: candidate.QualityTier,
+			CostPerMTok: candidate.CostPerMTok,
+			Health:      s.Router.Health(candidate.ProviderID),
 		})
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"requested_model": plan.RequestedModel, "candidates": out})
+	writeJSON(w, http.StatusOK, map[string]any{"requested_model": plan.RequestedModel, "purpose": plan.Purpose, "candidates": out})
 }
 
 func (s *Service) handleAdminStats(w http.ResponseWriter, r *http.Request) {

@@ -37,6 +37,7 @@ func (s *Service) handleModels(w http.ResponseWriter, _ *http.Request) {
 		seen[id] = true
 		ids = append(ids, id)
 	}
+	add("auto")
 	for _, p := range s.Mem.listProviders() {
 		if p.Status == 0 {
 			continue
@@ -55,7 +56,7 @@ func (s *Service) handleModels(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"data":    data,
 		"models":  models,
-		"default": s.Opts.Model,
+		"default": "auto",
 	})
 }
 

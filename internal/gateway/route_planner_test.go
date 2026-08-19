@@ -218,7 +218,7 @@ func TestFailoverProviderReplansAndPersistsEveryTurn(t *testing.T) {
 	plans := 0
 	routed := &failoverProvider{
 		router: NewProviderRouter(), store: store, runID: run.ID, sessionID: run.SessionID,
-		planner: func(context.Context) (RoutePlan, []routedCandidate, error) {
+		planner: func(context.Context, RoutePurpose, provider.CompletionRequest) (RoutePlan, []routedCandidate, error) {
 			plans++
 			plan := RoutePlan{Reason: "test", PolicyRev: 7, Candidates: []LLMRoute{{ProviderID: 3, Model: "m"}}}
 			return plan, []routedCandidate{{route: plan.Candidates[0], provider: success}}, nil
@@ -252,5 +252,139 @@ func TestFailoverProviderReplansAndPersistsEveryTurn(t *testing.T) {
 	checkpoint, err := store.LoadLatestRunCheckpoint(context.Background(), run.ID)
 	if err != nil || checkpoint.Turn != 2 {
 		t.Fatalf("checkpoint = %+v, %v", checkpoint, err)
+	}
+}
+
+func TestProviderRouterPlansByWorkloadPurpose(t *testing.T) {
+	router := NewProviderRouter()
+	providers := []Provider{
+		{ID: 1, Name: "light-chat", Type: 1, Key: "k1", BaseURL: "https://chat.test/v1", Models: "chat-light", Status: 1,
+			Capabilities: ProviderCapabilities{Chat: true}, ContextWindow: 32_768, QualityTier: 1, CostPerMTok: 0.2},
+		{ID: 2, Name: "strong-reasoner", Type: 1, Key: "k2", BaseURL: "https://reason.test/v1", Models: "reason-pro", Status: 1,
+			Capabilities: ProviderCapabilities{Reasoning: true, Coding: true, Tools: true, Thinking: true}, ContextWindow: 128_000, QualityTier: 5, CostPerMTok: 20},
+		{ID: 3, Name: "value-coder", Type: 1, Key: "k3", BaseURL: "https://code.test/v1", Models: "code-value", Status: 1,
+			Capabilities: ProviderCapabilities{Chat: true, Coding: true, Tools: true}, ContextWindow: 64_000, QualityTier: 3, CostPerMTok: 1},
+		{ID: 4, Name: "summary", Type: 1, Key: "k4", BaseURL: "https://summary.test/v1", Models: "summary-small", Status: 1,
+			Capabilities: ProviderCapabilities{Chat: true}, ContextWindow: 64_000, QualityTier: 2, CostPerMTok: 0.1},
+	}
+
+	tests := []struct {
+		purpose RoutePurpose
+		wantID  int
+	}{
+		{RoutePurposeChat, 1},
+		{RoutePurposeCodeAnalysis, 2},
+		{RoutePurposeCodeExecution, 3},
+		{RoutePurposeCompaction, 4},
+	}
+	for _, tt := range tests {
+		plan, err := router.PlanForPurpose(providers, "", LLMRoute{}, tt.purpose, 0)
+		if err != nil {
+			t.Fatalf("%s plan: %v", tt.purpose, err)
+		}
+		if got := plan.Candidates[0].ProviderID; got != tt.wantID {
+			t.Errorf("%s selected provider %d, want %d; plan=%+v", tt.purpose, got, tt.wantID, plan.Candidates)
+		}
+	}
+}
+
+func TestFailoverProviderSwitchesAfterThinkingOnlyFailure(t *testing.T) {
+	failed := &scriptedProvider{name: "failed", events: []provider.AssistantMessageEvent{
+		provider.StreamStartEvent{Partial: assistant("", "")},
+		provider.StreamThinkingEvent{Partial: assistant("private reasoning", "")},
+		provider.StreamErrorEvent{Message: agentcore.AssistantMessage{RoleField: agentcore.RoleAssistant, StopReason: agentcore.StopReasonError, ErrorMessage: "unavailable"}},
+	}}
+	success := &scriptedProvider{name: "success", events: []provider.AssistantMessageEvent{
+		provider.StreamTextEvent{Partial: assistant("ok", "")},
+		provider.StreamDoneEvent{Message: assistant("ok", agentcore.StopReasonEndTurn)},
+	}}
+	routed := &failoverProvider{router: NewProviderRouter(), candidates: []routedCandidate{
+		{route: LLMRoute{ProviderID: 1, Model: "m"}, provider: failed},
+		{route: LLMRoute{ProviderID: 2, Model: "m"}, provider: success},
+	}}
+	stream, err := routed.StreamCompletion(context.Background(), provider.CompletionRequest{Model: "m"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for event := range stream.Events() {
+		if _, ok := event.(provider.StreamThinkingEvent); ok {
+			t.Fatal("thinking from a failed candidate must not commit the route")
+		}
+		if _, ok := event.(provider.StreamErrorEvent); ok {
+			t.Fatal("fallback success must hide the first candidate error")
+		}
+	}
+	if failed.calls != 1 || success.calls != 1 {
+		t.Fatalf("calls=%d/%d", failed.calls, success.calls)
+	}
+}
+
+func TestCompactionRouteDoesNotAdvanceNormalTurn(t *testing.T) {
+	store := newTestGatewayStore(t)
+	runState := &RunState{ID: "run_compaction_turn", SessionID: "session", Model: "m", Status: runStatusRunning}
+	if err := store.CreateRun(context.Background(), runState); err != nil {
+		t.Fatal(err)
+	}
+	success := &scriptedProvider{name: "success", events: []provider.AssistantMessageEvent{
+		provider.StreamDoneEvent{Message: assistant("ok", agentcore.StopReasonEndTurn)},
+	}}
+	var purposes []RoutePurpose
+	routed := &failoverProvider{router: NewProviderRouter(), store: store, runID: runState.ID, sessionID: runState.SessionID, mode: "coder",
+		planner: func(_ context.Context, purpose RoutePurpose, _ provider.CompletionRequest) (RoutePlan, []routedCandidate, error) {
+			purposes = append(purposes, purpose)
+			plan := RoutePlan{Purpose: purpose, Candidates: []LLMRoute{{ProviderID: 1, EndpointID: "provider_1", Model: "m"}}}
+			return plan, []routedCandidate{{route: plan.Candidates[0], provider: success}}, nil
+		},
+	}
+	runRequest := func(extra map[string]any) {
+		t.Helper()
+		stream, err := routed.StreamCompletion(context.Background(), provider.CompletionRequest{
+			Model: "m", Config: provider.StreamConfig{Extra: extra},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for range stream.Events() {
+		}
+	}
+	runRequest(map[string]any{"route_purpose": string(RoutePurposeCompaction)})
+	runRequest(nil)
+	if routed.turn.Load() != 1 {
+		t.Fatalf("normal turn counter = %d, want 1", routed.turn.Load())
+	}
+	if len(purposes) != 2 || purposes[0] != RoutePurposeCompaction || purposes[1] != RoutePurposeCodeAnalysis {
+		t.Fatalf("purposes = %v", purposes)
+	}
+	checkpoint, err := store.LoadLatestRunCheckpoint(context.Background(), runState.ID)
+	if err != nil || checkpoint.Turn != 1 {
+		t.Fatalf("checkpoint=%+v err=%v", checkpoint, err)
+	}
+}
+
+func TestSmartCompactionSettingsScaleWithContextWindow(t *testing.T) {
+	small := smartCompactionSettings(8_192)
+	large := smartCompactionSettings(128_000)
+	if !small.Enabled || small.ReserveTokens != 2_048 || small.KeepRecentTokens != 4_096 {
+		t.Fatalf("small settings = %+v", small)
+	}
+	if !large.Enabled || large.ReserveTokens != 16_000 || large.KeepRecentTokens != 20_000 {
+		t.Fatalf("large settings = %+v", large)
+	}
+}
+
+func TestAdaptiveContextWindowUsesOnlyEligibleCoderRoutes(t *testing.T) {
+	svc := &Service{Mem: &MemStore{providers: map[int]*Provider{
+		1: {ID: 1, Key: "k", Status: 1, Models: "weak", ContextWindow: 8_192, QualityTier: 1,
+			Capabilities: ProviderCapabilities{Reasoning: true, Tools: true}},
+		2: {ID: 2, Key: "k", Status: 1, Models: "coder", ContextWindow: 64_000, QualityTier: 3,
+			Capabilities: ProviderCapabilities{Coding: true, Tools: true}},
+		3: {ID: 3, Key: "k", Status: 1, Models: "reasoner", ContextWindow: 128_000, QualityTier: 5,
+			Capabilities: ProviderCapabilities{Reasoning: true, Tools: true}},
+	}}}
+	if got := svc.adaptiveContextWindow("auto", "coder"); got != 64_000 {
+		t.Fatalf("auto coder context window = %d, want 64000", got)
+	}
+	if got := svc.adaptiveContextWindow("reasoner", "coder"); got != 128_000 {
+		t.Fatalf("fixed reasoner context window = %d, want 128000", got)
 	}
 }

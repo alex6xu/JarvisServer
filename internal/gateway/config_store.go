@@ -11,7 +11,8 @@ import (
 
 func (s *GatewayStore) ListProviders(ctx context.Context) ([]Provider, error) {
 	rows, err := s.db.QueryContext(ctx, `
-SELECT id, name, type, api_key, base_url, models, status, weight, priority, is_default, auth_mode
+SELECT id, name, type, api_key, base_url, models, status, weight, priority, is_default, auth_mode,
+       capabilities_json, context_window, quality_tier, cost_per_mtok
 FROM providers ORDER BY id`)
 	if err != nil {
 		return nil, err
@@ -20,11 +21,14 @@ FROM providers ORDER BY id`)
 	var out []Provider
 	for rows.Next() {
 		var p Provider
+		var capabilities string
 		if err := rows.Scan(&p.ID, &p.Name, &p.Type, &p.Key, &p.BaseURL, &p.Models,
-			&p.Status, &p.Weight, &p.Priority, &p.IsDefault, &p.AuthMode); err != nil {
+			&p.Status, &p.Weight, &p.Priority, &p.IsDefault, &p.AuthMode, &capabilities,
+			&p.ContextWindow, &p.QualityTier, &p.CostPerMTok); err != nil {
 			return nil, err
 		}
-		out = append(out, p)
+		_ = json.Unmarshal([]byte(capabilities), &p.Capabilities)
+		out = append(out, normalizeProviderConfig(p))
 	}
 	return out, rows.Err()
 }
@@ -39,29 +43,35 @@ func (s *GatewayStore) ReplaceProviders(ctx context.Context, providers []Provide
 		return err
 	}
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	for _, p := range providers {
+	for _, raw := range providers {
+		p := normalizeProviderConfig(raw)
 		if _, err := tx.ExecContext(ctx, `
-INSERT INTO providers(id, name, type, api_key, base_url, models, status, weight, priority, is_default, auth_mode, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, p.ID, p.Name, p.Type, p.Key, p.BaseURL,
-			p.Models, p.Status, p.Weight, p.Priority, p.IsDefault, p.AuthMode, now); err != nil {
+INSERT INTO providers(id, name, type, api_key, base_url, models, status, weight, priority, is_default,
+                      auth_mode, updated_at, capabilities_json, context_window, quality_tier, cost_per_mtok)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, p.ID, p.Name, p.Type, p.Key, p.BaseURL,
+			p.Models, p.Status, p.Weight, p.Priority, p.IsDefault, p.AuthMode, now,
+			encodeJSON(p.Capabilities, "{}"), p.ContextWindow, p.QualityTier, p.CostPerMTok); err != nil {
 			return err
 		}
 		endpointID := fmt.Sprintf("provider_%d", p.ID)
 		protocol, _ := mapChannelType(p.Type, p.BaseURL)
 		capabilities := encodeJSON(map[string]any{
-			"tools": true, "images": true, "thinking": true, "context_window": 0,
+			"chat": p.Capabilities.Chat, "reasoning": p.Capabilities.Reasoning,
+			"coding": p.Capabilities.Coding, "tools": p.Capabilities.Tools,
+			"images": p.Capabilities.Images, "thinking": p.Capabilities.Thinking,
+			"quality_tier": p.QualityTier, "context_window": p.ContextWindow,
 		}, "{}")
 		if _, err := tx.ExecContext(ctx, `
 INSERT INTO provider_endpoints(id, provider_id, name, base_url, protocol, enabled,
-                               priority, weight, is_default, capabilities_json, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, endpointID, p.ID, p.Name, p.BaseURL, protocol,
-			p.Status, p.Priority, max(p.Weight, 1), p.IsDefault, capabilities, now); err != nil {
+                               priority, weight, is_default, capabilities_json, cost_per_mtok, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, endpointID, p.ID, p.Name, p.BaseURL, protocol,
+			p.Status, p.Priority, max(p.Weight, 1), p.IsDefault, capabilities, p.CostPerMTok, now); err != nil {
 			return err
 		}
 		for _, model := range parseProviderModels(p.Models) {
 			if _, err := tx.ExecContext(ctx, `
 INSERT INTO provider_models(endpoint_id, model_id, capabilities_json, context_window, enabled)
-VALUES (?, ?, ?, 0, 1)`, endpointID, model, capabilities); err != nil {
+VALUES (?, ?, ?, ?, 1)`, endpointID, model, capabilities, p.ContextWindow); err != nil {
 				return err
 			}
 		}

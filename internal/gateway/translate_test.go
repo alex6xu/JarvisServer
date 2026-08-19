@@ -65,6 +65,20 @@ func TestTranslateHandlerDeltaAndDone(t *testing.T) {
 	}
 }
 
+func TestTranslateHandlerPrefersErrorMessageOverPartialContent(t *testing.T) {
+	var got []StreamEvent
+	h, _ := NewTranslateHandler(func(ev StreamEvent) { got = append(got, ev) }, "m1", "s1", nil)
+	h.OnEvent(agentcore.TurnEndEvent{Message: agentcore.AssistantMessage{
+		RoleField:    agentcore.RoleAssistant,
+		Content:      agentcore.ContentList{agentcore.NewTextContent("useful partial output")},
+		StopReason:   agentcore.StopReasonError,
+		ErrorMessage: "upstream stream interrupted",
+	}})
+	if len(got) != 1 || got[0].Type != "error" || got[0].Content != "upstream stream interrupted" {
+		t.Fatalf("error event = %#v", got)
+	}
+}
+
 func TestRunManagerAfterSeq(t *testing.T) {
 	m := NewRunManager()
 	st, err := m.Register("sess", "m", "", func() {})

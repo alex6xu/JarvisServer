@@ -103,6 +103,27 @@ func TestStreamResponseErrorEvent(t *testing.T) {
 	}
 }
 
+func TestStreamResponsePreservesPartialContentOnError(t *testing.T) {
+	partial := agentcore.AssistantMessage{
+		RoleField: agentcore.RoleAssistant, Provider: "primary", Model: "model-a",
+		Content: agentcore.ContentList{agentcore.NewTextContent("useful partial output")},
+	}
+	terminal := agentcore.AssistantMessage{
+		RoleField: agentcore.RoleAssistant, StopReason: agentcore.StopReasonError, ErrorMessage: "stream interrupted",
+	}
+	cfg := LoopConfig{Model: "model-a", Stream: fakeStream([]provider.AssistantMessageEvent{
+		provider.StreamTextEvent{Partial: partial},
+		provider.StreamErrorEvent{Message: terminal},
+	})}
+	msg, _ := runStream(t, &agentcore.AgentContext{}, cfg)
+	if got := agentcore.ContentToText(msg.Content); got != "useful partial output" {
+		t.Fatalf("partial content = %q", got)
+	}
+	if msg.Provider != "primary" || msg.Model != "model-a" || msg.ErrorMessage != "stream interrupted" {
+		t.Fatalf("terminal metadata = %+v", msg)
+	}
+}
+
 func TestStreamResponseDynamicAPIKey(t *testing.T) {
 	var seenKey string
 	streamFn := func(ctx context.Context, model string, llm provider.LlmContext, cfg provider.StreamConfig) (*provider.AssistantMessageEventStream, error) {

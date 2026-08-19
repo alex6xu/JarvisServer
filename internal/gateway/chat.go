@@ -12,6 +12,7 @@ import (
 	"github.com/alex6xu/jarvisserver/internal/agentcore"
 	"github.com/alex6xu/jarvisserver/internal/cli/run"
 	"github.com/alex6xu/jarvisserver/internal/cli/ui"
+	"github.com/alex6xu/jarvisserver/internal/compaction"
 	"github.com/alex6xu/jarvisserver/internal/plugin"
 	"github.com/alex6xu/jarvisserver/internal/provider"
 	"github.com/alex6xu/jarvisserver/internal/runtime"
@@ -169,7 +170,11 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 		return ChatResponse{}, fmt.Errorf("message is required")
 	}
 	model := strings.TrimSpace(req.Model)
-	plan, err := s.resolveLLMPlan(model)
+	purpose := RoutePurposeChat
+	if strings.EqualFold(req.Mode, "coder") {
+		purpose = RoutePurposeCodeAnalysis
+	}
+	plan, err := s.resolveLLMPlanForPurpose(model, purpose, 0)
 	if err != nil {
 		return ChatResponse{}, err
 	}
@@ -298,6 +303,18 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 	runCfg := run.NewConfig(model, env.ProviderName, thinking, routedProvider, creds, run.ToolRegistry(env.Tools), run.TodoReminders(env.Tools))
 	runCfg.SessionID = hs.header.ID
 	runCfg.MemoryRoot = run.MemoryRootFromTools(env.Tools)
+	runCfg.ContextWindow = s.adaptiveContextWindow(req.Model, req.Mode)
+	runCfg.Compaction = smartCompactionSettings(runCfg.ContextWindow)
+	baseSummaryStream := runCfg.Stream
+	runCfg.SummaryStream = func(ctx context.Context, model string, llm provider.LlmContext, cfg provider.StreamConfig) (*provider.AssistantMessageEventStream, error) {
+		extra := make(map[string]any, len(cfg.Extra)+1)
+		for key, value := range cfg.Extra {
+			extra[key] = value
+		}
+		extra["route_purpose"] = string(RoutePurposeCompaction)
+		cfg.Extra = extra
+		return baseSummaryStream(ctx, model, llm, cfg)
+	}
 
 	_, onEvent := run.InstallDriverHooks(runCtx, &runCfg, set, hookDeps, source, baseOnEvent)
 	pub := func(ev StreamEvent) { state.Publish(ev) }
@@ -375,9 +392,13 @@ func (s *Service) buildRoutedProvider(requestedModel string, initial RoutePlan, 
 	return &failoverProvider{
 		candidates: initialCandidates, router: s.Router, store: s.Audit, runID: runID,
 		sessionID: sessionID, workspaceID: workspaceID, mode: mode, publish: publish,
-		planner: func(ctx context.Context) (RoutePlan, []routedCandidate, error) {
-			_ = ctx
-			plan, err := s.resolveLLMPlan(requestedModel)
+		planner: func(ctx context.Context, purpose RoutePurpose, req provider.CompletionRequest) (RoutePlan, []routedCandidate, error) {
+			model := requestedModel
+			minContextWindow := compaction.EstimateContextTokens(req.Context.Messages).Tokens + 2048
+			if purpose == RoutePurposeCompaction {
+				model = ""
+			}
+			plan, err := s.resolveLLMPlanForPurpose(model, purpose, minContextWindow)
 			if err != nil {
 				return RoutePlan{}, nil, err
 			}
@@ -385,6 +406,69 @@ func (s *Service) buildRoutedProvider(requestedModel string, initial RoutePlan, 
 			return plan, candidates, err
 		},
 	}, nil
+}
+
+func (s *Service) adaptiveContextWindow(requestedModel, mode string) int {
+	model := strings.TrimSpace(requestedModel)
+	if strings.EqualFold(model, "auto") {
+		model = ""
+	}
+	minimum := 0
+	for _, raw := range s.Mem.listProviders() {
+		provider := normalizeProviderConfig(raw)
+		if !providerUsable(&provider) {
+			continue
+		}
+		if model != "" {
+			matched := false
+			for _, candidate := range parseProviderModels(provider.Models) {
+				if strings.EqualFold(candidate, model) {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				continue
+			}
+		}
+		eligible := provider.Capabilities.Chat && provider.QualityTier >= 1
+		if strings.EqualFold(mode, "coder") {
+			eligible = provider.Capabilities.Tools &&
+				((provider.Capabilities.Reasoning && provider.QualityTier >= 3) ||
+					(provider.Capabilities.Coding && provider.QualityTier >= 2))
+		}
+		if eligible && (minimum == 0 || provider.ContextWindow < minimum) {
+			minimum = provider.ContextWindow
+		}
+	}
+	if minimum <= 0 {
+		minimum = 32768
+	}
+	return minimum
+}
+
+func smartCompactionSettings(contextWindow int) compaction.CompactionSettings {
+	if contextWindow <= 0 {
+		return compaction.CompactionSettings{}
+	}
+	reserve := contextWindow / 8
+	if reserve < 2048 {
+		reserve = 2048
+	}
+	if reserve > 16384 {
+		reserve = 16384
+	}
+	keepRecent := contextWindow / 3
+	if keepRecent < 4096 {
+		keepRecent = 4096
+	}
+	if keepRecent > 20000 {
+		keepRecent = 20000
+	}
+	if reserve+keepRecent >= contextWindow {
+		keepRecent = max((contextWindow-reserve)/2, 512)
+	}
+	return compaction.CompactionSettings{Enabled: true, ReserveTokens: reserve, KeepRecentTokens: keepRecent}
 }
 
 func finalAssistantResult(messages agentcore.MessageList, start int) (text, stopReason, errorMessage string) {

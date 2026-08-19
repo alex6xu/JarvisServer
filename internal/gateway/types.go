@@ -37,6 +37,7 @@ type StreamEvent struct {
 	ToolSteps []ToolStep `json:"tool_steps,omitempty"`
 	Seq       int64      `json:"seq,omitempty"`
 	AttemptID string     `json:"attempt_id,omitempty"`
+	Purpose   string     `json:"purpose,omitempty"`
 	Timestamp string     `json:"timestamp,omitempty"`
 }
 

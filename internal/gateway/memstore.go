@@ -41,17 +41,30 @@ type APIToken struct {
 
 // Provider matches the web ChannelsPage Channel JSON shape.
 type Provider struct {
-	ID        int    `json:"id"`
-	Name      string `json:"name"`
-	Type      int    `json:"type"`
-	Key       string `json:"key"`
-	BaseURL   string `json:"base_url"`
-	Models    string `json:"models"`
-	Status    int    `json:"status"`
-	Weight    int    `json:"weight"`
-	Priority  int    `json:"priority"`
-	IsDefault int    `json:"is_default"`
-	AuthMode  string `json:"auth_mode,omitempty"`
+	ID            int                  `json:"id"`
+	Name          string               `json:"name"`
+	Type          int                  `json:"type"`
+	Key           string               `json:"key"`
+	BaseURL       string               `json:"base_url"`
+	Models        string               `json:"models"`
+	Status        int                  `json:"status"`
+	Weight        int                  `json:"weight"`
+	Priority      int                  `json:"priority"`
+	IsDefault     int                  `json:"is_default"`
+	AuthMode      string               `json:"auth_mode,omitempty"`
+	Capabilities  ProviderCapabilities `json:"capabilities"`
+	ContextWindow int                  `json:"context_window"`
+	QualityTier   int                  `json:"quality_tier"`
+	CostPerMTok   float64              `json:"cost_per_mtok"`
+}
+
+type ProviderCapabilities struct {
+	Chat      bool `json:"chat"`
+	Reasoning bool `json:"reasoning"`
+	Coding    bool `json:"coding"`
+	Tools     bool `json:"tools"`
+	Images    bool `json:"images"`
+	Thinking  bool `json:"thinking"`
 }
 
 type RouteProfile struct {
@@ -261,7 +274,7 @@ func (m *MemStore) replaceProviders(providers []Provider) {
 	m.providers = make(map[int]*Provider, len(providers))
 	m.nextProvID = 0
 	for i := range providers {
-		p := providers[i]
+		p := normalizeProviderConfig(providers[i])
 		cp := p
 		m.providers[p.ID] = &cp
 		if int64(p.ID) > m.nextProvID {
@@ -273,6 +286,7 @@ func (m *MemStore) replaceProviders(providers []Provider) {
 func (m *MemStore) upsertProvider(id int, p Provider) Provider {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	p = normalizeProviderConfig(p)
 	if id <= 0 {
 		m.nextProvID++
 		p.ID = int(m.nextProvID)

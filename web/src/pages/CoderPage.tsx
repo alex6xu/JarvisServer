@@ -237,11 +237,7 @@ export default function CoderPage() {
       const list: ModelOption[] = (data.data || []).map((m: { id: string }) => ({ id: m.id }))
       setModels(list)
       if (list.length > 0) {
-        const preferred =
-          list.find((m) => m.id.includes('mimo')) ||
-          list.find((m) => m.id.includes('glm')) ||
-          list.find((m) => m.id.includes('coder') || m.id.includes('code')) ||
-          list[0]
+        const preferred = list.find((m) => m.id === (data.default || 'auto')) || list[0]
         setSelectedModel(preferred.id)
       } else {
         setSelectedModel('')
@@ -822,7 +818,7 @@ export default function CoderPage() {
             ) : (
               models.map((m) => (
                 <option key={m.id} value={m.id}>
-                  {m.id}
+                  {m.id === 'auto' ? '智能路由' : m.id}
                 </option>
               ))
             )}

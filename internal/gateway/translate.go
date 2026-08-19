@@ -170,9 +170,12 @@ func NewTranslateHandler(pub PublishFunc, model, sessionID string, extraOnEvent 
 				})
 			case agentcore.TurnEndEvent:
 				if e.Message.StopReason == "error" || e.Message.StopReason == "aborted" {
-					reason := e.Message.StopReason
-					if text := agentcore.ContentToText(e.Message.Content); text != "" {
-						reason = text
+					reason := e.Message.ErrorMessage
+					if reason == "" {
+						reason = agentcore.ContentToText(e.Message.Content)
+					}
+					if reason == "" {
+						reason = e.Message.StopReason
 					}
 					st.pub(StreamEvent{
 						Type:      "error",

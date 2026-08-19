@@ -139,11 +139,12 @@ func streamAssistantResponse(ctx context.Context, agentCtx *agentcore.AgentConte
 			}
 			return e.Message, nil
 		case provider.StreamErrorEvent:
-			finalizeMessage(agentCtx, e.Message, &addedPartial)
-			if err := emit(ctx, agentcore.MessageEndEvent{Message: e.Message}); err != nil {
+			final := preservePartialOnError(agentCtx, e.Message, addedPartial)
+			finalizeMessage(agentCtx, final, &addedPartial)
+			if err := emit(ctx, agentcore.MessageEndEvent{Message: final}); err != nil {
 				return agentcore.AssistantMessage{}, err
 			}
-			return e.Message, nil
+			return final, nil
 		}
 	}
 
@@ -157,6 +158,24 @@ func streamAssistantResponse(ctx context.Context, agentCtx *agentcore.AgentConte
 		return agentcore.AssistantMessage{}, err
 	}
 	return final, nil
+}
+
+func preservePartialOnError(agentCtx *agentcore.AgentContext, terminal agentcore.AssistantMessage, addedPartial bool) agentcore.AssistantMessage {
+	if !addedPartial || len(terminal.Content) != 0 || len(agentCtx.Messages) == 0 {
+		return terminal
+	}
+	partial, ok := agentCtx.Messages[len(agentCtx.Messages)-1].(agentcore.AssistantMessage)
+	if !ok {
+		return terminal
+	}
+	terminal.Content = partial.Content
+	if terminal.Model == "" {
+		terminal.Model = partial.Model
+	}
+	if terminal.Provider == "" {
+		terminal.Provider = partial.Provider
+	}
+	return terminal
 }
 
 // finalizeMessage replaces the placeholder partial with the final message, or

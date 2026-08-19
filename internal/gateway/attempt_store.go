@@ -17,6 +17,7 @@ type RunAttempt struct {
 	Model            string `json:"model"`
 	Ordinal          int    `json:"ordinal"`
 	Turn             int    `json:"turn"`
+	Purpose          string `json:"purpose,omitempty"`
 	Status           string `json:"status"`
 	FailureStage     string `json:"failure_stage,omitempty"`
 	RouteReason      string `json:"route_reason,omitempty"`
@@ -49,10 +50,10 @@ type RunCheckpoint struct {
 func (s *GatewayStore) CreateRunAttempt(ctx context.Context, attempt RunAttempt) error {
 	_, err := s.db.ExecContext(ctx, `
 INSERT INTO run_attempts(id, run_id, endpoint_id, provider_id, model, ordinal, turn, status,
-                         route_reason, policy_revision, created_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, attempt.ID, attempt.RunID, attempt.EndpointID,
+                         route_reason, policy_revision, purpose, created_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, attempt.ID, attempt.RunID, attempt.EndpointID,
 		attempt.ProviderID, attempt.Model, attempt.Ordinal, attempt.Turn, attempt.Status,
-		attempt.RouteReason, attempt.PolicyRevision, attempt.CreatedAt)
+		attempt.RouteReason, attempt.PolicyRevision, attempt.Purpose, attempt.CreatedAt)
 	return err
 }
 
@@ -69,7 +70,7 @@ first_token_ms=?, input_tokens=?, output_tokens=?, produced_output=?, produced_t
 func (s *GatewayStore) ListRunAttempts(ctx context.Context, runID string) ([]RunAttempt, error) {
 	rows, err := s.db.QueryContext(ctx, `
 SELECT id, run_id, endpoint_id, provider_id, model, ordinal, turn, status, failure_stage,
-route_reason, policy_revision, error_category, error, latency_ms, first_token_ms,
+route_reason, policy_revision, purpose, error_category, error, latency_ms, first_token_ms,
 input_tokens, output_tokens, produced_output, produced_tool_call, side_effects, created_at, finished_at
 FROM run_attempts WHERE run_id=? ORDER BY turn, ordinal`, runID)
 	if err != nil {
@@ -82,7 +83,7 @@ FROM run_attempts WHERE run_id=? ORDER BY turn, ordinal`, runID)
 		var finished sql.NullString
 		if err := rows.Scan(&attempt.ID, &attempt.RunID, &attempt.EndpointID, &attempt.ProviderID,
 			&attempt.Model, &attempt.Ordinal, &attempt.Turn, &attempt.Status, &attempt.FailureStage,
-			&attempt.RouteReason, &attempt.PolicyRevision, &attempt.ErrorCategory, &attempt.Error,
+			&attempt.RouteReason, &attempt.PolicyRevision, &attempt.Purpose, &attempt.ErrorCategory, &attempt.Error,
 			&attempt.LatencyMs, &attempt.FirstTokenMs, &attempt.InputTokens, &attempt.OutputTokens, &attempt.ProducedOutput,
 			&attempt.ProducedToolCall, &attempt.SideEffects, &attempt.CreatedAt, &finished); err != nil {
 			return nil, err

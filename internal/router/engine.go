@@ -104,11 +104,27 @@ func scoreEndpoint(endpoint Endpoint, health Health, policy Policy) float64 {
 	}
 	healthScore := successRate * 100
 	latency := float64(health.LatencyP95Ms) / 1000
+	qualityWeight := policy.QualityWeight
+	if qualityWeight <= 0 {
+		qualityWeight = 20
+	}
+	qualityTier := max(endpoint.Capabilities.QualityTier, 1)
+	quality := float64(qualityTier)
 	score := float64(endpoint.Priority*100) + healthScore*policy.HealthWeight/100
+	if policy.PreferredQualityTier > 0 {
+		distance := qualityTier - policy.PreferredQualityTier
+		if distance < 0 {
+			distance = -distance
+		}
+		score -= float64(distance) * qualityWeight
+	} else {
+		score += quality * qualityWeight
+	}
 	switch strings.ToLower(policy.Mode) {
 	case "quality-first":
-		score += healthScore * .5
+		score += healthScore*.5 + quality*60
 	case "cost-first":
+		score += quality * 5
 		score -= endpoint.CostPerMTok * max(policy.CostWeight, 30)
 	case "latency-first":
 		score -= latency * max(policy.LatencyWeight, 30)

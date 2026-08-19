@@ -211,12 +211,21 @@ ALTER TABLE workspace_metadata ADD COLUMN account_id INTEGER NOT NULL DEFAULT 1;
 CREATE INDEX IF NOT EXISTS idx_workspace_metadata_account ON workspace_metadata(account_id, updated_at DESC);
 `
 
+const adaptiveProviderRoutingSchema = `
+ALTER TABLE providers ADD COLUMN capabilities_json TEXT NOT NULL DEFAULT '{}';
+ALTER TABLE providers ADD COLUMN context_window INTEGER NOT NULL DEFAULT 32768;
+ALTER TABLE providers ADD COLUMN quality_tier INTEGER NOT NULL DEFAULT 3;
+ALTER TABLE providers ADD COLUMN cost_per_mtok REAL NOT NULL DEFAULT 0;
+ALTER TABLE run_attempts ADD COLUMN purpose TEXT NOT NULL DEFAULT '';
+`
+
 var gatewayMigrations = []gatewayMigration{
 	{version: 1, name: "gateway_base", schema: gatewaySchema},
 	{version: 2, name: "control_plane_repositories", schema: controlPlaneSchema},
 	{version: 3, name: "provider_router", schema: routerSchema},
 	{version: 4, name: "runtime_routing", schema: runtimeRoutingSchema},
 	{version: 5, name: "workspace_ownership", schema: workspaceOwnershipSchema},
+	{version: 6, name: "adaptive_provider_routing", schema: adaptiveProviderRoutingSchema},
 }
 
 func applyGatewayMigrations(db *sql.DB) error {

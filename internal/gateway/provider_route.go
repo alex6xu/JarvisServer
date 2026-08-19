@@ -18,9 +18,14 @@ type LLMRoute struct {
 	APIKey        string
 	ProviderID    int
 	ProviderLabel string
-	Priority      int  `json:"priority"`
-	Weight        int  `json:"weight"`
-	IsDefault     bool `json:"is_default"`
+	Priority      int          `json:"priority"`
+	Weight        int          `json:"weight"`
+	IsDefault     bool         `json:"is_default"`
+	EndpointID    string       `json:"endpoint_id,omitempty"`
+	ContextWindow int          `json:"context_window,omitempty"`
+	QualityTier   int          `json:"quality_tier,omitempty"`
+	CostPerMTok   float64      `json:"cost_per_mtok,omitempty"`
+	Purpose       RoutePurpose `json:"purpose,omitempty"`
 }
 
 // resolveLLM picks a MemStore provider (by model match, else default) and maps it
@@ -34,12 +39,21 @@ func (s *Service) resolveLLM(requestedModel string) (LLMRoute, error) {
 }
 
 func (s *Service) resolveLLMPlan(requestedModel string) (RoutePlan, error) {
+	return s.resolveLLMPlanForPurpose(requestedModel, RoutePurposeDefault, 0)
+}
+
+func (s *Service) resolveLLMPlanForPurpose(requestedModel string, purpose RoutePurpose, minContextWindow int) (RoutePlan, error) {
 	model := strings.TrimSpace(requestedModel)
-	if model == "" {
-		model = s.Opts.Model
+	if strings.EqualFold(model, "auto") {
+		model = ""
 	}
-	fallback := LLMRoute{Model: model, BaseURL: s.Opts.BaseURL, Protocol: s.Opts.Protocol, ProviderName: s.Opts.ProviderName, APIKey: s.Opts.APIKey}
-	return s.Router.Plan(s.Mem.listProviders(), requestedModel, fallback)
+	fallbackModel := model
+	if fallbackModel == "" {
+		fallbackModel = s.Opts.Model
+	}
+	fallback := LLMRoute{Model: fallbackModel, BaseURL: s.Opts.BaseURL, Protocol: s.Opts.Protocol,
+		ProviderName: s.Opts.ProviderName, APIKey: s.Opts.APIKey, ContextWindow: 32768, QualityTier: 3, Purpose: purpose}
+	return s.Router.PlanForPurpose(s.Mem.listProviders(), model, fallback, purpose, minContextWindow)
 }
 
 func providerUsable(p *Provider) bool {

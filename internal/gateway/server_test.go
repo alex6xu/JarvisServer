@@ -37,8 +37,12 @@ func TestStubEndpoints(t *testing.T) {
 		if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
 			t.Fatal(err)
 		}
-		if body["default"] != "test-model" {
+		if body["default"] != "auto" {
 			t.Fatalf("default=%v", body["default"])
+		}
+		data, ok := body["data"].([]any)
+		if !ok || len(data) == 0 || data[0].(map[string]any)["id"] != "auto" {
+			t.Fatalf("models=%#v", body["data"])
 		}
 	})
 

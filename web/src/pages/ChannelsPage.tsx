@@ -14,6 +14,19 @@ interface Channel {
   priority: number
   is_default: number
   auth_mode?: string
+  capabilities: ProviderCapabilities
+  context_window: number
+  quality_tier: number
+  cost_per_mtok: number
+}
+
+interface ProviderCapabilities {
+  chat: boolean
+  reasoning: boolean
+  coding: boolean
+  tools: boolean
+  images: boolean
+  thinking: boolean
 }
 
 interface RoutePreviewCandidate {
@@ -26,6 +39,9 @@ interface RoutePreviewCandidate {
   priority: number
   weight: number
   is_default: boolean
+  context_window: number
+  quality_tier: number
+  cost_per_mtok: number
   health: {
     consecutive_failures: number
     circuit_open_until?: string
@@ -34,6 +50,25 @@ interface RoutePreviewCandidate {
 }
 
 type ProviderMode = 'api_key' | 'oauth'
+type RoutePurpose = 'chat' | 'code_analysis' | 'code_execution' | 'compaction'
+
+const defaultCapabilities: ProviderCapabilities = {
+  chat: true,
+  reasoning: true,
+  coding: true,
+  tools: true,
+  images: true,
+  thinking: true,
+}
+
+const capabilityOptions: Array<{ key: keyof ProviderCapabilities; label: string }> = [
+  { key: 'chat', label: '普通对话' },
+  { key: 'reasoning', label: '推理分析' },
+  { key: 'coding', label: '代码实现' },
+  { key: 'tools', label: '工具调用' },
+  { key: 'images', label: '图片输入' },
+  { key: 'thinking', label: '思考输出' },
+]
 
 const CHANNEL_TYPE_SLUGS: Record<number, string> = {
   1: 'openai',
@@ -392,11 +427,16 @@ function ProvidersPage({ accountId }: { accountId?: number }) {
     priority: 0,
     is_default: 0,
     auth_mode: 'api_key' as string,
+    capabilities: { ...defaultCapabilities },
+    context_window: 32768,
+    quality_tier: 3,
+    cost_per_mtok: 0,
   })
   const [fetchingModels, setFetchingModels] = useState(false)
   const [availableModels, setAvailableModels] = useState<string[]>([])
   const [modelPick, setModelPick] = useState('')
   const [routeModel, setRouteModel] = useState('')
+  const [routePurpose, setRoutePurpose] = useState<RoutePurpose>('chat')
   const [routeCandidates, setRouteCandidates] = useState<RoutePreviewCandidate[]>([])
   const [routeLoading, setRouteLoading] = useState(false)
   const [routeError, setRouteError] = useState('')
@@ -429,8 +469,9 @@ function ProvidersPage({ accountId }: { accountId?: number }) {
     setRouteLoading(true)
     setRouteError('')
     try {
-      const query = routeModel.trim() ? `?model=${encodeURIComponent(routeModel.trim())}` : ''
-      const res = await apiFetch(`/v1/admin/routes/preview${query}`, {}, accountId)
+      const params = new URLSearchParams({ purpose: routePurpose })
+      if (routeModel.trim()) params.set('model', routeModel.trim())
+      const res = await apiFetch(`/v1/admin/routes/preview?${params}`, {}, accountId)
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
         setRouteCandidates([])
@@ -479,6 +520,10 @@ function ProvidersPage({ accountId }: { accountId?: number }) {
       priority: 0,
       is_default: 0,
       auth_mode: modalMode,
+      capabilities: { ...defaultCapabilities },
+      context_window: 32768,
+      quality_tier: 3,
+      cost_per_mtok: 0,
     }, false))
   }
 
@@ -511,6 +556,10 @@ function ProvidersPage({ accountId }: { accountId?: number }) {
       priority: channel.priority,
       is_default: channel.is_default,
       auth_mode: mode,
+      capabilities: { ...defaultCapabilities, ...channel.capabilities },
+      context_window: channel.context_window || 32768,
+      quality_tier: channel.quality_tier || 3,
+      cost_per_mtok: channel.cost_per_mtok || 0,
     })
     setOauthStep('form')
     setOauthPaste('')
@@ -752,14 +801,29 @@ function ProvidersPage({ accountId }: { accountId?: number }) {
     }
   }
 
+  const hasWorkloadCapability = form.capabilities.chat || form.capabilities.reasoning || form.capabilities.coding
   const canSubmit = Boolean(form.name.trim() || firstModel(form.models)) &&
+    hasWorkloadCapability && form.context_window >= 4096 && form.cost_per_mtok >= 0 &&
     (modalMode === 'oauth' || Boolean(form.key) || editingId !== null)
 
   return (
     <div className="space-y-6">
       <div className="bg-card border border-border rounded-lg">
         <div className="flex flex-col sm:flex-row sm:items-end gap-3 px-5 py-4 border-b border-border">
-          <div className="flex-1">
+          <div className="sm:w-48">
+            <label className="block text-[13px] font-medium text-foreground mb-1.5">任务类型</label>
+            <select
+              value={routePurpose}
+              onChange={(e) => setRoutePurpose(e.target.value as RoutePurpose)}
+              className="w-full h-9 px-3 bg-background border border-border rounded-md text-[13px]"
+            >
+              <option value="chat">普通对话</option>
+              <option value="code_analysis">代码分析 / 设计</option>
+              <option value="code_execution">代码实现</option>
+              <option value="compaction">上下文压缩</option>
+            </select>
+          </div>
+          <div className="flex-1 min-w-0">
             <label className="block text-[13px] font-medium text-foreground mb-1.5">路由预览</label>
             <input
               value={routeModel}
@@ -787,6 +851,9 @@ function ProvidersPage({ accountId }: { accountId?: number }) {
                   <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">顺序</th>
                   <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">提供商</th>
                   <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">模型</th>
+                  <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">质量</th>
+                  <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">上下文</th>
+                  <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">成本 / MTok</th>
                   <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">优先级</th>
                   <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">权重</th>
                   <th className="px-5 py-2.5 text-left text-[12px] font-medium text-muted-foreground">健康状态</th>
@@ -803,6 +870,9 @@ function ProvidersPage({ accountId }: { accountId?: number }) {
                         {candidate.is_default && <span className="ml-2 text-[11px] text-primary">默认</span>}
                       </td>
                       <td className="px-5 py-3 text-[12px] text-muted-foreground font-mono">{candidate.model}</td>
+                      <td className="px-5 py-3 text-[13px] text-muted-foreground tabular-nums">L{candidate.quality_tier}</td>
+                      <td className="px-5 py-3 text-[13px] text-muted-foreground tabular-nums">{candidate.context_window.toLocaleString()}</td>
+                      <td className="px-5 py-3 text-[13px] text-muted-foreground tabular-nums">{candidate.cost_per_mtok.toFixed(2)}</td>
                       <td className="px-5 py-3 text-[13px] text-muted-foreground tabular-nums">{candidate.priority}</td>
                       <td className="px-5 py-3 text-[13px] text-muted-foreground tabular-nums">{candidate.weight}</td>
                       <td className="px-5 py-3 text-[12px]">
@@ -901,8 +971,8 @@ function ProvidersPage({ accountId }: { accountId?: number }) {
 
       {/* ---------- Add / Edit Modal ---------- */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-card border border-border rounded-xl p-6 w-full max-w-md">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-3">
+          <div className="bg-card border border-border rounded-lg p-6 w-full max-w-2xl max-h-[calc(100vh-1.5rem)] overflow-y-auto">
             <h3 className="text-base font-semibold text-foreground mb-4">
               {editingId ? '编辑提供商' : (modalMode === 'oauth' ? '新增订阅 OAuth 提供商' : '新增 API Key 提供商')}
             </h3>
@@ -967,6 +1037,7 @@ function ProvidersPage({ accountId }: { accountId?: number }) {
                   </label>
                   <input
                     type="password"
+                    autoComplete="new-password"
                     value={form.key}
                     onChange={(e) => setForm({ ...form, key: e.target.value })}
                     placeholder="sk-..."
@@ -1046,6 +1117,68 @@ function ProvidersPage({ accountId }: { accountId?: number }) {
                   <label className="block text-[13px] font-medium text-foreground mb-1.5">Priority</label>
                   <input type="number" value={form.priority} onChange={(e) => setForm({ ...form, priority: parseInt(e.target.value) })}
                     className="w-full h-9 px-3 bg-background border border-border rounded-lg text-[13px]" />
+                </div>
+              </div>
+
+              <fieldset>
+                <legend className="text-[13px] font-medium text-foreground mb-2">能力标签</legend>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2">
+                  {capabilityOptions.map(({ key, label }) => (
+                    <label key={key} className="flex items-center gap-2 text-[13px] text-foreground">
+                      <input
+                        type="checkbox"
+                        checked={form.capabilities[key]}
+                        onChange={(e) => setForm({
+                          ...form,
+                          capabilities: { ...form.capabilities, [key]: e.target.checked },
+                        })}
+                        className="w-4 h-4 rounded border-border"
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+                {!hasWorkloadCapability && (
+                  <p className="mt-1.5 text-[11px] text-destructive">至少选择普通对话、推理分析或代码实现之一</p>
+                )}
+              </fieldset>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-[13px] font-medium text-foreground mb-1.5">质量等级</label>
+                  <select
+                    value={form.quality_tier}
+                    onChange={(e) => setForm({ ...form, quality_tier: Number(e.target.value) })}
+                    className="w-full h-9 px-3 bg-background border border-border rounded-lg text-[13px]"
+                  >
+                    <option value={1}>L1 轻量</option>
+                    <option value={2}>L2 基础</option>
+                    <option value={3}>L3 均衡</option>
+                    <option value={4}>L4 高质量</option>
+                    <option value={5}>L5 最强推理</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[13px] font-medium text-foreground mb-1.5">Context Window</label>
+                  <input
+                    type="number"
+                    min={4096}
+                    step={1024}
+                    value={form.context_window}
+                    onChange={(e) => setForm({ ...form, context_window: Number(e.target.value) })}
+                    className="w-full h-9 px-3 bg-background border border-border rounded-lg text-[13px]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[13px] font-medium text-foreground mb-1.5">成本 / MTok</label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={form.cost_per_mtok}
+                    onChange={(e) => setForm({ ...form, cost_per_mtok: Number(e.target.value) })}
+                    className="w-full h-9 px-3 bg-background border border-border rounded-lg text-[13px]"
+                  />
                 </div>
               </div>
 

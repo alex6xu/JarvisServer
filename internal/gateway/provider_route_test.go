@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -93,5 +94,34 @@ func TestResolveLLMUsesMemProvider(t *testing.T) {
 	}
 	if route.BaseURL != "https://example.com/v1" {
 		t.Fatalf("base=%q", route.BaseURL)
+	}
+}
+
+func TestProviderRoutingConfigurationRoundTripsThroughSQLite(t *testing.T) {
+	store := newTestGatewayStore(t)
+	want := Provider{
+		ID: 7, Name: "reasoner", Type: 1, Key: "secret", BaseURL: "https://example.test/v1",
+		Models: "reason-model", Status: 1, Weight: 2, Priority: 4,
+		Capabilities:  ProviderCapabilities{Reasoning: true, Coding: true, Tools: true, Thinking: true},
+		ContextWindow: 128_000, QualityTier: 5, CostPerMTok: 12.5,
+	}
+	if err := store.ReplaceProviders(context.Background(), []Provider{want}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.ListProviders(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ContextWindow != want.ContextWindow || got[0].QualityTier != want.QualityTier ||
+		got[0].CostPerMTok != want.CostPerMTok || !got[0].Capabilities.Reasoning || got[0].Capabilities.Chat {
+		t.Fatalf("provider round trip = %+v", got)
+	}
+	var capabilities string
+	var cost float64
+	if err := store.db.QueryRow(`SELECT capabilities_json, cost_per_mtok FROM provider_endpoints WHERE id='provider_7'`).Scan(&capabilities, &cost); err != nil {
+		t.Fatal(err)
+	}
+	if cost != want.CostPerMTok || !strings.Contains(capabilities, `"reasoning":true`) {
+		t.Fatalf("endpoint capabilities=%s cost=%v", capabilities, cost)
 	}
 }

@@ -10,6 +10,10 @@ type Capabilities struct {
 	Tools         bool `json:"tools"`
 	Images        bool `json:"images"`
 	Thinking      bool `json:"thinking"`
+	Chat          bool `json:"chat"`
+	Reasoning     bool `json:"reasoning"`
+	Coding        bool `json:"coding"`
+	QualityTier   int  `json:"quality_tier"`
 	ContextWindow int  `json:"context_window"`
 }
 
@@ -17,6 +21,10 @@ func (available Capabilities) Satisfies(required Capabilities) bool {
 	return (!required.Tools || available.Tools) &&
 		(!required.Images || available.Images) &&
 		(!required.Thinking || available.Thinking) &&
+		(!required.Chat || available.Chat) &&
+		(!required.Reasoning || available.Reasoning) &&
+		(!required.Coding || available.Coding) &&
+		(required.QualityTier <= 0 || available.QualityTier >= required.QualityTier) &&
 		(required.ContextWindow <= 0 || available.ContextWindow >= required.ContextWindow)
 }
 
@@ -38,21 +46,23 @@ type Endpoint struct {
 }
 
 type Policy struct {
-	ID              string  `json:"id"`
-	Name            string  `json:"name"`
-	Mode            string  `json:"mode"`
-	Revision        int64   `json:"revision"`
-	FixedEndpointID string  `json:"fixed_endpoint_id,omitempty"`
-	MaxAttempts     int     `json:"max_attempts"`
-	HealthWeight    float64 `json:"health_weight"`
-	LatencyWeight   float64 `json:"latency_weight"`
-	CostWeight      float64 `json:"cost_weight"`
-	LoadWeight      float64 `json:"load_weight"`
+	ID                   string  `json:"id"`
+	Name                 string  `json:"name"`
+	Mode                 string  `json:"mode"`
+	Revision             int64   `json:"revision"`
+	FixedEndpointID      string  `json:"fixed_endpoint_id,omitempty"`
+	MaxAttempts          int     `json:"max_attempts"`
+	HealthWeight         float64 `json:"health_weight"`
+	LatencyWeight        float64 `json:"latency_weight"`
+	CostWeight           float64 `json:"cost_weight"`
+	LoadWeight           float64 `json:"load_weight"`
+	QualityWeight        float64 `json:"quality_weight"`
+	PreferredQualityTier int     `json:"preferred_quality_tier,omitempty"`
 }
 
 func DefaultPolicy() Policy {
 	return Policy{ID: "balanced", Name: "Balanced", Mode: "balanced", Revision: 1,
-		MaxAttempts: 3, HealthWeight: 30, LatencyWeight: 10, CostWeight: 15, LoadWeight: 20}
+		MaxAttempts: 3, HealthWeight: 30, LatencyWeight: 10, CostWeight: 15, LoadWeight: 20, QualityWeight: 20}
 }
 
 type RouteRequest struct {
