@@ -59,6 +59,25 @@ func requestAccount(r *http.Request) (Account, bool) {
 	return a, ok
 }
 
+func (svc *Service) requestAccountID(r *http.Request) (int, bool) {
+	account, ok := requestAccount(r)
+	if !ok || account.ID <= 0 {
+		return 0, false
+	}
+	selected := strings.TrimSpace(r.Header.Get("X-Account-ID"))
+	if selected == "" || account.Role != "admin" {
+		return account.ID, true
+	}
+	id, err := strconv.Atoi(selected)
+	if err != nil || id <= 0 {
+		return 0, false
+	}
+	if _, err := svc.Audit.GetAccount(r.Context(), id); err != nil {
+		return 0, false
+	}
+	return id, true
+}
+
 func bearerToken(r *http.Request) string {
 	raw := strings.TrimSpace(r.Header.Get("X-API-Key"))
 	if raw != "" {

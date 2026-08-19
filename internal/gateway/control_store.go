@@ -175,13 +175,20 @@ use_count=excluded.use_count, updated_at=excluded.updated_at`, tag.ID, tag.Slug,
 
 func (s *GatewayStore) UpsertWorkspace(ctx context.Context, workspace WorkspaceInfo) error {
 	_, err := s.db.ExecContext(ctx, `
-INSERT INTO workspace_metadata(id, name, source, github_full_name, github_default_branch, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?, ?)
+INSERT INTO workspace_metadata(id, name, source, github_full_name, github_default_branch, created_at, updated_at, account_id)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(id) DO UPDATE SET name=excluded.name, source=excluded.source,
 github_full_name=excluded.github_full_name, github_default_branch=excluded.github_default_branch,
-updated_at=excluded.updated_at`, workspace.ID, workspace.Name, workspace.Source,
-		workspace.GitHubFullName, workspace.GitHubDefaultBranch, workspace.CreatedAt, workspace.UpdatedAt)
+updated_at=excluded.updated_at, account_id=excluded.account_id`, workspace.ID, workspace.Name, workspace.Source,
+		workspace.GitHubFullName, workspace.GitHubDefaultBranch, workspace.CreatedAt, workspace.UpdatedAt,
+		workspace.AccountID)
 	return err
+}
+
+func (s *GatewayStore) WorkspaceAccountID(ctx context.Context, id string) (int, error) {
+	var accountID int
+	err := s.db.QueryRowContext(ctx, `SELECT account_id FROM workspace_metadata WHERE id = ?`, id).Scan(&accountID)
+	return accountID, err
 }
 
 func (s *GatewayStore) DeleteWorkspace(ctx context.Context, id string) error {

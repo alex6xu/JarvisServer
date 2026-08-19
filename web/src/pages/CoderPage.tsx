@@ -516,16 +516,10 @@ export default function CoderPage() {
       form.append('name', built.name)
       form.append('archive', built.blob, `${built.name}.zip`)
 
-      const token = localStorage.getItem('codegateway_auth_token')
-      const headers: Record<string, string> = {}
-      if (token) headers['Authorization'] = `Bearer ${token}`
-      if (currentAccount?.id) headers['X-Account-ID'] = String(currentAccount.id)
-
-      const response = await fetch('/v1/workspaces/upload', {
+      const response = await apiFetch('/v1/workspaces/upload', {
         method: 'POST',
-        headers,
         body: form,
-      })
+      }, currentAccount?.id)
       const data = await response.json().catch(() => ({}))
       if (!response.ok) {
         setUploadError(data.error || '上传失败')
@@ -860,7 +854,7 @@ export default function CoderPage() {
           {uploading ? '打包上传中…' : '选择本地目录并上传云端'}
         </button>
         <span className="text-[11px] text-muted-foreground">
-          自动跳过隐藏文件与超过 3MB 的文件，压缩后上传
+          保留工程配置；跳过凭据、版本库目录和超过 3MB 的文件，总量上限 100MB
         </span>
         <button
           onClick={() => {

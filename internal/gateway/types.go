@@ -8,6 +8,7 @@ type ChatRequest struct {
 	Stream      bool   `json:"stream,omitempty"`
 	WorkspaceID string `json:"workspace_id,omitempty"`
 	Mode        string `json:"mode,omitempty"` // "chat" (personal Jarvis) or "coder" (coding Jarvis)
+	AccountID   int    `json:"-"`
 }
 
 // ChatResponse is returned immediately; the client then opens the SSE stream.

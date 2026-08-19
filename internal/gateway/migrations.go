@@ -206,11 +206,17 @@ CREATE TABLE IF NOT EXISTS run_checkpoints (
 );
 `
 
+const workspaceOwnershipSchema = `
+ALTER TABLE workspace_metadata ADD COLUMN account_id INTEGER NOT NULL DEFAULT 1;
+CREATE INDEX IF NOT EXISTS idx_workspace_metadata_account ON workspace_metadata(account_id, updated_at DESC);
+`
+
 var gatewayMigrations = []gatewayMigration{
 	{version: 1, name: "gateway_base", schema: gatewaySchema},
 	{version: 2, name: "control_plane_repositories", schema: controlPlaneSchema},
 	{version: 3, name: "provider_router", schema: routerSchema},
 	{version: 4, name: "runtime_routing", schema: runtimeRoutingSchema},
+	{version: 5, name: "workspace_ownership", schema: workspaceOwnershipSchema},
 }
 
 func applyGatewayMigrations(db *sql.DB) error {

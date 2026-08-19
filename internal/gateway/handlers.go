@@ -65,6 +65,12 @@ func (s *Service) handleChat(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid json body")
 		return
 	}
+	accountID, ok := s.requestAccountID(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "account context is required")
+		return
+	}
+	req.AccountID = accountID
 	resp, err := s.StartChat(r.Context(), req)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) || isNotFound(err) {

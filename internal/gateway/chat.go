@@ -178,6 +178,10 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 
 	runCwd := s.Opts.Cwd
 	if req.WorkspaceID != "" {
+		_, err = s.workspaceInfoForAccount(req.WorkspaceID, req.AccountID)
+		if err != nil {
+			return ChatResponse{}, err
+		}
 		runCwd, err = s.workspaceDir(req.WorkspaceID)
 		if err != nil {
 			return ChatResponse{}, err

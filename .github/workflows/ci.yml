@@ -4,28 +4,56 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "23 18 * * *"
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   backend:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: true
-      - name: Test
-        run: go test -buildvcs=false ./...
+      - name: Quality gates
+        run: go run ./scripts/quality -mode=full -race -coverage-min=60
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: coverage.out
+          if-no-files-found: ignore
       - name: Build binaries
         run: |
           go build -buildvcs=false ./cmd/jarvis
           go build -buildvcs=false ./cmd/gateway
 
+  backend-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Cross-platform core quality gates
+        run: go run ./scripts/quality -mode=core -coverage-min=60
+
   web:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: web
@@ -37,4 +65,22 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm ci
+      - run: npm test
       - run: npm run build
+      - name: Reject critical dependency vulnerabilities
+        run: npm audit --audit-level=critical
+
+  nightly-reliability:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Repeat concurrent gateway and router tests
+        run: go test -buildvcs=false -race -shuffle=on -count=20 ./internal/gateway ./internal/router
+      - name: Fuzz SSE replay cursor parsing
+        run: go test -buildvcs=false -run='^$' -fuzz='^FuzzParseAfterSeq$' -fuzztime=30s ./internal/gateway

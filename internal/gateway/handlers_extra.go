@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -10,8 +11,13 @@ import (
 	"time"
 )
 
-func (s *Service) handleListWorkspaces(w http.ResponseWriter, _ *http.Request) {
-	list, err := s.listWorkspaces()
+func (s *Service) handleListWorkspaces(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := s.requestAccountID(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "account context is required")
+		return
+	}
+	list, err := s.listWorkspaces(accountID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -20,9 +26,23 @@ func (s *Service) handleListWorkspaces(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Service) handleUploadWorkspace(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseMultipartForm(256 << 20); err != nil {
+	accountID, ok := s.requestAccountID(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "account context is required")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxWorkspaceArchiveBytes+(1<<20))
+	if err := r.ParseMultipartForm(8 << 20); err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			writeErr(w, http.StatusRequestEntityTooLarge, "workspace archive exceeds 100 MB limit")
+			return
+		}
 		writeErr(w, http.StatusBadRequest, "invalid multipart form")
 		return
+	}
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
 	}
 	name := r.FormValue("name")
 	file, _, err := r.FormFile("archive")
@@ -31,12 +51,20 @@ func (s *Service) handleUploadWorkspace(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	defer file.Close()
-	data, err := io.ReadAll(file)
+	size, err := file.Seek(0, io.SeekEnd)
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		writeErr(w, http.StatusBadRequest, "cannot inspect workspace archive")
 		return
 	}
-	info, err := s.createWorkspaceFromZip(name, bytesReader(data), int64(len(data)))
+	if size <= 0 || size > maxWorkspaceArchiveBytes {
+		writeErr(w, http.StatusRequestEntityTooLarge, "workspace archive exceeds 100 MB limit")
+		return
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		writeErr(w, http.StatusBadRequest, "cannot read workspace archive")
+		return
+	}
+	info, err := s.createWorkspaceFromZip(name, accountID, file, size)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -45,16 +73,26 @@ func (s *Service) handleUploadWorkspace(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Service) handleDownloadWorkspace(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := s.requestAccountID(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "account context is required")
+		return
+	}
 	id := pathParam(r, "id")
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", "attachment; filename="+id+".zip")
-	if err := s.zipWorkspace(id, w); err != nil {
+	if err := s.zipWorkspace(id, accountID, w); err != nil {
 		writeErr(w, http.StatusNotFound, err.Error())
 	}
 }
 
 func (s *Service) handleDeleteWorkspace(w http.ResponseWriter, r *http.Request) {
-	if err := s.deleteWorkspace(pathParam(r, "id")); err != nil {
+	accountID, ok := s.requestAccountID(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "account context is required")
+		return
+	}
+	if err := s.deleteWorkspace(pathParam(r, "id"), accountID); err != nil {
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
 	}
@@ -136,6 +174,15 @@ func (s *Service) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "workspace_id and prompt are required")
 		return
 	}
+	accountID, ok := s.requestAccountID(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "account context is required")
+		return
+	}
+	if _, err := s.workspaceInfoForAccount(body.WorkspaceID, accountID); err != nil {
+		writeErr(w, http.StatusNotFound, "workspace not found")
+		return
+	}
 	profileID := ""
 	if p := s.Mem.findProfileByName(body.RouteProfile); p != nil {
 		profileID = p.ID
@@ -162,7 +209,7 @@ func (s *Service) handleCreateTask(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprintf(os.Stderr, "gateway: persist running task %s: %v\n", id, err)
 		}
 		response, err := s.StartChat(context.Background(), ChatRequest{
-			Message: body.Prompt, Model: model, WorkspaceID: body.WorkspaceID, Mode: "coder",
+			Message: body.Prompt, Model: model, WorkspaceID: body.WorkspaceID, Mode: "coder", AccountID: accountID,
 		})
 		if err != nil {
 			s.finishTask(id, "", nil, err)

@@ -1,6 +1,8 @@
 import JSZip from 'jszip'
 
 export const MAX_UPLOAD_FILE_BYTES = 3 * 1024 * 1024 // 3MB
+export const MAX_UPLOAD_TOTAL_BYTES = 100 * 1024 * 1024 // 100MB
+export const MAX_UPLOAD_FILES = 5000
 
 export type FilteredFile = File & { webkitRelativePath?: string }
 
@@ -13,10 +15,14 @@ export interface BuildWorkspaceZipResult {
   skippedOther: number
 }
 
-/** True if any path segment is a hidden file/dir (name starts with '.'). */
+/** True for VCS internals and common credential files that must not leave the browser. */
 export function isHiddenRelativePath(rel: string): boolean {
   const parts = rel.replace(/\\/g, '/').split('/').filter(Boolean)
-  return parts.some((p) => p.startsWith('.'))
+  if (parts.some((part) => ['.git', '.hg', '.svn'].includes(part.toLowerCase()))) return true
+  const filename = parts.length > 0 ? parts[parts.length - 1].toLowerCase() : ''
+  if (['.npmrc', '.yarnrc', '.pypirc', '.netrc'].includes(filename)) return true
+  if (!filename.startsWith('.env')) return false
+  return !['.env.example', '.env.sample', '.env.template'].includes(filename)
 }
 
 export function shouldSkipRelativePath(rel: string): 'hidden' | 'vendor' | null {
@@ -75,6 +81,27 @@ export function collectDirPrefixes(relPaths: string[]): string[] {
   return Array.from(dirs).sort()
 }
 
+export function normalizeArchiveRelativePath(rel: string): string {
+  const norm = rel.replace(/\\/g, '/')
+  if (!norm || norm.startsWith('/') || norm.includes('\0')) {
+    throw new Error(`无效的文件路径：${rel || '(空路径)'}`)
+  }
+  const parts = norm.split('/')
+  if (parts.some((part) => !part || part === '.' || part === '..' || part.includes(':'))) {
+    throw new Error(`无效的文件路径：${rel}`)
+  }
+  return parts.join('/')
+}
+
+export function assertUploadCapacity(included: number, totalBytes: number, nextFileBytes: number): void {
+  if (included >= MAX_UPLOAD_FILES) {
+    throw new Error(`可上传文件超过 ${MAX_UPLOAD_FILES} 个，请减少文件后重试`)
+  }
+  if (nextFileBytes > MAX_UPLOAD_TOTAL_BYTES - totalBytes) {
+    throw new Error('可上传文件总大小超过 100MB，请减少文件后重试')
+  }
+}
+
 /**
  * Filters a webkitdirectory FileList, strips the shared project folder so the
  * workspace root matches the project root, materializes directory entries,
@@ -88,6 +115,10 @@ export async function buildWorkspaceZipFromDirectory(
     throw new Error('目录为空')
   }
 
+  if (list.length > 1 && list.some((file) => !file.webkitRelativePath)) {
+    throw new Error('浏览器没有提供目录相对路径，无法安全保留文件夹结构')
+  }
+
   const rawPaths = list.map((f) => (f.webkitRelativePath || f.name || '').replace(/\\/g, '/'))
   const root = detectCommonRoot(rawPaths)
   const name = root || rawPaths[0]?.split('/')[0] || 'project'
@@ -97,7 +128,9 @@ export async function buildWorkspaceZipFromDirectory(
   let skippedHidden = 0
   let skippedLarge = 0
   let skippedOther = 0
+  let totalBytes = 0
   const keptRels: string[] = []
+  const seenPaths = new Map<string, string>()
 
   for (const file of list) {
     const raw = (file.webkitRelativePath || file.name || '').replace(/\\/g, '/')
@@ -118,19 +151,30 @@ export async function buildWorkspaceZipFromDirectory(
       skippedLarge++
       continue
     }
-    const rel = stripRootPrefix(raw, root)
+    const stripped = stripRootPrefix(raw, root)
+    const rel = normalizeArchiveRelativePath(stripped)
     if (!rel || rel.endsWith('/')) {
       skippedOther++
       continue
     }
+    if (rel.toLowerCase().endsWith('/.workspace.json') || rel.toLowerCase() === '.workspace.json') {
+      throw new Error('目录包含保留文件 .workspace.json，请重命名后重试')
+    }
+    const pathKey = rel.toLowerCase()
+    const previous = seenPaths.get(pathKey)
+    if (previous) {
+      throw new Error(`存在重复文件路径（忽略大小写）：${previous} 与 ${rel}`)
+    }
+    assertUploadCapacity(included, totalBytes, file.size)
+    seenPaths.set(pathKey, rel)
     zip.file(rel, file)
     keptRels.push(rel)
     included++
-    if (included >= 5000) break
+    totalBytes += file.size
   }
 
   if (included === 0) {
-    throw new Error('没有可上传的文件（已过滤隐藏文件、node_modules 及超过 3MB 的文件）')
+    throw new Error('没有可上传的文件（已过滤凭据、版本库、node_modules 及超过 3MB 的文件）')
   }
 
   // Explicit directory entries keep empty intermediate folders after extract.
@@ -143,13 +187,16 @@ export async function buildWorkspaceZipFromDirectory(
     compression: 'DEFLATE',
     compressionOptions: { level: 6 },
   })
+  if (blob.size > MAX_UPLOAD_TOTAL_BYTES) {
+    throw new Error('压缩包大小超过 100MB，请减少文件后重试')
+  }
 
   return { blob, name, included, skippedHidden, skippedLarge, skippedOther }
 }
 
 export function formatUploadSkipSummary(r: BuildWorkspaceZipResult): string {
   const parts: string[] = []
-  if (r.skippedHidden > 0) parts.push(`隐藏 ${r.skippedHidden}`)
+  if (r.skippedHidden > 0) parts.push(`敏感/版本库 ${r.skippedHidden}`)
   if (r.skippedLarge > 0) parts.push(`>3MB ${r.skippedLarge}`)
   if (r.skippedOther > 0) parts.push(`其它 ${r.skippedOther}`)
   if (parts.length === 0) return ''
