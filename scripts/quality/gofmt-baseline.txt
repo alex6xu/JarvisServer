@@ -1,0 +1,24 @@
+# Historical formatting debt. Remove an entry when its file is formatted.
+internal/agenttool/bash_tool_test.go
+internal/agenttool/registry.go
+internal/agenttool/tool_executor_test.go
+internal/cli/config/memory_test.go
+internal/cli/memstatus/memstatus.go
+internal/cli/repl/interactive.go
+internal/cli/repl/repl.go
+internal/cli/status/fakehost_test.go
+internal/cli/tui/host.go
+internal/cli/tui/session.go
+internal/cli/tui/spinner.go
+internal/cli/tui/spinner_test.go
+internal/cli/tui/statusbar_test.go
+internal/compaction/summary_test.go
+internal/dream/apply.go
+internal/memory/paths_test.go
+internal/pkgmgr/classify.go
+internal/pkgmgr/distribute_skill_test.go
+internal/pkgmgr/distribute_test.go
+internal/pkgmgr/distribute_theme_test.go
+internal/pkgmgr/ref_test.go
+internal/provider/infer_test.go
+internal/remotecontrol/bridge.go

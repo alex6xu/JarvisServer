@@ -336,9 +336,11 @@ func TestParseSkillRejectsInvalidName(t *testing.T) {
 // TestFormatSkillsForPrompt verifies the <available_skills> block lists visible
 // skills with name/description/location and excludes disabled ones.
 func TestFormatSkillsForPrompt(t *testing.T) {
+	visiblePath := filepath.Join(string(filepath.Separator), "skills", "weather.md")
+	disabledPath := filepath.Join(string(filepath.Separator), "skills", "secret.md")
 	skills := []*Skill{
-		{Frontmatter: SkillFrontmatter{Name: "weather", Description: "get weather"}, Path: "/skills/weather.md"},
-		{Frontmatter: SkillFrontmatter{Name: "secret", Description: "hidden", DisableModelInvocation: true}, Path: "/skills/secret.md"},
+		{Frontmatter: SkillFrontmatter{Name: "weather", Description: "get weather"}, Path: visiblePath},
+		{Frontmatter: SkillFrontmatter{Name: "secret", Description: "hidden", DisableModelInvocation: true}, Path: disabledPath},
 	}
 	out := FormatSkillsForPrompt(skills)
 	if !strings.Contains(out, "<available_skills>") || !strings.Contains(out, "</available_skills>") {
@@ -350,7 +352,11 @@ func TestFormatSkillsForPrompt(t *testing.T) {
 	if !strings.Contains(out, "<description>get weather</description>") {
 		t.Errorf("visible skill description missing:\n%s", out)
 	}
-	if !strings.Contains(out, "<location>/skills/weather.md</location>") {
+	absVisiblePath, err := filepath.Abs(visiblePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "<location>"+absVisiblePath+"</location>") {
 		t.Errorf("visible skill location missing:\n%s", out)
 	}
 	if strings.Contains(out, "secret") {
@@ -395,7 +401,9 @@ func TestFormatSkillsForPromptAbsoluteLocation(t *testing.T) {
 		{Frontmatter: SkillFrontmatter{Name: "rel", Description: "d"}, Path: "sub/rel.md"},
 	}
 	out := FormatSkillsForPrompt(skills)
-	if !strings.Contains(out, "<location>"+string(filepath.Separator)) && !strings.Contains(out, "<location>/") {
+	start := strings.Index(out, "<location>")
+	end := strings.Index(out, "</location>")
+	if start < 0 || end <= start || !filepath.IsAbs(out[start+len("<location>"):end]) {
 		t.Errorf("location should be absolute:\n%s", out)
 	}
 }

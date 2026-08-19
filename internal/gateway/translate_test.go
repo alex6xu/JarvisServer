@@ -155,6 +155,13 @@ func TestRecoverInterruptedRunPreservesCheckpointAndEvent(t *testing.T) {
 	if err != nil || checkpoint.Turn != 1 {
 		t.Fatalf("checkpoint = %+v, %v", checkpoint, err)
 	}
+	if recovered, err := store.RecoverInterruptedRuns(context.Background()); err != nil || recovered != 0 {
+		t.Fatalf("second recovery = %d, %v", recovered, err)
+	}
+	reloaded, err := store.LoadRun(context.Background(), st.ID)
+	if err != nil || reloaded.LastSeq != 1 {
+		t.Fatalf("idempotent recovery events = %d, %v", reloaded.LastSeq, err)
+	}
 }
 
 func TestRunManagerCancelAndTimeoutStates(t *testing.T) {

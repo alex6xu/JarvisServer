@@ -228,22 +228,64 @@ func (st *RunState) Finish(err error) {
 // Subscribe returns a channel of events with Seq > afterSeq, then live updates
 // until the run finishes. The caller must drain until the channel is closed.
 func (st *RunState) Subscribe(afterSeq int64) <-chan StoredEvent {
-	ch := make(chan StoredEvent, 64)
-	st.mu.Lock()
-	defer st.mu.Unlock()
+	return st.SubscribeContext(context.Background(), afterSeq)
+}
 
-	// Replay from the log first (synchronous send into buffer).
+// SubscribeContext is Subscribe with prompt cleanup when the client disconnects.
+func (st *RunState) SubscribeContext(ctx context.Context, afterSeq int64) <-chan StoredEvent {
+	st.mu.Lock()
+	replay := make([]StoredEvent, 0)
 	for _, ev := range st.Events {
 		if ev.Seq > afterSeq {
-			ch <- ev
+			replay = append(replay, ev)
 		}
 	}
-	if st.Status != runStatusRunning {
-		close(ch)
-		return ch
+	running := st.Status == runStatusRunning
+	var live chan StoredEvent
+	if running {
+		live = make(chan StoredEvent, 64)
+		st.subs[live] = struct{}{}
 	}
-	st.subs[ch] = struct{}{}
-	return ch
+	st.mu.Unlock()
+
+	out := make(chan StoredEvent, 64)
+	go func() {
+		defer close(out)
+		if running {
+			defer func() {
+				st.mu.Lock()
+				delete(st.subs, live)
+				st.mu.Unlock()
+			}()
+		}
+		send := func(event StoredEvent) bool {
+			select {
+			case out <- event:
+				return true
+			case <-ctx.Done():
+				return false
+			}
+		}
+		for _, event := range replay {
+			if !send(event) {
+				return
+			}
+		}
+		if !running {
+			return
+		}
+		for {
+			select {
+			case event, open := <-live:
+				if !open || !send(event) {
+					return
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return out
 }
 
 // WaitDone blocks until Finish.

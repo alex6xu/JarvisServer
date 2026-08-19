@@ -96,8 +96,8 @@ func (s *Service) handleRunEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ch := st.Subscribe(afterSeq)
 	ctx := r.Context()
+	ch := st.SubscribeContext(ctx, afterSeq)
 	for {
 		select {
 		case <-ctx.Done():

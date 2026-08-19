@@ -68,15 +68,19 @@ func TestProviderRouterCircuitBreakerSkipsFailedProvider(t *testing.T) {
 }
 
 type scriptedProvider struct {
-	name   string
-	events []provider.AssistantMessageEvent
-	calls  int
+	name     string
+	events   []provider.AssistantMessageEvent
+	calls    int
+	buildErr error
 }
 
 func (p *scriptedProvider) Name() string             { return p.name }
 func (p *scriptedProvider) Models() []provider.Model { return nil }
 func (p *scriptedProvider) StreamCompletion(ctx context.Context, _ provider.CompletionRequest) (*provider.AssistantMessageEventStream, error) {
 	p.calls++
+	if p.buildErr != nil {
+		return nil, p.buildErr
+	}
 	stream := provider.NewAssistantMessageEventStream(0)
 	go func() {
 		defer stream.Close()
@@ -87,6 +91,45 @@ func (p *scriptedProvider) StreamCompletion(ctx context.Context, _ provider.Comp
 		}
 	}()
 	return stream, nil
+}
+
+func TestFailoverProviderPersistsBuildFailureBeforeFallback(t *testing.T) {
+	store := newTestGatewayStore(t)
+	run := &RunState{ID: "run_build_failure", SessionID: "session", Model: "m", Status: runStatusRunning}
+	if err := store.CreateRun(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	failed := &scriptedProvider{name: "failed", buildErr: errors.New("upstream unavailable")}
+	success := &scriptedProvider{name: "success", events: []provider.AssistantMessageEvent{
+		provider.StreamDoneEvent{Message: assistant("ok", agentcore.StopReasonEndTurn)},
+	}}
+	routed := &failoverProvider{router: NewProviderRouter(), store: store, runID: run.ID, candidates: []routedCandidate{
+		{route: LLMRoute{ProviderID: 1, Model: "m"}, provider: failed},
+		{route: LLMRoute{ProviderID: 2, Model: "m"}, provider: success},
+	}}
+	stream, err := routed.StreamCompletion(context.Background(), provider.CompletionRequest{Model: "m"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range stream.Events() {
+	}
+	attempts, err := store.ListRunAttempts(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(attempts) != 2 || attempts[0].Status != "failed" || attempts[0].FailureStage != "before_stream" || attempts[1].Status != "done" {
+		t.Fatalf("attempts = %#v", attempts)
+	}
+}
+
+func TestCancelledAttemptDoesNotPenalizeProviderHealth(t *testing.T) {
+	router := NewProviderRouter()
+	routed := &failoverProvider{router: router}
+	attempt := RunAttempt{EndpointID: "provider_1"}
+	routed.finishAttempt(&attempt, time.Now(), time.Time{}, runStatusCancelled, "during_stream", context.Canceled)
+	if health := router.Health(1); health.ConsecutiveFailures != 0 {
+		t.Fatalf("cancelled attempt changed provider health: %+v", health)
+	}
 }
 
 func assistant(text, stop string) agentcore.AssistantMessage {

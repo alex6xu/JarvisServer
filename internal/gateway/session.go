@@ -144,7 +144,7 @@ func parseAfterSeq(raw string) int64 {
 		return 0
 	}
 	n, err := strconv.ParseInt(raw, 10, 64)
-	if err != nil {
+	if err != nil || n < 0 {
 		return 0
 	}
 	return n
