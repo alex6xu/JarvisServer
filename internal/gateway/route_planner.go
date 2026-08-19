@@ -1,12 +1,12 @@
 package gateway
 
 import (
+	"context"
 	"fmt"
-	"sort"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"time"
+
+	corerouter "github.com/alex6xu/jarvisserver/internal/router"
 )
 
 const (
@@ -14,188 +14,124 @@ const (
 	providerCircuitDuration  = 30 * time.Second
 )
 
-type ProviderHealth struct {
-	ConsecutiveFailures int       `json:"consecutive_failures"`
-	CircuitOpenUntil    time.Time `json:"circuit_open_until,omitempty"`
-	LastError           string    `json:"last_error,omitempty"`
-	LastSuccess         time.Time `json:"last_success,omitempty"`
-}
+type ProviderHealth = corerouter.Health
 
 type ProviderRouter struct {
-	mu       sync.RWMutex
-	health   map[int]ProviderHealth
-	now      func() time.Time
-	sequence atomic.Uint64
+	engine *corerouter.Engine
+	policy corerouter.Policy
+	now    func() time.Time
 }
 
 type RoutePlan struct {
 	RequestedModel string     `json:"requested_model,omitempty"`
 	Candidates     []LLMRoute `json:"candidates"`
+	Reason         string     `json:"reason,omitempty"`
+	PolicyRev      int64      `json:"policy_rev,omitempty"`
 }
 
 func NewProviderRouter() *ProviderRouter {
-	return &ProviderRouter{health: make(map[int]ProviderHealth), now: time.Now}
+	engine, _ := corerouter.New(nil)
+	router := &ProviderRouter{engine: engine, policy: corerouter.DefaultPolicy(), now: time.Now}
+	engine.SetClock(func() time.Time { return router.now() })
+	return router
+}
+
+func NewPersistentProviderRouter(store corerouter.HealthStore, policy corerouter.Policy) (*ProviderRouter, error) {
+	engine, err := corerouter.New(store)
+	if err != nil {
+		return nil, err
+	}
+	router := &ProviderRouter{engine: engine, policy: policy, now: time.Now}
+	engine.SetClock(func() time.Time { return router.now() })
+	return router, nil
 }
 
 func (r *ProviderRouter) Plan(providers []Provider, requestedModel string, fallback LLMRoute) (RoutePlan, error) {
-	requestedModel = strings.TrimSpace(requestedModel)
-	now := r.now()
-	type planned struct {
-		route  LLMRoute
-		health ProviderHealth
-		match  bool
-		open   bool
-	}
-	all := make([]planned, 0, len(providers))
+	endpoints := make([]corerouter.Endpoint, 0, len(providers))
 	for i := range providers {
-		p := providers[i]
-		if !providerUsable(&p) {
+		provider := providers[i]
+		if !providerUsable(&provider) {
 			continue
 		}
-		models := parseProviderModels(p.Models)
-		matched := requestedModel == "" || len(models) == 0 || containsModel(models, requestedModel)
-		if !matched {
+		protocol, providerName := mapChannelType(provider.Type, provider.BaseURL)
+		if protocol == "openai" && strings.TrimSpace(provider.BaseURL) == "" {
 			continue
 		}
-		model := requestedModel
-		if model == "" {
-			if len(models) == 0 {
-				continue
-			}
-			model = models[0]
+		label := provider.Name
+		if label == "" {
+			label = providerName
 		}
-		protocol, providerName := mapChannelType(p.Type, p.BaseURL)
-		if protocol == "openai" && strings.TrimSpace(p.BaseURL) == "" {
-			continue
-		}
-		h := r.Health(p.ID)
-		all = append(all, planned{
-			route: LLMRoute{
-				Model: model, BaseURL: strings.TrimSpace(p.BaseURL), Protocol: protocol,
-				ProviderName: providerName, APIKey: p.Key, ProviderID: p.ID,
-				ProviderLabel: p.Name, Priority: p.Priority, Weight: p.Weight,
-				IsDefault: p.IsDefault == 1,
-			},
-			health: h,
-			match:  matched,
-			open:   h.CircuitOpenUntil.After(now),
+		endpoints = append(endpoints, corerouter.Endpoint{
+			ID: fmt.Sprintf("provider_%d", provider.ID), ProviderID: provider.ID,
+			ProviderName: label, Enabled: provider.Status != 0,
+			Models: parseProviderModels(provider.Models), BaseURL: strings.TrimSpace(provider.BaseURL),
+			Protocol: protocol, Credential: provider.Key, Priority: provider.Priority,
+			Weight: max(provider.Weight, 1), Default: provider.IsDefault == 1,
+			Capabilities: corerouter.Capabilities{Tools: true, Images: true, Thinking: true},
 		})
 	}
-
-	// Prefer closed circuits. If every configured candidate is open, keep them in
-	// the plan so the gateway remains available and can probe the best candidate.
-	closed := all[:0]
-	for _, candidate := range all {
-		if !candidate.open {
-			closed = append(closed, candidate)
+	plan, err := r.engine.Plan(context.Background(), corerouter.RouteRequest{
+		RequestedModel: requestedModel, Policy: r.policy, PreferDefault: requestedModel == "",
+	}, endpoints)
+	if err != nil {
+		if strings.TrimSpace(fallback.Model) == "" {
+			return RoutePlan{}, fmt.Errorf("no available provider route for model %q", requestedModel)
 		}
-	}
-	if len(closed) > 0 {
-		all = closed
-	}
-	sort.SliceStable(all, func(i, j int) bool {
-		a, b := all[i], all[j]
-		if requestedModel == "" && a.route.IsDefault != b.route.IsDefault {
-			return a.route.IsDefault
-		}
-		if a.route.Priority != b.route.Priority {
-			return a.route.Priority > b.route.Priority
-		}
-		if a.health.ConsecutiveFailures != b.health.ConsecutiveFailures {
-			return a.health.ConsecutiveFailures < b.health.ConsecutiveFailures
-		}
-		if a.route.Weight != b.route.Weight {
-			return a.route.Weight > b.route.Weight
-		}
-		return a.route.ProviderID < b.route.ProviderID
-	})
-	if len(all) > 1 {
-		end := 1
-		for end < len(all) && sameRouteClass(all[0], all[end], requestedModel == "") {
-			end++
-		}
-		totalWeight := 0
-		for i := 0; i < end; i++ {
-			totalWeight += max(all[i].route.Weight, 1)
-		}
-		if totalWeight > 0 {
-			slot := int((r.sequence.Add(1) - 1) % uint64(totalWeight))
-			selected := 0
-			for i := 0; i < end; i++ {
-				slot -= max(all[i].route.Weight, 1)
-				if slot < 0 {
-					selected = i
-					break
-				}
-			}
-			if selected > 0 {
-				chosen := all[selected]
-				copy(all[1:selected+1], all[0:selected])
-				all[0] = chosen
-			}
-		}
-	}
-
-	plan := RoutePlan{RequestedModel: requestedModel, Candidates: make([]LLMRoute, 0, len(all)+1)}
-	for _, candidate := range all {
-		plan.Candidates = append(plan.Candidates, candidate.route)
-	}
-	if len(plan.Candidates) == 0 && strings.TrimSpace(fallback.Model) != "" {
 		if requestedModel != "" {
 			fallback.Model = requestedModel
 		}
-		plan.Candidates = append(plan.Candidates, fallback)
+		return RoutePlan{RequestedModel: requestedModel, Candidates: []LLMRoute{fallback}, Reason: "startup fallback"}, nil
 	}
-	if len(plan.Candidates) == 0 {
-		return RoutePlan{}, fmt.Errorf("no available provider route for model %q", requestedModel)
+	out := RoutePlan{RequestedModel: requestedModel, Reason: plan.Reason, PolicyRev: plan.PolicyRev}
+	for _, candidate := range plan.Candidates {
+		endpoint := candidate.Endpoint
+		out.Candidates = append(out.Candidates, LLMRoute{
+			Model: candidate.Model, BaseURL: endpoint.BaseURL, Protocol: endpoint.Protocol,
+			APIKey: endpoint.Credential, ProviderID: endpoint.ProviderID,
+			ProviderLabel: endpoint.ProviderName, Priority: endpoint.Priority,
+			Weight: endpoint.Weight, IsDefault: endpoint.Default,
+		})
 	}
-	return plan, nil
-}
-
-func sameRouteClass(a, b struct {
-	route  LLMRoute
-	health ProviderHealth
-	match  bool
-	open   bool
-}, considerDefault bool) bool {
-	return (!considerDefault || a.route.IsDefault == b.route.IsDefault) &&
-		a.route.Priority == b.route.Priority &&
-		a.health.ConsecutiveFailures == b.health.ConsecutiveFailures
-}
-
-func containsModel(models []string, requested string) bool {
-	for _, model := range models {
-		if strings.EqualFold(strings.TrimSpace(model), requested) {
-			return true
-		}
-	}
-	return false
+	return out, nil
 }
 
 func (r *ProviderRouter) Observe(providerID int, err error) {
 	if providerID == 0 {
 		return
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	h := r.health[providerID]
-	if err == nil {
-		h.ConsecutiveFailures = 0
-		h.CircuitOpenUntil = time.Time{}
-		h.LastError = ""
-		h.LastSuccess = r.now().UTC()
-	} else {
-		h.ConsecutiveFailures++
-		h.LastError = err.Error()
-		if h.ConsecutiveFailures >= providerFailureThreshold {
-			h.CircuitOpenUntil = r.now().Add(providerCircuitDuration).UTC()
-		}
+	result := corerouter.AttemptResult{
+		EndpointID: fmt.Sprintf("provider_%d", providerID), Success: err == nil, OccurredAt: r.now().UTC(),
 	}
-	r.health[providerID] = h
+	if err != nil {
+		result.ErrorText = err.Error()
+		result.ErrorCategory = classifyProviderError(err)
+	}
+	_ = r.engine.Observe(context.Background(), result)
 }
 
 func (r *ProviderRouter) Health(providerID int) ProviderHealth {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.health[providerID]
+	return r.engine.Health(fmt.Sprintf("provider_%d", providerID))
+}
+
+func (r *ProviderRouter) SetPolicy(policy corerouter.Policy) { r.policy = policy }
+
+func (r *ProviderRouter) ObserveResult(result corerouter.AttemptResult) error {
+	return r.engine.Observe(context.Background(), result)
+}
+
+func classifyProviderError(err error) string {
+	if err == nil {
+		return ""
+	}
+	text := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(text, "401"), strings.Contains(text, "403"), strings.Contains(text, "auth"):
+		return "authentication"
+	case strings.Contains(text, "429"), strings.Contains(text, "rate"):
+		return "rate_limit"
+	case strings.Contains(text, "timeout"), strings.Contains(text, "deadline"):
+		return "timeout"
+	default:
+		return "upstream"
+	}
 }

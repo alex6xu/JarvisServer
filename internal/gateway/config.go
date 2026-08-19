@@ -14,23 +14,24 @@ type Config struct {
 
 // AgentConf holds jarvis agent / auth settings layered on RestConf.
 type AgentConf struct {
-	Cwd                string `json:",optional"`
-	Model              string `json:",default=openrouter/free"`
-	BaseURL            string `json:",optional"`
-	Protocol           string `json:",optional"`
-	ProviderName       string `json:",optional"`
-	APIKey             string `json:",optional"`
-	ThinkingLevel      string `json:",optional"`
-	Approve            bool   `json:",optional"`
-	NoTools            bool   `json:",optional"`
-	NoSkills           bool   `json:",optional"`
-	AuthMode           string `json:",default=token"`
-	APIToken           string `json:",optional"`
-	AdminPassword      string `json:",optional"`
-	WorkspacesRoot     string `json:",optional"`
-	DatabasePath       string `json:",optional"`
-	AuditRetentionDays int    `json:",default=30"`
-	AuditMaxBodyBytes  int    `json:",default=1048576"`
+	Cwd                      string `json:",optional"`
+	Model                    string `json:",default=openrouter/free"`
+	BaseURL                  string `json:",optional"`
+	Protocol                 string `json:",optional"`
+	ProviderName             string `json:",optional"`
+	APIKey                   string `json:",optional"`
+	ThinkingLevel            string `json:",optional"`
+	Approve                  bool   `json:",optional"`
+	NoTools                  bool   `json:",optional"`
+	NoSkills                 bool   `json:",optional"`
+	AuthMode                 string `json:",default=token"`
+	APIToken                 string `json:",optional"`
+	AdminPassword            string `json:",optional"`
+	WorkspacesRoot           string `json:",optional"`
+	DatabasePath             string `json:",optional"`
+	AuditRetentionDays       int    `json:",default=30"`
+	AuditMaxBodyBytes        int    `json:",default=1048576"`
+	AllowPrivateProviderURLs bool   `json:",optional"`
 }
 
 // ToOptions maps Config into the existing Service Options.
@@ -44,23 +45,24 @@ func (c Config) ToOptions() Options {
 		addr = fmt.Sprintf(":%d", c.Port)
 	}
 	return Options{
-		Addr:               addr,
-		Cwd:                c.Agent.Cwd,
-		Model:              c.Agent.Model,
-		BaseURL:            c.Agent.BaseURL,
-		Protocol:           c.Agent.Protocol,
-		ProviderName:       c.Agent.ProviderName,
-		APIKey:             c.Agent.APIKey,
-		ThinkingLevel:      c.Agent.ThinkingLevel,
-		Approve:            c.Agent.Approve,
-		NoTools:            c.Agent.NoTools,
-		NoSkills:           c.Agent.NoSkills,
-		AuthMode:           c.Agent.AuthMode,
-		APIToken:           c.Agent.APIToken,
-		AdminPassword:      c.Agent.AdminPassword,
-		WorkspacesRoot:     c.Agent.WorkspacesRoot,
-		DatabasePath:       c.Agent.DatabasePath,
-		AuditRetentionDays: c.Agent.AuditRetentionDays,
-		AuditMaxBodyBytes:  c.Agent.AuditMaxBodyBytes,
+		Addr:                     addr,
+		Cwd:                      c.Agent.Cwd,
+		Model:                    c.Agent.Model,
+		BaseURL:                  c.Agent.BaseURL,
+		Protocol:                 c.Agent.Protocol,
+		ProviderName:             c.Agent.ProviderName,
+		APIKey:                   c.Agent.APIKey,
+		ThinkingLevel:            c.Agent.ThinkingLevel,
+		Approve:                  c.Agent.Approve,
+		NoTools:                  c.Agent.NoTools,
+		NoSkills:                 c.Agent.NoSkills,
+		AuthMode:                 c.Agent.AuthMode,
+		APIToken:                 c.Agent.APIToken,
+		AdminPassword:            c.Agent.AdminPassword,
+		WorkspacesRoot:           c.Agent.WorkspacesRoot,
+		DatabasePath:             c.Agent.DatabasePath,
+		AuditRetentionDays:       c.Agent.AuditRetentionDays,
+		AuditMaxBodyBytes:        c.Agent.AuditMaxBodyBytes,
+		AllowPrivateProviderURLs: c.Agent.AllowPrivateProviderURLs,
 	}.withDefaults()
 }

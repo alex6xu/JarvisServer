@@ -116,9 +116,23 @@ func NewService(opts Options) (*Service, error) {
 		}
 	}
 	mem.replaceProviders(storedProviders)
+	if err := audit.ReplaceProviders(context.Background(), storedProviders); err != nil {
+		_ = audit.Close()
+		return nil, fmt.Errorf("synchronize provider endpoints: %w", err)
+	}
 	if err := initializeControlPlane(context.Background(), audit, mem, opts.Model); err != nil {
 		_ = audit.Close()
 		return nil, err
+	}
+	policy, err := ensureDefaultRoutePolicy(context.Background(), audit)
+	if err != nil {
+		_ = audit.Close()
+		return nil, fmt.Errorf("initialize route policy: %w", err)
+	}
+	routerEngine, err := NewPersistentProviderRouter(audit, policy)
+	if err != nil {
+		_ = audit.Close()
+		return nil, fmt.Errorf("initialize provider router: %w", err)
 	}
 	return &Service{
 		Opts:    opts,
@@ -126,7 +140,7 @@ func NewService(opts Options) (*Service, error) {
 		Store:   audit,
 		Control: audit,
 		Audit:   audit,
-		Router:  NewProviderRouter(),
+		Router:  routerEngine,
 		Trust:   mgr,
 		Mem:     mem,
 	}, nil

@@ -78,11 +78,11 @@ type SessionMeta struct {
 
 // SessionDetailResponse matches web SessionRestorePayload.
 type SessionDetailResponse struct {
-	Session      SessionMeta    `json:"session"`
+	Session      SessionMeta       `json:"session"`
 	Messages     []RestoredMessage `json:"messages"`
-	WorkspaceID  string         `json:"workspace_id,omitempty"`
-	ActiveRun    *ActiveRunInfo `json:"active_run,omitempty"`
-	LastEventSeq int64          `json:"last_event_seq,omitempty"`
+	WorkspaceID  string            `json:"workspace_id,omitempty"`
+	ActiveRun    *ActiveRunInfo    `json:"active_run,omitempty"`
+	LastEventSeq int64             `json:"last_event_seq,omitempty"`
 }
 
 // SessionListResponse is GET /v1/agent/sessions.

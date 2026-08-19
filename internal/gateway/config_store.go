@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -43,6 +44,25 @@ INSERT INTO providers(id, name, type, api_key, base_url, models, status, weight,
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, p.ID, p.Name, p.Type, p.Key, p.BaseURL,
 			p.Models, p.Status, p.Weight, p.Priority, p.IsDefault, p.AuthMode, now); err != nil {
 			return err
+		}
+		endpointID := fmt.Sprintf("provider_%d", p.ID)
+		protocol, _ := mapChannelType(p.Type, p.BaseURL)
+		capabilities := encodeJSON(map[string]any{
+			"tools": true, "images": true, "thinking": true, "context_window": 0,
+		}, "{}")
+		if _, err := tx.ExecContext(ctx, `
+INSERT INTO provider_endpoints(id, provider_id, name, base_url, protocol, enabled,
+                               priority, weight, is_default, capabilities_json, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, endpointID, p.ID, p.Name, p.BaseURL, protocol,
+			p.Status, p.Priority, max(p.Weight, 1), p.IsDefault, capabilities, now); err != nil {
+			return err
+		}
+		for _, model := range parseProviderModels(p.Models) {
+			if _, err := tx.ExecContext(ctx, `
+INSERT INTO provider_models(endpoint_id, model_id, capabilities_json, context_window, enabled)
+VALUES (?, ?, ?, 0, 1)`, endpointID, model, capabilities); err != nil {
+				return err
+			}
 		}
 	}
 	return tx.Commit()

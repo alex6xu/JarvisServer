@@ -37,6 +37,8 @@ type Options struct {
 	DatabasePath       string
 	AuditRetentionDays int
 	AuditMaxBodyBytes  int
+	// AllowPrivateProviderURLs permits custom providers on private/link-local networks.
+	AllowPrivateProviderURLs bool
 }
 
 func (o Options) withDefaults() Options {

@@ -103,9 +103,70 @@ CREATE TABLE IF NOT EXISTS channel_bindings (
 );
 `
 
+const routerSchema = `
+CREATE TABLE IF NOT EXISTS provider_endpoints (
+    id TEXT PRIMARY KEY,
+    provider_id INTEGER NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    base_url TEXT NOT NULL DEFAULT '',
+    protocol TEXT NOT NULL DEFAULT '',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    priority INTEGER NOT NULL DEFAULT 0,
+    weight INTEGER NOT NULL DEFAULT 1,
+    is_default INTEGER NOT NULL DEFAULT 0,
+    capabilities_json TEXT NOT NULL DEFAULT '{}',
+    cost_per_mtok REAL NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_provider_endpoints_provider ON provider_endpoints(provider_id);
+
+CREATE TABLE IF NOT EXISTS provider_models (
+    endpoint_id TEXT NOT NULL REFERENCES provider_endpoints(id) ON DELETE CASCADE,
+    model_id TEXT NOT NULL,
+    capabilities_json TEXT NOT NULL DEFAULT '{}',
+    context_window INTEGER NOT NULL DEFAULT 0,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    PRIMARY KEY(endpoint_id, model_id)
+);
+
+CREATE TABLE IF NOT EXISTS route_policies (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    mode TEXT NOT NULL,
+    current_revision INTEGER NOT NULL,
+    config_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS route_policy_versions (
+    policy_id TEXT NOT NULL REFERENCES route_policies(id) ON DELETE CASCADE,
+    revision INTEGER NOT NULL,
+    config_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(policy_id, revision)
+);
+
+CREATE TABLE IF NOT EXISTS health_samples (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    endpoint_id TEXT NOT NULL,
+    run_id TEXT NOT NULL DEFAULT '',
+    attempt_id TEXT NOT NULL DEFAULT '',
+    success INTEGER NOT NULL,
+    error_category TEXT NOT NULL DEFAULT '',
+    error_text TEXT NOT NULL DEFAULT '',
+    latency_ms INTEGER NOT NULL DEFAULT 0,
+    first_token_ms INTEGER NOT NULL DEFAULT 0,
+    health_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_health_samples_endpoint_created ON health_samples(endpoint_id, created_at DESC);
+`
+
 var gatewayMigrations = []gatewayMigration{
 	{version: 1, name: "gateway_base", schema: gatewaySchema},
 	{version: 2, name: "control_plane_repositories", schema: controlPlaneSchema},
+	{version: 3, name: "provider_router", schema: routerSchema},
 }
 
 func applyGatewayMigrations(db *sql.DB) error {

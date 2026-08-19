@@ -6,6 +6,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
+
+	corerouter "github.com/alex6xu/jarvisserver/internal/router"
 )
 
 func (s *Service) handleListTokens(w http.ResponseWriter, r *http.Request) {
@@ -174,7 +178,7 @@ func (s *Service) handleFetchProviderModels(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if p, ok := s.Mem.getProvider(id); ok {
-		models, err := fetchProviderModels(r.Context(), *p)
+		models, err := fetchProviderModels(r.Context(), *p, s.Opts.AllowPrivateProviderURLs)
 		if err != nil {
 			writeErr(w, http.StatusBadGateway, err.Error())
 			return
@@ -198,12 +202,85 @@ func (s *Service) handleFetchModelsBody(w http.ResponseWriter, r *http.Request) 
 	}
 	models, err := fetchProviderModels(r.Context(), Provider{
 		Type: body.Type, Key: body.Key, BaseURL: body.BaseURL, AuthMode: body.AuthMode,
-	})
+	}, s.Opts.AllowPrivateProviderURLs)
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"models": models})
+}
+
+func (s *Service) handleProbeProvider(w http.ResponseWriter, r *http.Request) {
+	id, err := parseProviderID(pathParam(r, "id"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	configured, ok := s.Mem.getProvider(id)
+	if !ok {
+		writeErr(w, http.StatusNotFound, "provider not found")
+		return
+	}
+	started := time.Now()
+	models, probeErr := fetchProviderModels(r.Context(), *configured, s.Opts.AllowPrivateProviderURLs)
+	result := corerouter.AttemptResult{
+		EndpointID: "provider_" + strconv.Itoa(id), AttemptID: newID("probe"),
+		Success: probeErr == nil, Latency: time.Since(started), OccurredAt: time.Now().UTC(),
+	}
+	if probeErr != nil {
+		result.ErrorText = probeErr.Error()
+		result.ErrorCategory = classifyProviderError(probeErr)
+	}
+	if err := s.Router.ObserveResult(result); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if probeErr != nil {
+		writeErr(w, http.StatusBadGateway, probeErr.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "models": models, "latency_ms": result.Latency.Milliseconds()})
+}
+
+func (s *Service) handleListRoutePolicies(w http.ResponseWriter, r *http.Request) {
+	policies, err := s.Audit.ListRoutePolicies(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"route_policies": policies})
+}
+
+func (s *Service) handlePublishRoutePolicy(w http.ResponseWriter, r *http.Request) {
+	var policy corerouter.Policy
+	if err := json.NewDecoder(r.Body).Decode(&policy); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	if pathID := pathParam(r, "id"); pathID != "" {
+		policy.ID = pathID
+	}
+	policy.ID = strings.TrimSpace(policy.ID)
+	policy.Name = strings.TrimSpace(policy.Name)
+	policy.Mode = strings.ToLower(strings.TrimSpace(policy.Mode))
+	if policy.ID == "" || policy.Name == "" {
+		writeErr(w, http.StatusBadRequest, "id and name are required")
+		return
+	}
+	validMode := map[string]bool{"balanced": true, "quality-first": true, "cost-first": true, "latency-first": true, "fixed-provider": true}
+	if !validMode[policy.Mode] {
+		writeErr(w, http.StatusBadRequest, "invalid route policy mode")
+		return
+	}
+	published, err := s.Audit.PublishRoutePolicy(r.Context(), policy)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if published.ID == "balanced" {
+		s.Router.SetPolicy(published)
+	}
+	writeJSON(w, http.StatusOK, published)
 }
 
 func (s *Service) handleRoutePreview(w http.ResponseWriter, r *http.Request) {

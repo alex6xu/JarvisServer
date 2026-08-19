@@ -86,7 +86,11 @@ func apiRoutes(svc *Service) []rest.Route {
 		{Method: http.MethodPut, Path: "/v1/admin/providers/:id/set-default", Handler: svc.handleSetDefaultProvider},
 		{Method: http.MethodPut, Path: "/v1/admin/providers/:id/status", Handler: svc.handleSetProviderStatus},
 		{Method: http.MethodPost, Path: "/v1/admin/providers/:id/fetch-models", Handler: svc.handleFetchProviderModels},
+		{Method: http.MethodPost, Path: "/v1/admin/providers/:id/probe", Handler: svc.handleProbeProvider},
 		{Method: http.MethodGet, Path: "/v1/admin/routes/preview", Handler: svc.handleRoutePreview},
+		{Method: http.MethodGet, Path: "/v1/admin/route-policies", Handler: svc.handleListRoutePolicies},
+		{Method: http.MethodPost, Path: "/v1/admin/route-policies", Handler: svc.handlePublishRoutePolicy},
+		{Method: http.MethodPut, Path: "/v1/admin/route-policies/:id", Handler: svc.handlePublishRoutePolicy},
 
 		// Admin stats / logs / route profiles
 		{Method: http.MethodGet, Path: "/v1/admin/stats", Handler: svc.handleAdminStats},

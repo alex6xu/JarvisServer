@@ -45,7 +45,7 @@ func TestFetchProviderModelsOpenAICompatible(t *testing.T) {
 		_, _ = w.Write([]byte(`{"data":[{"id":"model-a"},{"id":"model-b"}]}`))
 	}))
 	defer server.Close()
-	models, err := fetchProviderModels(context.Background(), Provider{Type: 3, BaseURL: server.URL + "/v1", Key: "secret"})
+	models, err := fetchProviderModels(context.Background(), Provider{Type: 3, BaseURL: server.URL + "/v1", Key: "secret"}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
