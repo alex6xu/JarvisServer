@@ -1,0 +1,27 @@
+[Unit]
+Description=Jarvis Gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jarvis
+Group=jarvis
+WorkingDirectory=/var/lib/jarvis
+# 管理员初始密码用环境变量注入，避免写进配置文件
+Environment=JARVIS_HOME=/var/lib/jarvis/home
+Environment=JARVIS_ADMIN_PASSWORD=__REPLACE_WITH_LONG_RANDOM_PASSWORD__
+ExecStart=/opt/jarvis/bin/gateway -f /etc/jarvis/gateway.yaml
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30
+UMask=0077
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/jarvis
+
+[Install]
+WantedBy=multi-user.target

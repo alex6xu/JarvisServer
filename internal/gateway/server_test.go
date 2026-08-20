@@ -6,12 +6,14 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/rest/pathvar"
 )
 
 func TestStubEndpoints(t *testing.T) {
-	svc, err := NewService(Options{Model: "test-model", Approve: true, NoTools: true, Cwd: t.TempDir(), AdminPassword: "test-password"})
+	svc, err := NewService(Options{Approve: true, NoTools: true, Cwd: t.TempDir(), AdminPassword: "test-password"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +43,7 @@ func TestStubEndpoints(t *testing.T) {
 			t.Fatalf("default=%v", body["default"])
 		}
 		data, ok := body["data"].([]any)
-		if !ok || len(data) == 0 || data[0].(map[string]any)["id"] != "auto" {
+		if !ok || len(data) != 1 || data[0].(map[string]any)["id"] != "auto" {
 			t.Fatalf("models=%#v", body["data"])
 		}
 	})
@@ -103,20 +105,34 @@ func TestStubEndpoints(t *testing.T) {
 }
 
 func TestConfigToOptions(t *testing.T) {
-	cfg := Config{}
+	cfg := Config{GitHub: GitHubConf{ClientID: "github-client", ClientSecret: "github-secret", GitTimeoutSecs: 42}}
 	cfg.Host = "0.0.0.0"
 	cfg.Port = 8080
-	cfg.Agent.Model = "m1"
 	cfg.Agent.Approve = true
 	cfg.Agent.AllowRegistration = true
 	opts := cfg.ToOptions()
-	if opts.Model != "m1" || opts.Addr != ":8080" || !opts.AllowRegistration {
+	if opts.Addr != ":8080" || !opts.AllowRegistration || opts.GitHubClientID != "github-client" ||
+		opts.GitHubClientSecret != "github-secret" || opts.GitHubGitTimeout != 42*time.Second {
 		t.Fatalf("opts=%+v", opts)
 	}
 }
 
+func TestLegacyGatewayModelConfigIsIgnored(t *testing.T) {
+	var cfg Config
+	err := conf.LoadFromYamlBytes([]byte(`
+Name: gateway
+Host: 127.0.0.1
+Port: 8080
+Agent:
+  Model: legacy-model
+`), &cfg)
+	if err != nil {
+		t.Fatalf("legacy Model field must not break config loading: %v", err)
+	}
+}
+
 func TestNewServerRegisters(t *testing.T) {
-	svc, err := NewService(Options{Model: "test-model", Approve: true, NoTools: true, Cwd: t.TempDir(), AdminPassword: "test-password"})
+	svc, err := NewService(Options{Approve: true, NoTools: true, Cwd: t.TempDir(), AdminPassword: "test-password"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +145,6 @@ func TestNewServerRegisters(t *testing.T) {
 	cfg.Mode = "test"
 	cfg.Log.Mode = "console"
 	cfg.Middlewares.Timeout = false
-	cfg.Agent.Model = "test-model"
 	// Port 0 may panic in MustNewServer depending on version; use a high port unused for construction only.
 	cfg.Port = 18080
 	srv := NewServer(svc, cfg)

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   assertUploadCapacity,
+  buildProjectIgnoreMatcher,
   buildWorkspaceZipFromDirectory,
   collectDirPrefixes,
   detectCommonRoot,
@@ -11,6 +12,7 @@ import {
   MAX_UPLOAD_TOTAL_BYTES,
   shouldSkipRelativePath,
   stripRootPrefix,
+  workspaceUploadLimitsFromResponse,
 } from './workspaceUpload'
 import JSZip from 'jszip'
 
@@ -20,6 +22,7 @@ function projectFile(path: string, content: string): File {
   const file = new TextEncoder().encode(content)
   Object.defineProperty(file, 'name', { value: name })
   Object.defineProperty(file, 'size', { value: file.byteLength })
+  Object.defineProperty(file, 'text', { value: async () => content })
   Object.defineProperty(file, 'webkitRelativePath', { value: path })
   return file as unknown as File
 }
@@ -36,10 +39,29 @@ describe('workspace upload path handling', () => {
   })
 
   it('filters dependency and platform metadata directories', () => {
-    expect(shouldSkipRelativePath('project/node_modules/pkg/index.js')).toBe('vendor')
     expect(shouldSkipRelativePath('__MACOSX/project/file')).toBe('vendor')
     expect(shouldSkipRelativePath('project/.git/config')).toBe('hidden')
+    expect(shouldSkipRelativePath('project/node_modules/pkg/index.js')).toBeNull()
     expect(shouldSkipRelativePath('project/vendor/domain.go')).toBeNull()
+  })
+
+  it('honors root and nested .gitignore rules including negation', async () => {
+    const files = [
+      projectFile('project/generated/.gitignore', '*.tmp\n!keep.tmp\n'),
+      projectFile('project/.gitignore', 'dist/\n*.log\n!important.log\n'),
+      projectFile('project/dist/bundle.js', 'generated'),
+      projectFile('project/debug.log', 'debug'),
+      projectFile('project/important.log', 'keep'),
+      projectFile('project/generated/drop.tmp', 'drop'),
+      projectFile('project/generated/keep.tmp', 'keep'),
+    ]
+    const matcher = await buildProjectIgnoreMatcher(files, 'project')
+    expect(matcher('dist/bundle.js')).toBe(true)
+    expect(matcher('debug.log')).toBe(true)
+    expect(matcher('important.log')).toBe(false)
+    expect(matcher('generated/drop.tmp')).toBe(true)
+    expect(matcher('generated/keep.tmp')).toBe(false)
+    expect(matcher('.gitignore')).toBe(false)
   })
 
   it('strips only a common directory root', () => {
@@ -70,11 +92,22 @@ describe('workspace upload path handling', () => {
     expect(() => assertUploadCapacity(1, MAX_UPLOAD_TOTAL_BYTES - 1, 2)).toThrow('100MB')
   })
 
+  it('uses server upload limits with safe defaults for invalid values', () => {
+    expect(workspaceUploadLimitsFromResponse({
+      archive_bytes: 700,
+      uncompressed_bytes: 900,
+      file_bytes: 100,
+      max_files: 12,
+    })).toEqual({ archiveBytes: 700, uncompressedBytes: 900, fileBytes: 100, maxFiles: 12 })
+    expect(workspaceUploadLimitsFromResponse({ archive_bytes: -1 }).archiveBytes).toBe(MAX_UPLOAD_TOTAL_BYTES)
+  })
+
   it('builds a zip that keeps project metadata and excludes credentials', async () => {
     const result = await buildWorkspaceZipFromDirectory([
       projectFile('project/src/main.ts', 'main'),
-      projectFile('project/.gitignore', 'node_modules'),
+      projectFile('project/.gitignore', 'node_modules\ngenerated/\n'),
       projectFile('project/.github/workflows/ci.yml', 'name: ci'),
+      projectFile('project/generated/output.js', 'generated'),
       projectFile('project/.env', 'TOKEN=secret'),
       projectFile('project/.git/config', 'private'),
     ])
@@ -85,8 +118,23 @@ describe('workspace upload path handling', () => {
     expect(Object.keys(zip.files)).toContain('src/main.ts')
     expect(Object.keys(zip.files)).toContain('.gitignore')
     expect(Object.keys(zip.files)).toContain('.github/workflows/ci.yml')
+    expect(Object.keys(zip.files)).not.toContain('generated/output.js')
     expect(Object.keys(zip.files)).not.toContain('.env')
     expect(Object.keys(zip.files)).not.toContain('.git/config')
+  })
+
+  it('skips a file over the configured per-file limit', async () => {
+    const result = await buildWorkspaceZipFromDirectory([
+      projectFile('project/main.go', 'ok'),
+      projectFile('project/large.dat', '1234'),
+    ], {
+      archiveBytes: 1024 * 1024,
+      uncompressedBytes: 100,
+      fileBytes: 3,
+      maxFiles: 10,
+    })
+    expect(result.included).toBe(1)
+    expect(result.skippedLarge).toBe(1)
   })
 
   it('rejects missing relative paths and case-insensitive collisions', async () => {

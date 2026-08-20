@@ -219,6 +219,47 @@ ALTER TABLE providers ADD COLUMN cost_per_mtok REAL NOT NULL DEFAULT 0;
 ALTER TABLE run_attempts ADD COLUMN purpose TEXT NOT NULL DEFAULT '';
 `
 
+const providerOwnedDefaultModelSchema = `
+UPDATE route_profiles
+SET models_json = '["auto"]', updated_at = CURRENT_TIMESTAMP
+WHERE id = 'rp_1' AND name = 'default' AND models_json = '["openrouter/free"]';
+
+UPDATE agent_profiles
+SET config_json = '{"model":"auto"}', updated_at = CURRENT_TIMESTAMP
+WHERE id IN ('profile_chat', 'profile_code') AND config_json = '{"model":"openrouter/free"}';
+`
+
+const chatRetrievalToolsSchema = `
+UPDATE agent_profiles
+SET tools_json = '["memory_search","websearch","webfetch"]', updated_at = CURRENT_TIMESTAMP
+WHERE id = 'profile_chat' AND tools_json = '[]';
+`
+
+const githubIntegrationSchema = `
+CREATE TABLE IF NOT EXISTS github_credentials (
+    account_id INTEGER PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+    token_cipher TEXT NOT NULL,
+    github_login TEXT NOT NULL,
+    auth_method TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS github_oauth_states (
+    state_hash TEXT PRIMARY KEY,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    return_path TEXT NOT NULL DEFAULT '/code',
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_github_oauth_states_expires ON github_oauth_states(expires_at);
+`
+
+// Agent tasks duplicated coder runs without providing a durable scheduler.
+// Their underlying sessions remain in the sessions tables.
+const removeLegacyAgentTasksSchema = `
+DROP TABLE IF EXISTS agent_tasks;
+`
+
 var gatewayMigrations = []gatewayMigration{
 	{version: 1, name: "gateway_base", schema: gatewaySchema},
 	{version: 2, name: "control_plane_repositories", schema: controlPlaneSchema},
@@ -226,6 +267,10 @@ var gatewayMigrations = []gatewayMigration{
 	{version: 4, name: "runtime_routing", schema: runtimeRoutingSchema},
 	{version: 5, name: "workspace_ownership", schema: workspaceOwnershipSchema},
 	{version: 6, name: "adaptive_provider_routing", schema: adaptiveProviderRoutingSchema},
+	{version: 7, name: "provider_owned_default_model", schema: providerOwnedDefaultModelSchema},
+	{version: 8, name: "chat_retrieval_tools", schema: chatRetrievalToolsSchema},
+	{version: 9, name: "github_integration", schema: githubIntegrationSchema},
+	{version: 10, name: "remove_legacy_agent_tasks", schema: removeLegacyAgentTasksSchema},
 }
 
 func applyGatewayMigrations(db *sql.DB) error {

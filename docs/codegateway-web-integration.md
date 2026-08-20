@@ -538,7 +538,7 @@ root = "./workspaces"        # Coder 模式根目录
 
 - GitHub OAuth、Claude OAuth、ASR
 - Web 端工具确认（WebSocket）
-- Agent Tasks 队列
+- 独立 Agent Tasks 已移除；编码任务统一通过 Code 会话执行。若未来需要异步批处理，应单独设计持久化调度器。
 
 ---
 
@@ -632,7 +632,7 @@ curl -N "http://localhost:8080/v1/agent/runs/{run_id}/events?after_seq=0"
 | Phase 1 | ✅ | `POST /v1/agent/chat` + SSE `.../events` + translate + RunManager |
 | Phase 2 | ✅ 基础 | `GET /v1/agent/sessions`、`GET /v1/agent/sessions/{id}` + JSONL 持久化 |
 | Phase 3 | ✅ 基础 | Workspace、Provider、账号、Token 和请求审计可用；多账户资源隔离待完善 |
-| Phase 4+ | 进行中 | Tags/Tasks 有基础接口；GitHub、Claude OAuth、ASR 返回未配置 |
+| Phase 4+ | 进行中 | Tags 有基础接口；Code 统一承载编码任务；GitHub OAuth/PAT、仓库导入、Pull/Push 已实现；Claude OAuth、ASR 仍返回未配置 |
 
 ### 启动
 

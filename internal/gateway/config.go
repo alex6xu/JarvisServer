@@ -10,13 +10,25 @@ import (
 // Config is the go-zero gateway configuration (etc/gateway.yaml).
 type Config struct {
 	rest.RestConf
-	Agent AgentConf `json:",optional"`
+	Agent  AgentConf  `json:",optional"`
+	GitHub GitHubConf `json:",optional"`
+}
+
+// GitHubConf configures the optional GitHub OAuth and repository integration.
+type GitHubConf struct {
+	ClientID       string `json:",optional"`
+	ClientSecret   string `json:",optional"`
+	RedirectURL    string `json:",optional"`
+	Scopes         string `json:",optional"`
+	APIBaseURL     string `json:",optional"`
+	WebBaseURL     string `json:",optional"`
+	TokenKey       string `json:",optional"`
+	GitTimeoutSecs int    `json:",default=300"`
 }
 
 // AgentConf holds jarvis agent / auth settings layered on RestConf.
 type AgentConf struct {
 	Cwd                      string `json:",optional"`
-	Model                    string `json:",default=openrouter/free"`
 	BaseURL                  string `json:",optional"`
 	Protocol                 string `json:",optional"`
 	ProviderName             string `json:",optional"`
@@ -30,6 +42,9 @@ type AgentConf struct {
 	AdminPassword            string `json:",optional"`
 	AllowRegistration        bool   `json:",optional"`
 	WorkspacesRoot           string `json:",optional"`
+	WorkspaceUploadMaxBytes  int64  `json:",default=104857600"`
+	WorkspaceMaxBytes        int64  `json:",default=104857600"`
+	WorkspaceMaxFileBytes    int64  `json:",default=10485760"`
 	DatabasePath             string `json:",optional"`
 	AuditRetentionDays       int    `json:",default=30"`
 	AuditMaxBodyBytes        int    `json:",default=1048576"`
@@ -50,7 +65,6 @@ func (c Config) ToOptions() Options {
 	return Options{
 		Addr:                     addr,
 		Cwd:                      c.Agent.Cwd,
-		Model:                    c.Agent.Model,
 		BaseURL:                  c.Agent.BaseURL,
 		Protocol:                 c.Agent.Protocol,
 		ProviderName:             c.Agent.ProviderName,
@@ -64,10 +78,21 @@ func (c Config) ToOptions() Options {
 		AdminPassword:            c.Agent.AdminPassword,
 		AllowRegistration:        c.Agent.AllowRegistration,
 		WorkspacesRoot:           c.Agent.WorkspacesRoot,
+		WorkspaceUploadMaxBytes:  c.Agent.WorkspaceUploadMaxBytes,
+		WorkspaceMaxBytes:        c.Agent.WorkspaceMaxBytes,
+		WorkspaceMaxFileBytes:    c.Agent.WorkspaceMaxFileBytes,
 		DatabasePath:             c.Agent.DatabasePath,
 		AuditRetentionDays:       c.Agent.AuditRetentionDays,
 		AuditMaxBodyBytes:        c.Agent.AuditMaxBodyBytes,
 		RunTimeout:               time.Duration(c.Agent.RunTimeoutSeconds) * time.Second,
 		AllowPrivateProviderURLs: c.Agent.AllowPrivateProviderURLs,
+		GitHubClientID:           c.GitHub.ClientID,
+		GitHubClientSecret:       c.GitHub.ClientSecret,
+		GitHubRedirectURL:        c.GitHub.RedirectURL,
+		GitHubScopes:             c.GitHub.Scopes,
+		GitHubAPIBaseURL:         c.GitHub.APIBaseURL,
+		GitHubWebBaseURL:         c.GitHub.WebBaseURL,
+		GitHubTokenKey:           c.GitHub.TokenKey,
+		GitHubGitTimeout:         time.Duration(c.GitHub.GitTimeoutSecs) * time.Second,
 	}.withDefaults()
 }

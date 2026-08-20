@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
@@ -19,7 +20,7 @@ func TestGatewayMigrationsApplied(t *testing.T) {
 	if count != len(gatewayMigrations) || latest != gatewayMigrations[len(gatewayMigrations)-1].version {
 		t.Fatalf("migrations count=%d latest=%d", count, latest)
 	}
-	for _, table := range []string{"sessions", "session_entries", "route_profiles", "agent_tasks", "tags", "workspace_metadata", "agent_profiles", "channel_bindings", "provider_endpoints", "provider_models", "route_policies", "route_policy_versions", "health_samples"} {
+	for _, table := range []string{"sessions", "session_entries", "route_profiles", "tags", "workspace_metadata", "agent_profiles", "channel_bindings", "provider_endpoints", "provider_models", "route_policies", "route_policy_versions", "health_samples", "github_credentials", "github_oauth_states"} {
 		var found int
 		if err := store.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&found); err != nil {
 			t.Fatal(err)
@@ -28,6 +29,53 @@ func TestGatewayMigrationsApplied(t *testing.T) {
 			t.Errorf("table %s not created", table)
 		}
 	}
+	var legacyTasks int
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='agent_tasks'`).Scan(&legacyTasks); err != nil {
+		t.Fatal(err)
+	}
+	if legacyTasks != 0 {
+		t.Fatal("legacy agent_tasks table still exists")
+	}
+}
+
+func TestMigrationReplacesLegacyDefaultRouteProfileModel(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gateway.db")
+	store, err := OpenGatewayStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := store.UpsertRouteProfile(ctx, RouteProfile{
+		ID: "rp_1", Name: "default", Purpose: "general", Models: []string{"openrouter/free"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec(`DELETE FROM schema_migrations WHERE version = 7`); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err = OpenGatewayStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	profiles, err := store.ListRouteProfiles(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, profile := range profiles {
+		if profile.ID != "rp_1" {
+			continue
+		}
+		if len(profile.Models) != 1 || profile.Models[0] != "auto" {
+			t.Fatalf("default route profile models = %v", profile.Models)
+		}
+		return
+	}
+	t.Fatal("default route profile not found")
 }
 
 func TestSQLiteSessionRepositoryRoundTrip(t *testing.T) {
@@ -94,10 +142,6 @@ func TestControlPlaneReloadsAfterRestart(t *testing.T) {
 	if err := svc.Control.UpsertRouteProfile(ctx, profile); err != nil {
 		t.Fatal(err)
 	}
-	task := AgentTask{ID: "task_persist", WorkspaceID: "ws", Prompt: "do it", Status: "queued", ToolSteps: []ToolStep{}, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
-	if err := svc.Control.UpsertAgentTask(ctx, task); err != nil {
-		t.Fatal(err)
-	}
 	if err := svc.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -110,12 +154,13 @@ func TestControlPlaneReloadsAfterRestart(t *testing.T) {
 	if got := restarted.Mem.findProfileByName("persistent"); got == nil || got.Models[0] != "model-a" {
 		t.Fatalf("reloaded profile = %#v", got)
 	}
-	tasks := restarted.Mem.listTasks()
-	if len(tasks) != 1 || tasks[0].ID != task.ID {
-		t.Fatalf("reloaded tasks = %#v", tasks)
-	}
 	agentProfiles, err := restarted.Control.ListAgentProfiles(ctx)
 	if err != nil || len(agentProfiles) != 2 {
 		t.Fatalf("agent profiles=%#v err=%v", agentProfiles, err)
+	}
+	for _, agentProfile := range agentProfiles {
+		if agentProfile.ID == "profile_chat" && !slices.Equal(agentProfile.Tools, []string{"memory_search", "websearch", "webfetch"}) {
+			t.Fatalf("chat profile tools=%v", agentProfile.Tools)
+		}
 	}
 }

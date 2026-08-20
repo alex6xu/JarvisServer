@@ -505,8 +505,13 @@ export default function CoderPage() {
     setUploading(true)
     setUploadError('')
     try {
-      const { buildWorkspaceZipFromDirectory, formatUploadSkipSummary } = await import('../lib/workspaceUpload')
-      const built = await buildWorkspaceZipFromDirectory(files)
+      const upload = await import('../lib/workspaceUpload')
+      let limits = upload.DEFAULT_WORKSPACE_UPLOAD_LIMITS
+      const limitsResponse = await apiFetch('/v1/workspaces/upload-limits', {}, currentAccount?.id)
+      if (limitsResponse.ok) {
+        limits = upload.workspaceUploadLimitsFromResponse(await limitsResponse.json().catch(() => null))
+      }
+      const built = await upload.buildWorkspaceZipFromDirectory(files, limits)
 
       const form = new FormData()
       form.append('name', built.name)
@@ -524,7 +529,7 @@ export default function CoderPage() {
       await fetchWorkspaces()
       if (data.workspace?.id) {
         setWorkspaceId(data.workspace.id)
-        const skipHint = formatUploadSkipSummary(built)
+        const skipHint = upload.formatUploadSkipSummary(built, limits)
         setMessages((prev) => [
           ...prev,
           {
@@ -850,7 +855,7 @@ export default function CoderPage() {
           {uploading ? '打包上传中…' : '选择本地目录并上传云端'}
         </button>
         <span className="text-[11px] text-muted-foreground">
-          保留工程配置；跳过凭据、版本库目录和超过 3MB 的文件，总量上限 100MB
+          按 .gitignore 过滤；跳过超过 10MB 的单文件，保留文件总量上限 100MB
         </span>
         <button
           onClick={() => {
@@ -942,9 +947,11 @@ export default function CoderPage() {
 
           {!ghConfigured && (
             <p className="text-[12px] text-amber-600 dark:text-amber-400 mb-2">
-              服务端尚未配置 GitHub OAuth。请在 `codegateway.yaml` 设置 `github.client_id` /
-              `client_secret`，或环境变量 `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET`，并在 GitHub
-              App/OAuth App 中将回调设为 `/v1/github/callback`。
+              服务端尚未配置 GitHub OAuth。可前往{' '}
+              <a href="/settings" className="underline underline-offset-2 hover:text-foreground">
+                Settings
+              </a>{' '}
+              使用 fine-grained PAT 连接，或由管理员配置 gateway.yaml 的 GitHub 段。
             </p>
           )}
 

@@ -39,19 +39,18 @@ func apiRoutes(svc *Service) []rest.Route {
 		{Method: http.MethodPost, Path: "/v1/agent/tags/retag", Handler: svc.handleRetag},
 		{Method: http.MethodGet, Path: "/v1/agent/tags/:slug", Handler: svc.handleGetTag},
 
-		// Tasks
-		{Method: http.MethodGet, Path: "/v1/agent/tasks", Handler: svc.handleListTasks},
-		{Method: http.MethodPost, Path: "/v1/agent/tasks", Handler: svc.handleCreateTask},
-
 		// Workspaces (static before :id)
 		{Method: http.MethodGet, Path: "/v1/workspaces", Handler: svc.handleListWorkspaces},
+		{Method: http.MethodGet, Path: "/v1/workspaces/upload-limits", Handler: svc.handleWorkspaceUploadLimits},
 		{Method: http.MethodPost, Path: "/v1/workspaces/upload", Handler: svc.handleUploadWorkspace},
 		{Method: http.MethodGet, Path: "/v1/workspaces/:id/download", Handler: svc.handleDownloadWorkspace},
 		{Method: http.MethodDelete, Path: "/v1/workspaces/:id", Handler: svc.handleDeleteWorkspace},
 
-		// GitHub stubs
+		// GitHub repository integration
 		{Method: http.MethodGet, Path: "/v1/github/status", Handler: svc.handleGitHubStatus},
 		{Method: http.MethodGet, Path: "/v1/github/authorize", Handler: svc.handleGitHubAuthorize},
+		{Method: http.MethodGet, Path: "/v1/github/callback", Handler: svc.handleGitHubCallback},
+		{Method: http.MethodPut, Path: "/v1/github/token", Handler: svc.handleGitHubConnectToken},
 		{Method: http.MethodDelete, Path: "/v1/github/disconnect", Handler: svc.handleGitHubDisconnect},
 		{Method: http.MethodGet, Path: "/v1/github/repos", Handler: svc.handleGitHubRepos},
 		{Method: http.MethodPost, Path: "/v1/github/import", Handler: svc.handleGitHubImport},

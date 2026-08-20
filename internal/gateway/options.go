@@ -1,6 +1,9 @@
 package gateway
 
-import "time"
+import (
+	"os"
+	"time"
+)
 
 // Options configures the HTTP gateway server.
 type Options struct {
@@ -8,8 +11,6 @@ type Options struct {
 	Addr string
 	// Cwd is the working directory for tool roots and session attribution.
 	Cwd string
-	// Model is the default model id when a chat request omits model.
-	Model string
 	// BaseURL / Protocol / ProviderName mirror jarvis CLI provider selection.
 	BaseURL      string
 	Protocol     string
@@ -37,6 +38,12 @@ type Options struct {
 	AllowRegistration bool
 	// WorkspacesRoot is the local directory for Coder workspaces (default: <cwd>/workspaces).
 	WorkspacesRoot string
+	// WorkspaceUploadMaxBytes bounds the compressed multipart archive.
+	WorkspaceUploadMaxBytes int64
+	// WorkspaceMaxBytes bounds the total uncompressed workspace size.
+	WorkspaceMaxBytes int64
+	// WorkspaceMaxFileBytes bounds one uncompressed workspace file.
+	WorkspaceMaxFileBytes int64
 	// DatabasePath is the SQLite file used for chat and provider audit records.
 	// The default is <cwd>/.jarvis/gateway.db.
 	DatabasePath       string
@@ -46,14 +53,23 @@ type Options struct {
 	RunTimeout time.Duration
 	// AllowPrivateProviderURLs permits custom providers on private/link-local networks.
 	AllowPrivateProviderURLs bool
+	// GitHub OAuth and API settings. A personal access token can still be
+	// connected per account when the OAuth client is not configured.
+	GitHubClientID     string
+	GitHubClientSecret string
+	GitHubRedirectURL  string
+	GitHubScopes       string
+	GitHubAPIBaseURL   string
+	GitHubWebBaseURL   string
+	// GitHubTokenKey protects stored OAuth/PAT credentials. When empty, a local
+	// random key is generated under <cwd>/.jarvis.
+	GitHubTokenKey   string
+	GitHubGitTimeout time.Duration
 }
 
 func (o Options) withDefaults() Options {
 	if o.Addr == "" {
 		o.Addr = ":8080"
-	}
-	if o.Model == "" {
-		o.Model = "openrouter/free"
 	}
 	if o.AuthMode == "" {
 		o.AuthMode = "token"
@@ -64,8 +80,41 @@ func (o Options) withDefaults() Options {
 	if o.AuditMaxBodyBytes <= 0 {
 		o.AuditMaxBodyBytes = 1 << 20
 	}
+	if o.WorkspaceUploadMaxBytes <= 0 {
+		o.WorkspaceUploadMaxBytes = defaultWorkspaceArchiveBytes
+	}
+	if o.WorkspaceMaxBytes <= 0 {
+		o.WorkspaceMaxBytes = defaultWorkspaceUncompressedBytes
+	}
+	if o.WorkspaceMaxFileBytes <= 0 {
+		o.WorkspaceMaxFileBytes = defaultWorkspaceFileBytes
+	}
 	if o.RunTimeout == 0 {
 		o.RunTimeout = 30 * time.Minute
+	}
+	if o.GitHubClientID == "" {
+		o.GitHubClientID = os.Getenv("GITHUB_CLIENT_ID")
+	}
+	if o.GitHubClientSecret == "" {
+		o.GitHubClientSecret = os.Getenv("GITHUB_CLIENT_SECRET")
+	}
+	if o.GitHubRedirectURL == "" {
+		o.GitHubRedirectURL = os.Getenv("GITHUB_REDIRECT_URL")
+	}
+	if o.GitHubTokenKey == "" {
+		o.GitHubTokenKey = os.Getenv("GITHUB_TOKEN_KEY")
+	}
+	if o.GitHubScopes == "" {
+		o.GitHubScopes = "repo read:user"
+	}
+	if o.GitHubAPIBaseURL == "" {
+		o.GitHubAPIBaseURL = "https://api.github.com"
+	}
+	if o.GitHubWebBaseURL == "" {
+		o.GitHubWebBaseURL = "https://github.com"
+	}
+	if o.GitHubGitTimeout <= 0 {
+		o.GitHubGitTimeout = 5 * time.Minute
 	}
 	return o
 }

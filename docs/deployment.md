@@ -27,7 +27,8 @@ Provider 请求审计和 RunEvent。
 - Coder 模式会在服务器上执行文件和命令工具。生产环境必须使用专用系统账号，并限制
   `WorkspacesRoot` 的权限。
 - Provider API Key 当前保存在 SQLite 中，数据库和备份必须按敏感数据保护。
-- GitHub、Claude OAuth 和 ASR 接口在未配置时会返回不可用，不能视为已经完成的生产能力。
+- Claude OAuth 和 ASR 接口在未配置时会返回不可用。GitHub 支持 OAuth App 或用户级
+  fine-grained PAT；OAuth 未配置时仍可从 Settings 使用 PAT。
 - 仓库暂未提供官方 Dockerfile 或 Kubernetes 清单。本指南以 Linux 二进制部署为主。
 
 ### 1.1 部署构建门禁
@@ -48,6 +49,7 @@ go test ./internal/gateway ./cmd/gateway
 - Linux x86_64 或 arm64。
 - Go 版本满足 `go.mod`。当前仓库声明 `go 1.27rc1`，建议启用 Go toolchain 自动选择。
 - Node.js 20 或更高版本，以及 npm。
+- Git 2.30 或更高版本（GitHub 仓库导入、Pull、Push 使用服务端 Git CLI）。
 - Nginx 1.20 或更高版本。
 - 可选：`sqlite3`，用于在线备份和诊断。
 - 能访问所配置 LLM Provider 的出站网络。
@@ -143,8 +145,6 @@ Middlewares:
 
 Agent:
   Cwd: /var/lib/jarvis
-  Model: openrouter/free
-
   # 生产环境必须使用 Token 认证。
   AuthMode: token
 
@@ -176,6 +176,18 @@ Agent:
 
   # APIToken 是共享管理员 Token，泄露后权限很大。通常留空并使用账号/API Token。
   # APIToken: ""
+
+# 可选。未配置 OAuth 时，用户仍可在 Settings 中连接 fine-grained PAT。
+GitHub:
+  ClientID: "REPLACE_WITH_GITHUB_OAUTH_CLIENT_ID"
+  ClientSecret: "REPLACE_WITH_GITHUB_OAUTH_CLIENT_SECRET"
+  RedirectURL: "https://jarvis.example.com/v1/github/callback"
+  Scopes: "repo read:user"
+  GitTimeoutSecs: 300
+
+  # 建议通过 GITHUB_TOKEN_KEY 环境变量注入。若留空，Gateway 会生成
+  # /var/lib/jarvis/.jarvis/github-token.key（路径相对于 Agent.Cwd）。
+  # TokenKey: "REPLACE_WITH_A_LONG_RANDOM_SECRET"
 ```
 
 保护配置：
@@ -194,6 +206,34 @@ sudo chmod 0640 /etc/jarvis/gateway.yaml
 - `AuditRetentionDays` 小于 0 时可禁用启动清理；生产环境不建议无限保留审计正文。
 - `AuditMaxBodyBytes` 限制单个 Provider 请求或响应的审计体积，不限制 Workspace 上传大小。
 - `RunTimeoutSeconds` 限制单次 Agent Run 的总时长；设为负数可禁用，生产环境建议保留有限超时。
+
+### 5.1 GitHub 连接
+
+GitHub 有两种连接方式：
+
+1. OAuth App：管理员在 GitHub 创建 OAuth App，将 Authorization callback URL 设置为
+   `https://<部署域名>/v1/github/callback`，再配置 `ClientID`、`ClientSecret` 和完全一致的
+   `RedirectURL`。用户可在 Settings 或 Code 页完成授权。
+2. Fine-grained PAT：用户在 Settings 粘贴 Token。Token 至少需要选中目标仓库，并授予
+   Repository permissions → Contents: Read and write。仅导入不 Push 时可只授予 Read。
+
+Gateway 会先调用 GitHub `/user` 验证凭据，再使用 AES-GCM 加密写入 SQLite。响应、请求日志和
+Workspace 的 `.git/config` 都不会保存明文 Token。自动生成的 `github-token.key` 必须与
+`gateway.db` 一同备份；密钥丢失后，已有 GitHub 连接无法解密，只能由用户重新连接。
+
+也可通过环境变量配置，适合 systemd `EnvironmentFile`：
+
+```bash
+GITHUB_CLIENT_ID=...
+GITHUB_CLIENT_SECRET=...
+GITHUB_REDIRECT_URL=https://jarvis.example.com/v1/github/callback
+GITHUB_TOKEN_KEY=replace-with-a-long-random-secret
+```
+
+GitHub 仓库以浅克隆导入，仍受 `WorkspaceMaxBytes`、`WorkspaceMaxFileBytes` 和文件数量限制。
+Pull 只允许 fast-forward，并在工作区有未提交修改时拒绝执行；Push 会提交当前修改后推送到
+绑定分支。服务端会固定使用绑定仓库地址，并禁用凭据助手和 Git hooks，防止工作区修改 Git
+配置后转移凭据。
 
 ## 6. systemd 服务
 
@@ -258,7 +298,8 @@ server {
     root /opt/jarvis/web;
     index index.html;
 
-    client_max_body_size 100m;
+    # Match Agent.WorkspaceUploadMaxBytes (100 MiB by default), plus multipart overhead.
+    client_max_body_size 101m;
 
     location = /healthz {
         proxy_pass http://127.0.0.1:8080;

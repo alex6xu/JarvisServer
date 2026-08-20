@@ -9,7 +9,6 @@ const baseNavigation = [
   { name: 'Providers', href: '/providers', icon: '🔗' },
   { name: 'Sessions', href: '/sessions', icon: '📋' },
   { name: 'Tags', href: '/tags', icon: '🏷️' },
-  { name: 'Agent Tasks', href: '/agent-tasks', icon: '🤖' },
   { name: 'Accounts', href: '/accounts', icon: '👤', adminOnly: true },
   { name: 'Settings', href: '/settings', icon: '⚙️' },
 ]

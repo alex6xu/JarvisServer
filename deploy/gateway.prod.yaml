@@ -1,0 +1,46 @@
+# JarvisServer 生产配置（替代 etc/gateway.yaml）
+# 部署到 VPS 的 /etc/jarvis/gateway.yaml，权限设为 root:jarvis 0640
+
+Name: gateway
+Host: 127.0.0.1        # 只监听回环，公网经 Caddy 反代
+Port: 8080
+Timeout: 0
+Mode: pro              # 生产模式（关闭 dev 的宽松 CORS 等）
+Log:
+  Mode: console
+  Level: info
+
+Middlewares:
+  Timeout: false       # 关闭默认请求超时，SSE / 长轮询不被截断
+
+Agent:
+  Cwd: /var/lib/jarvis
+  AuthMode: token      # 生产必须用 Token 认证
+  AllowRegistration: false   # 默认关闭匿名自助注册，账号由管理员创建
+
+  # 首次初始化管理员（用户名 dev）。数据库已有账号后改密码无效。
+  # 数据库建好后建议从配置移除本项，密码用环境变量 JARVIS_ADMIN_PASSWORD 注入。
+  # AdminPassword: ""  # 或设 JARVIS_ADMIN_PASSWORD
+
+  WorkspacesRoot: /var/lib/jarvis/workspaces
+  DatabasePath: /var/lib/jarvis/data/gateway.db
+  WorkspaceUploadMaxBytes: 104857600
+  WorkspaceMaxBytes: 104857600
+  WorkspaceMaxFileBytes: 10485760
+
+  AuditRetentionDays: 30
+  AuditMaxBodyBytes: 1048576
+  RunTimeoutSeconds: 1800
+
+  Approve: false       # 不自动信任副作用工具；无人值守 Coder 需谨慎开启
+  NoTools: false
+  NoSkills: false
+
+  # 可选启动级兜底 Provider；通常建议启动后在管理界面配置
+  # ProviderName: openrouter
+  # APIKey: ""
+  # BaseURL: ""
+  # Protocol: ""
+
+  # 共享管理员 Token，泄露风险大；留空改用账号/API Token
+  # APIToken: ""

@@ -71,7 +71,7 @@ func TestMapChannelType(t *testing.T) {
 }
 
 func TestResolveLLMUsesMemProvider(t *testing.T) {
-	svc, err := NewService(Options{Model: "fallback-model", Approve: true, NoTools: true, Cwd: t.TempDir(), AdminPassword: "test-password"})
+	svc, err := NewService(Options{Approve: true, NoTools: true, Cwd: t.TempDir(), AdminPassword: "test-password"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,6 +94,18 @@ func TestResolveLLMUsesMemProvider(t *testing.T) {
 	}
 	if route.BaseURL != "https://example.com/v1" {
 		t.Fatalf("base=%q", route.BaseURL)
+	}
+}
+
+func TestResolveLLMWithoutConfiguredProviderReturnsError(t *testing.T) {
+	svc, err := NewService(Options{Approve: true, NoTools: true, Cwd: t.TempDir(), AdminPassword: "test-password"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = svc.Close() })
+	svc.Mem.providers = map[int]*Provider{}
+	if _, err := svc.resolveLLM(""); err == nil {
+		t.Fatal("empty provider configuration must not produce a model route")
 	}
 }
 

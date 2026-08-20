@@ -21,6 +21,15 @@ export default function SettingsPage() {
 
   const [claudeEmail, setClaudeEmail] = useState('')
 
+  const [githubConfigured, setGitHubConfigured] = useState(false)
+  const [githubConnected, setGitHubConnected] = useState(false)
+  const [githubLogin, setGitHubLogin] = useState('')
+  const [githubAuthMethod, setGitHubAuthMethod] = useState('')
+  const [githubToken, setGitHubToken] = useState('')
+  const [githubBusy, setGitHubBusy] = useState(false)
+  const [githubError, setGitHubError] = useState('')
+  const [githubMessage, setGitHubMessage] = useState('')
+
   const fetchClaudeStatus = async () => {
     try {
       const res = await apiFetch('/v1/claude/oauth/status', {}, currentAccount?.id)
@@ -34,8 +43,23 @@ export default function SettingsPage() {
     }
   }
 
+  const fetchGitHubStatus = async () => {
+    try {
+      const res = await apiFetch('/v1/github/status', {}, currentAccount?.id)
+      if (!res.ok) return
+      const data = await res.json()
+      setGitHubConfigured(!!data.configured)
+      setGitHubConnected(!!data.connected)
+      setGitHubLogin(data.github_login || '')
+      setGitHubAuthMethod(data.auth_method || '')
+    } catch {
+      // Connection status is optional; keep the rest of Settings available.
+    }
+  }
+
   useEffect(() => {
     fetchClaudeStatus()
+    fetchGitHubStatus()
     const params = new URLSearchParams(window.location.search)
     const oauth = params.get('claude_oauth')
     if (oauth === 'connected') {
@@ -46,7 +70,82 @@ export default function SettingsPage() {
       setClaudeError(params.get('message') || 'OAuth 失败')
       window.history.replaceState({}, '', window.location.pathname)
     }
+
+    const github = params.get('github')
+    if (github === 'connected') {
+      setGitHubMessage(`GitHub 已连接${params.get('login') ? `（@${params.get('login')}）` : ''}`)
+      window.history.replaceState({}, '', window.location.pathname)
+      fetchGitHubStatus()
+    } else if (github === 'error') {
+      setGitHubError(params.get('message') || 'GitHub OAuth 失败')
+      window.history.replaceState({}, '', window.location.pathname)
+    }
   }, [currentAccount?.id])
+
+  const connectGitHubOAuth = async () => {
+    setGitHubBusy(true)
+    setGitHubError('')
+    setGitHubMessage('')
+    try {
+      const res = await apiFetch('/v1/github/authorize?return_to=/settings', {}, currentAccount?.id)
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data.authorize_url) {
+        setGitHubError(data.error || '无法开始 GitHub OAuth')
+        return
+      }
+      window.location.href = data.authorize_url
+    } catch {
+      setGitHubError('无法开始 GitHub OAuth')
+    } finally {
+      setGitHubBusy(false)
+    }
+  }
+
+  const connectGitHubToken = async () => {
+    if (!githubToken.trim()) return
+    setGitHubBusy(true)
+    setGitHubError('')
+    setGitHubMessage('')
+    try {
+      const res = await apiFetch(
+        '/v1/github/token',
+        { method: 'PUT', body: JSON.stringify({ token: githubToken.trim() }) },
+        currentAccount?.id,
+      )
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setGitHubError(data.error || 'GitHub Token 验证失败')
+        return
+      }
+      setGitHubToken('')
+      setGitHubMessage(`GitHub 已连接（@${data.github_login}）`)
+      await fetchGitHubStatus()
+    } catch {
+      setGitHubError('GitHub Token 验证失败')
+    } finally {
+      setGitHubBusy(false)
+    }
+  }
+
+  const disconnectGitHub = async () => {
+    if (!confirm('确定断开 GitHub 连接？')) return
+    setGitHubBusy(true)
+    setGitHubError('')
+    try {
+      const res = await apiFetch('/v1/github/disconnect', { method: 'DELETE' }, currentAccount?.id)
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setGitHubError(data.error || '断开 GitHub 失败')
+        return
+      }
+      setGitHubConnected(false)
+      setGitHubLogin('')
+      setGitHubAuthMethod('')
+      setGitHubMessage('GitHub 已断开')
+    } finally {
+      setGitHubBusy(false)
+    }
+  }
 
   const startClaudePaste = async () => {
     setClaudeError('')
@@ -241,16 +340,78 @@ export default function SettingsPage() {
           )}
         </div>
 
-        <div className="bg-card border border-border rounded-xl p-5">
+        <div className="bg-card border border-border rounded-xl p-5 space-y-3">
           <h3 className="text-sm font-semibold text-foreground mb-2">GitHub 仓库接入</h3>
-          <p className="text-[13px] text-muted-foreground leading-relaxed">
-            在 Code 页可授权 GitHub 并导入仓库为云端工作区。服务端需配置 OAuth App：
-            <code className="mx-1 text-[12px]">github.client_id</code>/
-            <code className="mx-1 text-[12px]">client_secret</code>
-            （或环境变量 <code className="text-[12px]">GITHUB_CLIENT_ID</code> /
-            <code className="text-[12px]">GITHUB_CLIENT_SECRET</code>），回调地址为
-            <code className="mx-1 text-[12px]">/v1/github/callback</code>。
+          <p className="text-[13px]">
+            状态：{githubConnected ? (
+              <span className="text-green-500 font-medium">
+                已连接{githubLogin ? `（@${githubLogin}）` : ''}
+                {githubAuthMethod ? ` · ${githubAuthMethod.toUpperCase()}` : ''}
+              </span>
+            ) : (
+              <span className="text-muted-foreground">未连接</span>
+            )}
           </p>
+
+          {githubConnected ? (
+            <button
+              type="button"
+              disabled={githubBusy}
+              onClick={disconnectGitHub}
+              className="h-9 px-4 text-destructive border border-destructive/30 rounded-lg text-[13px] hover:bg-destructive/10 disabled:opacity-50"
+            >
+              断开连接
+            </button>
+          ) : (
+            <div className="space-y-3">
+              {githubConfigured && (
+                <button
+                  type="button"
+                  disabled={githubBusy}
+                  onClick={connectGitHubOAuth}
+                  className="h-9 px-4 bg-primary text-primary-foreground rounded-lg text-[13px] font-medium hover:bg-primary/90 disabled:opacity-50"
+                >
+                  使用 GitHub OAuth 连接
+                </button>
+              )}
+
+              <div>
+                <label className="block text-[12px] text-muted-foreground mb-1.5">
+                  Fine-grained Personal Access Token
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    value={githubToken}
+                    onChange={(event) => setGitHubToken(event.target.value)}
+                    placeholder="github_pat_..."
+                    className="flex-1 min-w-0 h-9 px-3 bg-background border border-border rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                  <button
+                    type="button"
+                    disabled={githubBusy || !githubToken.trim()}
+                    onClick={connectGitHubToken}
+                    className="h-9 px-3 border border-primary/30 text-primary rounded-lg text-[12px] hover:bg-primary/10 disabled:opacity-50"
+                  >
+                    验证并连接
+                  </button>
+                </div>
+                <p className="mt-1.5 text-[11px] text-muted-foreground">
+                  Token 至少需要目标仓库的 Contents 读写权限；服务端验证后加密保存。
+                </p>
+              </div>
+
+              {!githubConfigured && (
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  OAuth 未配置。管理员可在 gateway.yaml 的 GitHub 段设置 ClientID、ClientSecret 和
+                  RedirectURL，或使用 GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET 环境变量。
+                </p>
+              )}
+            </div>
+          )}
+          {githubError && <p className="text-[12px] text-red-500">{githubError}</p>}
+          {githubMessage && <p className="text-[12px] text-green-500">{githubMessage}</p>}
         </div>
 
         <form onSubmit={onChangePassword} className="bg-card border border-border rounded-xl p-5 space-y-4">

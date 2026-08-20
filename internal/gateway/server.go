@@ -24,8 +24,8 @@ func NewServer(svc *Service, cfg Config) *Server {
 
 // Start blocks on the go-zero server.
 func (s *Server) Start() {
-	fmt.Printf("gateway listening on %s:%d (model=%s approve=%v)\n",
-		s.Cfg.Host, s.Cfg.Port, s.Svc.Opts.Model, s.Svc.Opts.Approve)
+	fmt.Printf("gateway listening on %s:%d (routing=provider approve=%v)\n",
+		s.Cfg.Host, s.Cfg.Port, s.Svc.Opts.Approve)
 	s.Rest.Start()
 }
 

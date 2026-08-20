@@ -89,7 +89,7 @@ func (s *Service) importSession(content, title string) (SessionMeta, error) {
 		ID:        session.NewID(now),
 		CreatedAt: now,
 		UpdatedAt: now,
-		Model:     s.Opts.Model,
+		Model:     "auto",
 		Cwd:       s.Opts.Cwd,
 	}
 	msgs := make(agentcore.MessageList, 0, len(pairs))

@@ -16,15 +16,38 @@ import (
 )
 
 const (
-	maxWorkspaceArchiveBytes      int64 = 100 << 20
-	maxWorkspaceUncompressedBytes int64 = 100 << 20
-	maxWorkspaceFileBytes         int64 = 3 << 20
-	maxWorkspaceFiles                   = 5000
-	maxWorkspaceEntries                 = 10000
-	legacyWorkspaceAccountID            = 1
+	defaultWorkspaceArchiveBytes      int64 = 100 << 20
+	defaultWorkspaceUncompressedBytes int64 = 100 << 20
+	defaultWorkspaceFileBytes         int64 = 10 << 20
+	maxWorkspaceFiles                       = 5000
+	maxWorkspaceEntries                     = 10000
+	legacyWorkspaceAccountID                = 1
 )
 
-// WorkspaceInfo matches the web Coder/AgentTasks workspace row.
+type workspaceUploadLimits struct {
+	archiveBytes      int64
+	uncompressedBytes int64
+	fileBytes         int64
+}
+
+func (s *Service) workspaceUploadLimits() workspaceUploadLimits {
+	limits := workspaceUploadLimits{
+		archiveBytes: s.Opts.WorkspaceUploadMaxBytes, uncompressedBytes: s.Opts.WorkspaceMaxBytes,
+		fileBytes: s.Opts.WorkspaceMaxFileBytes,
+	}
+	if limits.archiveBytes <= 0 {
+		limits.archiveBytes = defaultWorkspaceArchiveBytes
+	}
+	if limits.uncompressedBytes <= 0 {
+		limits.uncompressedBytes = defaultWorkspaceUncompressedBytes
+	}
+	if limits.fileBytes <= 0 {
+		limits.fileBytes = defaultWorkspaceFileBytes
+	}
+	return limits
+}
+
+// WorkspaceInfo matches the web Coder workspace row.
 type WorkspaceInfo struct {
 	ID                  string `json:"id"`
 	Name                string `json:"name"`
@@ -39,7 +62,10 @@ type WorkspaceInfo struct {
 }
 
 type workspaceMetadataFile struct {
-	Name string `json:"name"`
+	Name                string `json:"name"`
+	Source              string `json:"source,omitempty"`
+	GitHubFullName      string `json:"github_full_name,omitempty"`
+	GitHubDefaultBranch string `json:"github_default_branch,omitempty"`
 }
 
 func (s *Service) workspacesRoot() string {
@@ -108,29 +134,39 @@ func (s *Service) workspaceInfo(id string) (WorkspaceInfo, error) {
 		if err != nil || info == nil {
 			return nil
 		}
+		if info.IsDir() && info.Name() == ".git" {
+			return filepath.SkipDir
+		}
 		if !info.IsDir() && info.Name() != ".workspace.json" {
 			files++
 			size += info.Size()
 		}
 		return nil
 	})
-	name := id
+	name, source, githubFullName, githubDefaultBranch := id, "local", "", ""
 	if meta, err := os.ReadFile(filepath.Join(dir, ".workspace.json")); err == nil {
 		var m workspaceMetadataFile
 		if json.Unmarshal(meta, &m) == nil {
 			if m.Name != "" {
 				name = m.Name
 			}
+			if m.Source != "" {
+				source = m.Source
+			}
+			githubFullName = m.GitHubFullName
+			githubDefaultBranch = m.GitHubDefaultBranch
 		}
 	}
 	return WorkspaceInfo{
-		ID:        id,
-		Name:      name,
-		FileCount: files,
-		SizeBytes: size,
-		CreatedAt: st.ModTime().UTC().Format(time.RFC3339),
-		UpdatedAt: st.ModTime().UTC().Format(time.RFC3339),
-		Source:    "local",
+		ID:                  id,
+		Name:                name,
+		FileCount:           files,
+		SizeBytes:           size,
+		CreatedAt:           st.ModTime().UTC().Format(time.RFC3339),
+		UpdatedAt:           st.ModTime().UTC().Format(time.RFC3339),
+		Source:              source,
+		GitHubFullName:      githubFullName,
+		GitHubDefaultBranch: githubDefaultBranch,
 	}, nil
 }
 
@@ -139,9 +175,17 @@ func (s *Service) workspaceInfoWithOwnership(id string) (WorkspaceInfo, error) {
 	if err != nil {
 		return WorkspaceInfo{}, err
 	}
-	accountID, err := s.Audit.WorkspaceAccountID(context.Background(), id)
+	stored, err := s.Audit.WorkspaceMetadata(context.Background(), id)
 	if err == nil {
-		info.AccountID = accountID
+		info.AccountID = stored.AccountID
+		if stored.Name != "" {
+			info.Name = stored.Name
+		}
+		if stored.Source != "" {
+			info.Source = stored.Source
+		}
+		info.GitHubFullName = stored.GitHubFullName
+		info.GitHubDefaultBranch = stored.GitHubDefaultBranch
 		return info, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
@@ -172,8 +216,9 @@ func (s *Service) createWorkspaceFromZip(name string, accountID int, r io.Reader
 	if accountID <= 0 {
 		return WorkspaceInfo{}, fmt.Errorf("account is required")
 	}
-	if size <= 0 || size > maxWorkspaceArchiveBytes {
-		return WorkspaceInfo{}, fmt.Errorf("workspace archive must be between 1 byte and %d MB", maxWorkspaceArchiveBytes>>20)
+	limits := s.workspaceUploadLimits()
+	if size <= 0 || size > limits.archiveBytes {
+		return WorkspaceInfo{}, fmt.Errorf("workspace archive must be between 1 byte and %d MB", limits.archiveBytes>>20)
 	}
 	if err := s.ensureWorkspacesRoot(); err != nil {
 		return WorkspaceInfo{}, err
@@ -191,32 +236,27 @@ func (s *Service) createWorkspaceFromZip(name string, accountID int, r io.Reader
 		_ = os.RemoveAll(dir)
 		return WorkspaceInfo{}, fmt.Errorf("invalid zip: %w", err)
 	}
-	if err := validateWorkspaceZip(zr); err != nil {
+	if err := validateWorkspaceZip(zr, limits); err != nil {
 		_ = os.RemoveAll(dir)
 		return WorkspaceInfo{}, err
 	}
 	var extractedBytes int64
 	for _, f := range zr.File {
-		written, err := extractZipFile(dir, f)
+		written, err := extractZipFile(dir, f, limits.fileBytes)
 		if err != nil {
 			_ = os.RemoveAll(dir)
 			return WorkspaceInfo{}, err
 		}
 		extractedBytes += written
-		if extractedBytes > maxWorkspaceUncompressedBytes {
+		if extractedBytes > limits.uncompressedBytes {
 			_ = os.RemoveAll(dir)
-			return WorkspaceInfo{}, fmt.Errorf("workspace exceeds %d MB uncompressed limit", maxWorkspaceUncompressedBytes>>20)
+			return WorkspaceInfo{}, fmt.Errorf("workspace exceeds %d MB uncompressed limit", limits.uncompressedBytes>>20)
 		}
 	}
 	if name == "" {
 		name = id
 	}
-	metadata, err := json.Marshal(workspaceMetadataFile{Name: name})
-	if err != nil {
-		_ = os.RemoveAll(dir)
-		return WorkspaceInfo{}, err
-	}
-	if err := os.WriteFile(filepath.Join(dir, ".workspace.json"), metadata, 0o644); err != nil {
+	if err := writeWorkspaceMetadata(dir, workspaceMetadataFile{Name: name, Source: "local"}); err != nil {
 		_ = os.RemoveAll(dir)
 		return WorkspaceInfo{}, err
 	}
@@ -232,7 +272,15 @@ func (s *Service) createWorkspaceFromZip(name string, accountID int, r io.Reader
 	return info, nil
 }
 
-func validateWorkspaceZip(zr *zip.Reader) error {
+func writeWorkspaceMetadata(dir string, metadata workspaceMetadataFile) error {
+	raw, err := json.Marshal(metadata)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, ".workspace.json"), raw, 0o600)
+}
+
+func validateWorkspaceZip(zr *zip.Reader, limits workspaceUploadLimits) error {
 	if len(zr.File) > maxWorkspaceEntries {
 		return fmt.Errorf("workspace zip exceeds %d entry limit", maxWorkspaceEntries)
 	}
@@ -263,11 +311,11 @@ func validateWorkspaceZip(zr *zip.Reader) error {
 			return fmt.Errorf("workspace exceeds %d file limit", maxWorkspaceFiles)
 		}
 		fileSize := int64(f.UncompressedSize64)
-		if fileSize > maxWorkspaceFileBytes {
-			return fmt.Errorf("file %s exceeds %d MB limit", name, maxWorkspaceFileBytes>>20)
+		if fileSize > limits.fileBytes {
+			return fmt.Errorf("file %s exceeds %d MB limit", name, limits.fileBytes>>20)
 		}
-		if fileSize > maxWorkspaceUncompressedBytes-total {
-			return fmt.Errorf("workspace exceeds %d MB uncompressed limit", maxWorkspaceUncompressedBytes>>20)
+		if fileSize > limits.uncompressedBytes-total {
+			return fmt.Errorf("workspace exceeds %d MB uncompressed limit", limits.uncompressedBytes>>20)
 		}
 		total += fileSize
 	}
@@ -294,7 +342,7 @@ func normalizedZipPath(raw string) (string, error) {
 	return clean, nil
 }
 
-func extractZipFile(root string, f *zip.File) (int64, error) {
+func extractZipFile(root string, f *zip.File, maxFileBytes int64) (int64, error) {
 	name, err := normalizedZipPath(f.Name)
 	if err != nil {
 		return 0, err
@@ -319,7 +367,7 @@ func extractZipFile(root string, f *zip.File) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	written, copyErr := io.Copy(out, io.LimitReader(rc, maxWorkspaceFileBytes+1))
+	written, copyErr := io.Copy(out, io.LimitReader(rc, maxFileBytes+1))
 	closeErr := out.Close()
 	if copyErr != nil {
 		_ = os.Remove(target)
@@ -329,9 +377,9 @@ func extractZipFile(root string, f *zip.File) (int64, error) {
 		_ = os.Remove(target)
 		return 0, closeErr
 	}
-	if written > maxWorkspaceFileBytes {
+	if written > maxFileBytes {
 		_ = os.Remove(target)
-		return 0, fmt.Errorf("file %s exceeds %d MB limit", f.Name, maxWorkspaceFileBytes>>20)
+		return 0, fmt.Errorf("file %s exceeds %d MB limit", f.Name, maxFileBytes>>20)
 	}
 	return written, nil
 }
@@ -367,12 +415,18 @@ func (s *Service) zipWorkspace(id string, accountID int, w io.Writer) error {
 	zw := zip.NewWriter(w)
 	defer zw.Close()
 	return filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info == nil || info.IsDir() {
+		if err != nil || info == nil {
 			return err
 		}
 		rel, err := filepath.Rel(dir, path)
 		if err != nil {
 			return err
+		}
+		if info.IsDir() {
+			if rel == ".git" || strings.HasPrefix(rel, ".git"+string(filepath.Separator)) {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		if rel == ".workspace.json" {
 			return nil

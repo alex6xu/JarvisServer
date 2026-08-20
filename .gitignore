@@ -7,6 +7,7 @@
 /pigo
 /jarvis
 /bin/
+/build/
 /dist/
 
 # Go build & test
@@ -39,6 +40,8 @@ web/.vite/
 .gocache/
 .pigo/
 .jarvis/
+/.artifacts/
+/workspaces/
 tmp/
 temp/
 *.log

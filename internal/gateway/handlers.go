@@ -46,7 +46,6 @@ func (s *Service) handleModels(w http.ResponseWriter, _ *http.Request) {
 			add(m)
 		}
 	}
-	add(s.Opts.Model)
 	data := make([]map[string]string, 0, len(ids))
 	models := make([]map[string]string, 0, len(ids))
 	for _, id := range ids {

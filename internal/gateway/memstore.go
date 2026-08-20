@@ -18,7 +18,6 @@ type MemStore struct {
 	nextProvID    int64
 	nextProfileID int64
 	nextLogID     int64
-	nextTaskID    int64
 	nextTagID     int64
 
 	accounts  map[int]*Account
@@ -26,7 +25,6 @@ type MemStore struct {
 	providers map[int]*Provider
 	profiles  map[string]*RouteProfile
 	logs      []*RequestLog
-	tasks     map[string]*AgentTask
 	tags      map[string]*Tag
 }
 
@@ -94,20 +92,6 @@ type RequestLog struct {
 	UserID           int    `json:"user_id,omitempty"`
 }
 
-type AgentTask struct {
-	ID             string     `json:"id"`
-	WorkspaceID    string     `json:"workspace_id"`
-	RouteProfileID string     `json:"route_profile_id"`
-	Type           string     `json:"type"`
-	Prompt         string     `json:"prompt"`
-	Status         string     `json:"status"`
-	Result         string     `json:"result"`
-	Error          string     `json:"error,omitempty"`
-	ToolSteps      []ToolStep `json:"tool_steps"`
-	CreatedAt      string     `json:"created_at"`
-	FinishedAt     string     `json:"finished_at,omitempty"`
-}
-
 type Tag struct {
 	ID        string `json:"id"`
 	Slug      string `json:"slug"`
@@ -133,14 +117,13 @@ type TaggedMessage struct {
 	} `json:"tags"`
 }
 
-func newMemStore(seedModel string) *MemStore {
+func newMemStore() *MemStore {
 	m := &MemStore{
 		nextAccountID: 1,
 		accounts:      make(map[int]*Account),
 		tokens:        make(map[string]*APIToken),
 		providers:     make(map[int]*Provider),
 		profiles:      make(map[string]*RouteProfile),
-		tasks:         make(map[string]*AgentTask),
 		tags:          make(map[string]*Tag),
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -152,7 +135,7 @@ func newMemStore(seedModel string) *MemStore {
 	m.nextAccountID = 2
 
 	m.profiles["rp_1"] = &RouteProfile{
-		ID: "rp_1", Name: "default", Purpose: "general", Models: []string{seedModel},
+		ID: "rp_1", Name: "default", Purpose: "general", Models: []string{"auto"},
 	}
 	m.nextProfileID = 2
 	_ = m.loadProvidersFromDisk()
@@ -480,50 +463,6 @@ func (m *MemStore) getLog(id string) (*RequestLog, bool) {
 		}
 	}
 	return nil, false
-}
-
-func (m *MemStore) listTasks() []AgentTask {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	out := make([]AgentTask, 0, len(m.tasks))
-	for _, t := range m.tasks {
-		out = append(out, *t)
-	}
-	return out
-}
-
-func (m *MemStore) replaceTasks(tasks []AgentTask) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.tasks = make(map[string]*AgentTask, len(tasks))
-	for i := range tasks {
-		task := tasks[i]
-		m.tasks[task.ID] = &task
-	}
-}
-
-func (m *MemStore) createTask(t AgentTask) AgentTask {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	t.ID = newID("task")
-	t.Status = "queued"
-	t.CreatedAt = time.Now().UTC().Format(time.RFC3339)
-	if t.ToolSteps == nil {
-		t.ToolSteps = []ToolStep{}
-	}
-	cp := t
-	m.tasks[t.ID] = &cp
-	return t
-}
-
-func (m *MemStore) updateTask(id string, fn func(*AgentTask)) (AgentTask, bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if t, ok := m.tasks[id]; ok {
-		fn(t)
-		return *t, true
-	}
-	return AgentTask{}, false
 }
 
 func (m *MemStore) listTags() []Tag {

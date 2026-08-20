@@ -26,8 +26,6 @@ type SessionRepository interface {
 type ControlRepository interface {
 	ListRouteProfiles(context.Context) ([]RouteProfile, error)
 	UpsertRouteProfile(context.Context, RouteProfile) error
-	ListAgentTasks(context.Context) ([]AgentTask, error)
-	UpsertAgentTask(context.Context, AgentTask) error
 	ListTags(context.Context) ([]Tag, error)
 	UpsertTag(context.Context, Tag) error
 	UpsertWorkspace(context.Context, WorkspaceInfo) error

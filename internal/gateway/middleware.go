@@ -116,7 +116,7 @@ func (svc *Service) authenticateRequest(r *http.Request) (Account, error) {
 
 func isPublicPath(path string) bool {
 	switch path {
-	case "/healthz", "/v1/auth/config", "/v1/auth/login", "/v1/auth/register":
+	case "/healthz", "/v1/auth/config", "/v1/auth/login", "/v1/auth/register", "/v1/github/callback":
 		return true
 	default:
 		return false

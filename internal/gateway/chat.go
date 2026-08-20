@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/alex6xu/jarvisserver/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/agenttool"
 	"github.com/alex6xu/jarvisserver/internal/cli/run"
 	"github.com/alex6xu/jarvisserver/internal/cli/ui"
 	"github.com/alex6xu/jarvisserver/internal/compaction"
@@ -30,6 +31,29 @@ type Service struct {
 	Router  *ProviderRouter
 	Trust   *trust.Manager
 	Mem     *MemStore
+	GitHub  *GitHubService
+}
+
+// gatewayToolPolicy keeps conversational runs read-only and lightweight. The
+// memory tool is attached separately because its SQLite store is optional and
+// a strict allow-list must not make chat startup fail when that store is down.
+func gatewayToolPolicy(mode string, disabled bool) run.ToolPolicy {
+	if disabled || strings.EqualFold(mode, "coder") {
+		return run.ToolPolicy{}
+	}
+	return run.NewToolPolicy([]string{"websearch", "webfetch"}, nil)
+}
+
+func attachChatMemoryTool(mode string, env *run.Env) {
+	if strings.EqualFold(mode, "coder") || env.Memory == nil {
+		return
+	}
+	for _, tool := range env.Tools {
+		if tool.Name() == "memory_search" {
+			return
+		}
+	}
+	env.Tools = append(env.Tools, &agenttool.MemorySearchTool{Store: env.Memory})
 }
 
 // NewService constructs a Service with session store and trust manager.
@@ -101,7 +125,7 @@ func NewService(opts Options) (*Service, error) {
 			fmt.Fprintf(os.Stderr, "gateway: generated initial admin password for dev: %s\n", adminPassword)
 		}
 	}
-	mem := newMemStore(opts.Model)
+	mem := newMemStore()
 	storedProviders, err := audit.ListProviders(context.Background())
 	if err != nil {
 		_ = audit.Close()
@@ -122,7 +146,7 @@ func NewService(opts Options) (*Service, error) {
 		_ = audit.Close()
 		return nil, fmt.Errorf("synchronize provider endpoints: %w", err)
 	}
-	if err := initializeControlPlane(context.Background(), audit, mem, opts.Model); err != nil {
+	if err := initializeControlPlane(context.Background(), audit, mem); err != nil {
 		_ = audit.Close()
 		return nil, err
 	}
@@ -142,6 +166,11 @@ func NewService(opts Options) (*Service, error) {
 	} else if recovered > 0 {
 		fmt.Fprintf(os.Stderr, "gateway: recovered %d interrupted run(s)\n", recovered)
 	}
+	githubService, err := NewGitHubService(opts, audit, stateRoot)
+	if err != nil {
+		_ = audit.Close()
+		return nil, fmt.Errorf("initialize github integration: %w", err)
+	}
 	return &Service{
 		Opts:    opts,
 		Runs:    NewRunManager(audit),
@@ -151,6 +180,7 @@ func NewService(opts Options) (*Service, error) {
 		Router:  routerEngine,
 		Trust:   mgr,
 		Mem:     mem,
+		GitHub:  githubService,
 	}, nil
 }
 
@@ -219,11 +249,12 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 		runtime.BaseInstructionForMode(req.Mode),
 		nil,
 		true,
-		run.ToolPolicy{},
+		gatewayToolPolicy(req.Mode, noTools),
 	)
 	if err != nil {
 		return ChatResponse{}, err
 	}
+	attachChatMemoryTool(req.Mode, &env)
 
 	sysPrompt := hs.header.SystemPrompt
 	if sysPrompt == "" {

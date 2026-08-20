@@ -47,11 +47,7 @@ func (s *Service) resolveLLMPlanForPurpose(requestedModel string, purpose RouteP
 	if strings.EqualFold(model, "auto") {
 		model = ""
 	}
-	fallbackModel := model
-	if fallbackModel == "" {
-		fallbackModel = s.Opts.Model
-	}
-	fallback := LLMRoute{Model: fallbackModel, BaseURL: s.Opts.BaseURL, Protocol: s.Opts.Protocol,
+	fallback := LLMRoute{Model: model, BaseURL: s.Opts.BaseURL, Protocol: s.Opts.Protocol,
 		ProviderName: s.Opts.ProviderName, APIKey: s.Opts.APIKey, ContextWindow: 32768, QualityTier: 3, Purpose: purpose}
 	return s.Router.PlanForPurpose(s.Mem.listProviders(), model, fallback, purpose, minContextWindow)
 }

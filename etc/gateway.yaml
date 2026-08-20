@@ -12,13 +12,15 @@ Middlewares:
   Timeout: false
 
 Agent:
-  Model: openrouter/free
   Approve: false
   AuthMode: token
   AllowRegistration: false
   AuditRetentionDays: 30
   AuditMaxBodyBytes: 1048576
   RunTimeoutSeconds: 1800
+  WorkspaceUploadMaxBytes: 104857600
+  WorkspaceMaxBytes: 104857600
+  WorkspaceMaxFileBytes: 10485760
   AllowPrivateProviderURLs: false
   # Cwd: .
   # BaseURL: ""
@@ -32,3 +34,14 @@ Agent:
   # DatabasePath: ./.jarvis/gateway.db
   # APIToken: ""
   # AdminPassword: "" # or set JARVIS_ADMIN_PASSWORD
+
+# Optional GitHub OAuth. Users can also connect a fine-grained PAT from Settings.
+GitHub:
+  # ClientID: "" # or GITHUB_CLIENT_ID
+  # ClientSecret: "" # or GITHUB_CLIENT_SECRET
+  # RedirectURL: "https://your-domain.example/v1/github/callback"
+  # TokenKey: "" # or GITHUB_TOKEN_KEY; empty generates .jarvis/github-token.key
+  # Scopes: "repo read:user"
+  # APIBaseURL: "https://api.github.com"
+  # WebBaseURL: "https://github.com"
+  GitTimeoutSecs: 300

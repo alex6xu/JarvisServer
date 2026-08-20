@@ -2,12 +2,11 @@ package gateway
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"time"
 )
 
-func initializeControlPlane(ctx context.Context, store ControlRepository, mem *MemStore, seedModel string) error {
+func initializeControlPlane(ctx context.Context, store ControlRepository, mem *MemStore) error {
 	profiles, err := store.ListRouteProfiles(ctx)
 	if err != nil {
 		return err
@@ -21,12 +20,6 @@ func initializeControlPlane(ctx context.Context, store ControlRepository, mem *M
 		}
 	}
 	mem.replaceProfiles(profiles)
-
-	tasks, err := store.ListAgentTasks(ctx)
-	if err != nil {
-		return err
-	}
-	mem.replaceTasks(tasks)
 
 	tags, err := store.ListTags(ctx)
 	if err != nil {
@@ -48,8 +41,8 @@ func initializeControlPlane(ctx context.Context, store ControlRepository, mem *M
 	if len(agentProfiles) == 0 {
 		now := time.Now().UTC().Format(time.RFC3339Nano)
 		agentProfiles = []AgentProfile{
-			{ID: "profile_chat", Name: "Chat", Mode: "chat", Tools: []string{}, Config: map[string]any{"model": seedModel}, CreatedAt: now},
-			{ID: "profile_code", Name: "Code", Mode: "coder", Tools: []string{"read", "write", "edit", "grep", "find", "bash"}, Config: map[string]any{"model": seedModel}, CreatedAt: now},
+			{ID: "profile_chat", Name: "Chat", Mode: "chat", Tools: []string{"memory_search", "websearch", "webfetch"}, Config: map[string]any{"model": "auto"}, CreatedAt: now},
+			{ID: "profile_code", Name: "Code", Mode: "coder", Tools: []string{"read", "write", "edit", "grep", "find", "bash"}, Config: map[string]any{"model": "auto"}, CreatedAt: now},
 		}
 		for _, profile := range agentProfiles {
 			if err := store.UpsertAgentProfile(ctx, profile); err != nil {
@@ -100,53 +93,6 @@ models_json=excluded.models_json, updated_at=excluded.updated_at`, profile.ID, p
 	return err
 }
 
-func (s *GatewayStore) ListAgentTasks(ctx context.Context) ([]AgentTask, error) {
-	rows, err := s.db.QueryContext(ctx, `
-SELECT id, workspace_id, route_profile_id, type, prompt, status, result, error,
-       tool_steps_json, created_at, finished_at
-FROM agent_tasks ORDER BY created_at DESC`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var tasks []AgentTask
-	for rows.Next() {
-		var task AgentTask
-		var steps string
-		var finished sql.NullString
-		if err := rows.Scan(&task.ID, &task.WorkspaceID, &task.RouteProfileID, &task.Type,
-			&task.Prompt, &task.Status, &task.Result, &task.Error, &steps, &task.CreatedAt, &finished); err != nil {
-			return nil, err
-		}
-		if err := json.Unmarshal([]byte(steps), &task.ToolSteps); err != nil {
-			return nil, err
-		}
-		if finished.Valid {
-			task.FinishedAt = finished.String
-		}
-		tasks = append(tasks, task)
-	}
-	return tasks, rows.Err()
-}
-
-func (s *GatewayStore) UpsertAgentTask(ctx context.Context, task AgentTask) error {
-	var finished any
-	if task.FinishedAt != "" {
-		finished = task.FinishedAt
-	}
-	_, err := s.db.ExecContext(ctx, `
-INSERT INTO agent_tasks(id, workspace_id, route_profile_id, type, prompt, status, result, error,
-                        tool_steps_json, created_at, finished_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(id) DO UPDATE SET workspace_id=excluded.workspace_id,
-route_profile_id=excluded.route_profile_id, type=excluded.type, prompt=excluded.prompt,
-status=excluded.status, result=excluded.result, error=excluded.error,
-tool_steps_json=excluded.tool_steps_json, finished_at=excluded.finished_at`, task.ID,
-		task.WorkspaceID, task.RouteProfileID, task.Type, task.Prompt, task.Status, task.Result,
-		task.Error, encodeJSON(task.ToolSteps, "[]"), task.CreatedAt, finished)
-	return err
-}
-
 func (s *GatewayStore) ListTags(ctx context.Context) ([]Tag, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, slug, name, kind, use_count, updated_at FROM tags ORDER BY name`)
 	if err != nil {
@@ -189,6 +135,16 @@ func (s *GatewayStore) WorkspaceAccountID(ctx context.Context, id string) (int, 
 	var accountID int
 	err := s.db.QueryRowContext(ctx, `SELECT account_id FROM workspace_metadata WHERE id = ?`, id).Scan(&accountID)
 	return accountID, err
+}
+
+func (s *GatewayStore) WorkspaceMetadata(ctx context.Context, id string) (WorkspaceInfo, error) {
+	var workspace WorkspaceInfo
+	err := s.db.QueryRowContext(ctx, `
+SELECT id, name, source, github_full_name, github_default_branch, created_at, updated_at, account_id
+FROM workspace_metadata WHERE id = ?`, id).Scan(&workspace.ID, &workspace.Name, &workspace.Source,
+		&workspace.GitHubFullName, &workspace.GitHubDefaultBranch, &workspace.CreatedAt,
+		&workspace.UpdatedAt, &workspace.AccountID)
+	return workspace, err
 }
 
 func (s *GatewayStore) DeleteWorkspace(ctx context.Context, id string) error {
