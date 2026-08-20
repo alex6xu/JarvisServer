@@ -39,6 +39,7 @@ var packageCoverageMinimums = []struct {
 func main() {
 	mode := flag.String("mode", "core", "test scope: core or full")
 	runRace := flag.Bool("race", false, "run the race detector on core packages")
+	fixFormatting := flag.Bool("fix-format", false, "format non-baseline Go files before running quality gates")
 	coverageOutput := flag.String("coverage-output", "coverage.out", "coverage profile output path")
 	coverageMinimum := flag.Float64("coverage-min", 60, "minimum combined core statement coverage")
 	flag.Parse()
@@ -50,7 +51,7 @@ func main() {
 	if *mode != "core" && *mode != "full" {
 		fatal(fmt.Errorf("unknown mode %q", *mode))
 	}
-	if err := checkFormatting(root); err != nil {
+	if err := checkFormatting(root, *fixFormatting); err != nil {
 		fatal(err)
 	}
 
@@ -137,7 +138,7 @@ func repositoryRoot() (string, error) {
 	}
 }
 
-func checkFormatting(root string) error {
+func checkFormatting(root string, fix bool) error {
 	baselinePath := filepath.Join(root, "scripts", "quality", "gofmt-baseline.txt")
 	baseline, err := readLineSet(baselinePath)
 	if err != nil {
@@ -181,11 +182,28 @@ func checkFormatting(root string) error {
 			unformatted[filepath.ToSlash(path)] = true
 		}
 	}
-	var unexpected, stale []string
+	var unexpected, fixed, stale []string
 	for path := range unformatted {
-		if !baseline[path] {
-			unexpected = append(unexpected, path)
+		if baseline[path] {
+			continue
 		}
+		if fix {
+			sourcePath := filepath.Join(root, filepath.FromSlash(path))
+			source, readErr := os.ReadFile(sourcePath)
+			if readErr != nil {
+				return readErr
+			}
+			formatted, formatErr := format.Source(source)
+			if formatErr != nil {
+				return fmt.Errorf("format %s: %w", sourcePath, formatErr)
+			}
+			if writeErr := os.WriteFile(sourcePath, formatted, 0o644); writeErr != nil {
+				return fmt.Errorf("write formatted %s: %w", sourcePath, writeErr)
+			}
+			fixed = append(fixed, path)
+			continue
+		}
+		unexpected = append(unexpected, path)
 	}
 	for path := range baseline {
 		if !unformatted[path] {
@@ -193,12 +211,16 @@ func checkFormatting(root string) error {
 		}
 	}
 	sort.Strings(unexpected)
+	sort.Strings(fixed)
 	sort.Strings(stale)
 	if len(unexpected) > 0 {
-		return fmt.Errorf("gofmt required for:\n  %s", strings.Join(unexpected, "\n  "))
+		return fmt.Errorf("gofmt required for:\n  %s\nrerun with -fix-format to format these files using the repository Go toolchain", strings.Join(unexpected, "\n  "))
 	}
 	if len(stale) > 0 {
 		return fmt.Errorf("remove formatted files from %s:\n  %s", baselinePath, strings.Join(stale, "\n  "))
+	}
+	if len(fixed) > 0 {
+		fmt.Printf("formatted %d Go file(s):\n  %s\n", len(fixed), strings.Join(fixed, "\n  "))
 	}
 	fmt.Printf("format check passed (%d historical files tracked in baseline)\n", len(baseline))
 	return nil

@@ -10,6 +10,14 @@
 go run ./scripts/quality -mode=core
 ```
 
+格式门禁失败时，使用项目 `go.mod` 对应的 Go 工具链修复新增或已修改文件，然后继续执行核心质量检查：
+
+```bash
+go run ./scripts/quality -fix-format -mode=core
+```
+
+不要依赖系统路径中的裸 `gofmt`；其版本可能与 CI 使用的项目工具链不同。`-fix-format` 不会改写 `scripts/quality/gofmt-baseline.txt` 中记录的历史格式欠账。
+
 提交前完整验证：
 
 ```bash

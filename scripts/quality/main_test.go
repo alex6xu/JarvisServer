@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
+	"go/format"
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -27,6 +30,53 @@ func TestStatementCoverage(t *testing.T) {
 	if math.Abs(gatewayCoverage-75) > 0.001 {
 		t.Fatalf("gateway coverage = %.3f, want 75", gatewayCoverage)
 	}
+}
+
+func TestCheckFormattingSuggestsRepositoryFormatter(t *testing.T) {
+	root := formattingFixture(t, "package example\n\nfunc example( ){ }\n")
+	err := checkFormatting(root, false)
+	if err == nil {
+		t.Fatal("checkFormatting() error = nil, want unformatted-file error")
+	}
+	if !strings.Contains(err.Error(), "-fix-format") {
+		t.Fatalf("checkFormatting() error = %q, want -fix-format hint", err)
+	}
+}
+
+func TestCheckFormattingFixesWithRepositoryToolchain(t *testing.T) {
+	const source = "package example\n\nfunc example( ){ }\n"
+	root := formattingFixture(t, source)
+	if err := checkFormatting(root, true); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "example.go")
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := format.Source([]byte(source))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("formatted source = %q, want %q", got, want)
+	}
+}
+
+func formattingFixture(t *testing.T, source string) string {
+	t.Helper()
+	root := t.TempDir()
+	qualityDir := filepath.Join(root, "scripts", "quality")
+	if err := os.MkdirAll(qualityDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(qualityDir, "gofmt-baseline.txt"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "example.go"), []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return root
 }
 
 func TestReadLineSetIgnoresCommentsAndNormalizesPaths(t *testing.T) {
