@@ -28,6 +28,7 @@ type AgentConf struct {
 	AuthMode                 string `json:",default=token"`
 	APIToken                 string `json:",optional"`
 	AdminPassword            string `json:",optional"`
+	AllowRegistration        bool   `json:",optional"`
 	WorkspacesRoot           string `json:",optional"`
 	DatabasePath             string `json:",optional"`
 	AuditRetentionDays       int    `json:",default=30"`
@@ -61,6 +62,7 @@ func (c Config) ToOptions() Options {
 		AuthMode:                 c.Agent.AuthMode,
 		APIToken:                 c.Agent.APIToken,
 		AdminPassword:            c.Agent.AdminPassword,
+		AllowRegistration:        c.Agent.AllowRegistration,
 		WorkspacesRoot:           c.Agent.WorkspacesRoot,
 		DatabasePath:             c.Agent.DatabasePath,
 		AuditRetentionDays:       c.Agent.AuditRetentionDays,

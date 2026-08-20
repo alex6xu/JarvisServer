@@ -12,7 +12,15 @@ import (
 // states. Checkpoints are retained, but model/tool execution is never replayed
 // automatically because the last tool may already have caused side effects.
 func (s *GatewayStore) RecoverInterruptedRuns(ctx context.Context) (int, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id FROM runs WHERE status = ?`, runStatusRunning)
+	rows, err := s.db.QueryContext(ctx, `
+SELECT id FROM runs AS r
+WHERE r.status = ? OR (
+    r.status = ? AND (
+        EXISTS (SELECT 1 FROM chat_exchanges AS c WHERE c.run_id = r.id AND c.status = ?) OR
+        EXISTS (SELECT 1 FROM provider_exchanges AS p WHERE p.run_id = r.id AND p.status = ?) OR
+        EXISTS (SELECT 1 FROM run_attempts AS a WHERE a.run_id = r.id AND a.status = ?)
+    )
+)`, runStatusRunning, runStatusInterrupted, runStatusRunning, runStatusRunning, runStatusRunning)
 	if err != nil {
 		return 0, err
 	}
@@ -55,9 +63,10 @@ func (s *GatewayStore) markRunInterrupted(ctx context.Context, runID string) err
 		return err
 	}
 	now := time.Now().UTC()
+	finishedAt := now.Format(time.RFC3339Nano)
 	result, err := tx.ExecContext(ctx, `
 UPDATE runs SET status = ?, error = ?, finished_at = ? WHERE id = ? AND status = ?`,
-		runStatusInterrupted, message, now.Format(time.RFC3339Nano), runID, runStatusRunning)
+		runStatusInterrupted, message, finishedAt, runID, runStatusRunning)
 	if err != nil {
 		return err
 	}
@@ -65,7 +74,51 @@ UPDATE runs SET status = ?, error = ?, finished_at = ? WHERE id = ? AND status =
 	if err != nil {
 		return err
 	}
-	if changed == 0 {
+	newlyInterrupted := changed > 0
+	if !newlyInterrupted {
+		var status, existingError string
+		var existingFinished sql.NullString
+		if err := tx.QueryRowContext(ctx, `
+SELECT status, error, finished_at FROM runs WHERE id = ?`, runID).
+			Scan(&status, &existingError, &existingFinished); err != nil {
+			return err
+		}
+		if status != runStatusInterrupted {
+			return tx.Commit()
+		}
+		if existingError != "" {
+			message = existingError
+		}
+		if existingFinished.Valid {
+			finishedAt = existingFinished.String
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `
+UPDATE chat_exchanges
+SET status = ?, error = ?, finished_at = ?,
+    latency_ms = CAST((julianday(?) - julianday(created_at)) * 86400000 AS INTEGER)
+WHERE run_id = ? AND status = ?`, runStatusInterrupted, message, finishedAt,
+		finishedAt, runID, runStatusRunning); err != nil {
+		return fmt.Errorf("interrupt chat exchange: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+UPDATE provider_exchanges
+SET status = ?, error = ?, status_code = 0, finished_at = ?,
+    latency_ms = CAST((julianday(?) - julianday(created_at)) * 86400000 AS INTEGER)
+WHERE run_id = ? AND status = ?`, runStatusInterrupted, message, finishedAt,
+		finishedAt, runID, runStatusRunning); err != nil {
+		return fmt.Errorf("interrupt provider exchange: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+UPDATE run_attempts
+SET status = ?, failure_stage = 'gateway_restart', error_category = 'interrupted',
+    error = ?, finished_at = ?,
+    latency_ms = CAST((julianday(?) - julianday(created_at)) * 86400000 AS INTEGER)
+WHERE run_id = ? AND status = ?`, runStatusInterrupted, message, finishedAt,
+		finishedAt, runID, runStatusRunning); err != nil {
+		return fmt.Errorf("interrupt run attempt: %w", err)
+	}
+	if !newlyInterrupted {
 		return tx.Commit()
 	}
 	payload := s.marshalAuditJSON(StreamEvent{
@@ -74,7 +127,7 @@ UPDATE runs SET status = ?, error = ?, finished_at = ? WHERE id = ? AND status =
 	})
 	if _, err := tx.ExecContext(ctx, `
 INSERT INTO run_events(run_id, seq, payload, created_at) VALUES (?, ?, ?, ?)`,
-		runID, seq+1, payload, now.Format(time.RFC3339Nano)); err != nil {
+		runID, seq+1, payload, finishedAt); err != nil {
 		return fmt.Errorf("append interrupted event: %w", err)
 	}
 	return tx.Commit()

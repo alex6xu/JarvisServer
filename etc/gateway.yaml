@@ -15,6 +15,7 @@ Agent:
   Model: openrouter/free
   Approve: false
   AuthMode: token
+  AllowRegistration: false
   AuditRetentionDays: 30
   AuditMaxBodyBytes: 1048576
   RunTimeoutSeconds: 1800

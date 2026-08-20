@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
+import { loadRegistrationEnabled } from '../lib/publicConfig'
 
 export interface Account {
   id: number
@@ -16,6 +17,7 @@ interface AuthContextValue {
   token: string | null
   loading: boolean
   isAdmin: boolean
+  registrationEnabled: boolean | null
   login: (username: string, password: string) => Promise<string | null>
   register: (username: string, email: string, password: string) => Promise<string | null>
   logout: () => Promise<void>
@@ -69,6 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<Account | null>(null)
   const [token, setToken] = useState<string | null>(getAuthToken())
   const [loading, setLoading] = useState(true)
+  const [registrationEnabled, setRegistrationEnabled] = useState<boolean | null>(null)
 
   const applySession = (nextToken: string, account: Account) => {
     localStorage.setItem(TOKEN_KEY, nextToken)
@@ -114,6 +117,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     refreshMe()
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    loadRegistrationEnabled().then((enabled) => {
+      if (active) setRegistrationEnabled(enabled)
+    })
+    return () => {
+      active = false
+    }
   }, [])
 
   const login = async (username: string, password: string) => {
@@ -196,6 +209,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         token,
         loading,
         isAdmin: user?.role === 'admin',
+        registrationEnabled,
         login,
         register,
         logout,

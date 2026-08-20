@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -58,7 +59,7 @@ func (p *recordingProvider) StreamCompletion(ctx context.Context, req provider.C
 
 	upstream, err := p.inner.StreamCompletion(ctx, req)
 	if err != nil {
-		p.finish(id, agentcore.AssistantMessage{}, "error", err)
+		p.finish(id, agentcore.AssistantMessage{}, providerExchangeStatus(agentcore.AssistantMessage{}, err), err)
 		return nil, err
 	}
 	stream := provider.NewAssistantMessageEventStream(0)
@@ -97,11 +98,21 @@ func (p *recordingProvider) proxy(ctx context.Context, id string, upstream, down
 			streamErr = err
 		}
 	}
-	status := "done"
-	if streamErr != nil || final.StopReason == agentcore.StopReasonError || final.StopReason == agentcore.StopReasonAborted {
-		status = "error"
-	}
+	status := providerExchangeStatus(final, streamErr)
 	p.finish(id, final, status, streamErr)
+}
+
+func providerExchangeStatus(msg agentcore.AssistantMessage, runErr error) string {
+	if errors.Is(runErr, context.Canceled) || msg.StopReason == agentcore.StopReasonAborted {
+		return runStatusCancelled
+	}
+	if errors.Is(runErr, context.DeadlineExceeded) {
+		return runStatusTimedOut
+	}
+	if runErr != nil || msg.StopReason == agentcore.StopReasonError {
+		return "error"
+	}
+	return "done"
 }
 
 func (p *recordingProvider) finish(id string, msg agentcore.AssistantMessage, status string, runErr error) {
@@ -117,7 +128,7 @@ func (p *recordingProvider) finish(id string, msg agentcore.AssistantMessage, st
 		completionTokens = msg.Usage.OutputTokens
 	}
 	statusCode := 200
-	if status == "error" {
+	if status != "done" {
 		statusCode = 0
 	}
 	if err := p.store.FinishProviderExchange(context.Background(), id, p.store.marshalAuditJSON(msg), status,

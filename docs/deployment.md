@@ -152,6 +152,9 @@ Agent:
   # 首次登录后立即修改密码，然后可从配置中移除此项。
   AdminPassword: "REPLACE_WITH_A_LONG_RANDOM_PASSWORD"
 
+  # 默认关闭匿名自助注册。管理员仍可在账号管理页面创建用户。
+  AllowRegistration: false
+
   WorkspacesRoot: /var/lib/jarvis/workspaces
   DatabasePath: /var/lib/jarvis/data/gateway.db
 
@@ -185,6 +188,7 @@ sudo chmod 0640 /etc/jarvis/gateway.yaml
 注意：
 
 - `AdminPassword` 只负责首次初始化。数据库已有管理员后，修改配置不会重置密码。
+- `AllowRegistration` 默认是 `false`；仅在确实需要开放自助注册时临时设为 `true`。
 - 不要把真实 API Key 提交到 Git。
 - 如果通过管理界面配置 Provider，Key 会写入 SQLite，应保证数据库权限为 `0600`。
 - `AuditRetentionDays` 小于 0 时可禁用启动清理；生产环境不建议无限保留审计正文。

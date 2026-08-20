@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -256,8 +257,16 @@ func classifyProviderError(err error) string {
 	if err == nil {
 		return ""
 	}
+	if errors.Is(err, context.Canceled) {
+		return runStatusCancelled
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
 	text := strings.ToLower(err.Error())
 	switch {
+	case strings.Contains(text, "context canceled"), strings.Contains(text, "context cancelled"):
+		return runStatusCancelled
 	case strings.Contains(text, "401"), strings.Contains(text, "403"), strings.Contains(text, "auth"):
 		return "authentication"
 	case strings.Contains(text, "429"), strings.Contains(text, "rate"):

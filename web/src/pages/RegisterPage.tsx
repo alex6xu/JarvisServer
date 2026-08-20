@@ -3,7 +3,7 @@ import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
 export default function RegisterPage() {
-  const { user, loading, register } = useAuth()
+  const { user, loading, register, registrationEnabled } = useAuth()
   const navigate = useNavigate()
   const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
@@ -14,6 +14,18 @@ export default function RegisterPage() {
 
   if (!loading && user) {
     return <Navigate to="/" replace />
+  }
+
+  if (registrationEnabled === false) {
+    return <Navigate to="/login" replace />
+  }
+
+  if (registrationEnabled === null) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background text-[13px] text-muted-foreground">
+        加载中…
+      </div>
+    )
   }
 
   const onSubmit = async (e: FormEvent) => {

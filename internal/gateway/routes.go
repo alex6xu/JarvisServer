@@ -18,6 +18,7 @@ func apiRoutes(svc *Service) []rest.Route {
 		{Method: http.MethodGet, Path: "/v1/models", Handler: svc.handleModels},
 
 		// Auth
+		{Method: http.MethodGet, Path: "/v1/auth/config", Handler: svc.handleAuthConfig},
 		{Method: http.MethodGet, Path: "/v1/auth/me", Handler: svc.handleAuthMe},
 		{Method: http.MethodPost, Path: "/v1/auth/login", Handler: svc.handleAuthLogin},
 		{Method: http.MethodPost, Path: "/v1/auth/register", Handler: svc.handleAuthRegister},

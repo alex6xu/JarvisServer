@@ -74,6 +74,23 @@ type scriptedProvider struct {
 	buildErr error
 }
 
+type cancelAwareProvider struct {
+	started chan struct{}
+}
+
+func (p *cancelAwareProvider) Name() string             { return "cancel-aware" }
+func (p *cancelAwareProvider) Models() []provider.Model { return nil }
+func (p *cancelAwareProvider) StreamCompletion(ctx context.Context, _ provider.CompletionRequest) (*provider.AssistantMessageEventStream, error) {
+	stream := provider.NewAssistantMessageEventStream(0)
+	go func() {
+		close(p.started)
+		<-ctx.Done()
+		stream.SetError(ctx.Err())
+		stream.Close()
+	}()
+	return stream, nil
+}
+
 func (p *scriptedProvider) Name() string             { return p.name }
 func (p *scriptedProvider) Models() []provider.Model { return nil }
 func (p *scriptedProvider) StreamCompletion(ctx context.Context, _ provider.CompletionRequest) (*provider.AssistantMessageEventStream, error) {
@@ -127,8 +144,45 @@ func TestCancelledAttemptDoesNotPenalizeProviderHealth(t *testing.T) {
 	routed := &failoverProvider{router: router}
 	attempt := RunAttempt{EndpointID: "provider_1"}
 	routed.finishAttempt(&attempt, time.Now(), time.Time{}, runStatusCancelled, "during_stream", context.Canceled)
+	if attempt.ErrorCategory != runStatusCancelled {
+		t.Fatalf("cancelled attempt category = %q", attempt.ErrorCategory)
+	}
 	if health := router.Health(1); health.ConsecutiveFailures != 0 {
 		t.Fatalf("cancelled attempt changed provider health: %+v", health)
+	}
+}
+
+func TestCancelledStreamPersistsCancelledAttempt(t *testing.T) {
+	store := newTestGatewayStore(t)
+	run := &RunState{ID: "run_cancelled_stream", SessionID: "session", Model: "m", Status: runStatusRunning}
+	if err := store.CreateRun(context.Background(), run); err != nil {
+		t.Fatal(err)
+	}
+	blocking := &cancelAwareProvider{started: make(chan struct{})}
+	router := NewProviderRouter()
+	routed := &failoverProvider{router: router, store: store, runID: run.ID, candidates: []routedCandidate{
+		{route: LLMRoute{ProviderID: 1, Model: "m"}, provider: blocking},
+		{route: LLMRoute{ProviderID: 2, Model: "m"}, provider: &scriptedProvider{name: "must-not-run"}},
+	}}
+	ctx, cancel := context.WithCancel(context.Background())
+	stream, err := routed.StreamCompletion(ctx, provider.CompletionRequest{Model: "m"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-blocking.started
+	cancel()
+	for range stream.Events() {
+	}
+	attempts, err := store.ListRunAttempts(context.Background(), run.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(attempts) != 1 || attempts[0].Status != runStatusCancelled ||
+		attempts[0].ErrorCategory != runStatusCancelled {
+		t.Fatalf("cancelled attempts = %#v", attempts)
+	}
+	if health := router.Health(1); health.ConsecutiveFailures != 0 {
+		t.Fatalf("cancelled stream changed provider health: %+v", health)
 	}
 }
 

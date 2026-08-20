@@ -123,7 +123,10 @@ func (p *failoverProvider) run(ctx context.Context, req provider.CompletionReque
 		stream, err := candidate.provider.StreamCompletion(ctx, attemptReq)
 		if err != nil {
 			lastErr = err
-			p.finishAttempt(&attempt, started, time.Time{}, "failed", "before_stream", err)
+			p.finishAttempt(&attempt, started, time.Time{}, attemptStatusForError(err), "before_stream", err)
+			if contextTerminated(err) {
+				return
+			}
 			continue
 		}
 
@@ -148,7 +151,10 @@ func (p *failoverProvider) run(ctx context.Context, req provider.CompletionReque
 				case provider.StreamErrorEvent:
 					lastErr = providerEventError(e)
 					attemptFailed = true
-					p.finishAttempt(&attempt, started, firstToken, "failed", "before_output", lastErr)
+					p.finishAttempt(&attempt, started, firstToken, attemptStatusForError(lastErr), "before_output", lastErr)
+					if contextTerminated(lastErr) {
+						return
+					}
 					break eventLoop
 				default:
 					committed = true
@@ -185,9 +191,14 @@ func (p *failoverProvider) run(ctx context.Context, req provider.CompletionReque
 				if attempt.ProducedToolCall {
 					stage = "after_tool_call"
 				}
-				p.finishAttempt(&attempt, started, firstToken, "failed", stage, lastErr)
+				p.finishAttempt(&attempt, started, firstToken, attemptStatusForError(lastErr), stage, lastErr)
 				return
 			}
+		}
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			lastErr = ctxErr
+			p.finishAttempt(&attempt, started, firstToken, attemptStatusForError(ctxErr), "during_stream", ctxErr)
+			return
 		}
 		if committed {
 			result, resultErr := stream.Result(context.Background())
@@ -205,7 +216,7 @@ func (p *failoverProvider) run(ctx context.Context, req provider.CompletionReque
 			if resultErr != nil {
 				stage = "after_output"
 			}
-			p.finishAttempt(&attempt, started, firstToken, statusForError(resultErr), stage, resultErr)
+			p.finishAttempt(&attempt, started, firstToken, attemptStatusForError(resultErr), stage, resultErr)
 			return
 		}
 		if attemptFailed {
@@ -245,14 +256,10 @@ func (p *failoverProvider) finishAttempt(attempt *RunAttempt, started, firstToke
 	}
 }
 
-func statusForError(err error) string {
-	if err != nil {
-		return "failed"
-	}
-	return "done"
-}
-
 func attemptStatusForError(err error) string {
+	if err == nil {
+		return "done"
+	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return runStatusTimedOut
 	}

@@ -3,9 +3,9 @@ import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
 export default function LoginPage() {
-  const { user, loading, login } = useAuth()
+  const { user, loading, login, registrationEnabled } = useAuth()
   const navigate = useNavigate()
-  const [username, setUsername] = useState('admin')
+  const [username, setUsername] = useState('dev')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -71,15 +71,14 @@ export default function LoginPage() {
           >
             {submitting ? '登录中…' : '登录'}
           </button>
-          <p className="text-[12px] text-muted-foreground text-center">
-            默认管理员：admin / admin123（可用环境变量 CODEGATEWAY_ADMIN_PASSWORD 覆盖）
-          </p>
-          <p className="text-[13px] text-center text-muted-foreground">
-            还没有账号？{' '}
-            <Link to="/register" className="text-primary hover:underline">
-              注册
-            </Link>
-          </p>
+          {registrationEnabled && (
+            <p className="text-[13px] text-center text-muted-foreground">
+              还没有账号？{' '}
+              <Link to="/register" className="text-primary hover:underline">
+                注册
+              </Link>
+            </p>
+          )}
         </form>
       </div>
     </div>

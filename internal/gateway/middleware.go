@@ -23,7 +23,7 @@ func registerMiddlewares(server *rest.Server, svc *Service) {
 }
 
 // bearerAuthMiddleware enforces Authorization when AuthMode=token.
-// Paths under /v1/auth/login|register and /healthz remain public.
+// Health checks and authentication bootstrap paths remain public.
 func bearerAuthMiddleware(svc *Service) rest.Middleware {
 	return func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -116,7 +116,7 @@ func (svc *Service) authenticateRequest(r *http.Request) (Account, error) {
 
 func isPublicPath(path string) bool {
 	switch path {
-	case "/healthz", "/v1/auth/login", "/v1/auth/register":
+	case "/healthz", "/v1/auth/config", "/v1/auth/login", "/v1/auth/register":
 		return true
 	default:
 		return false

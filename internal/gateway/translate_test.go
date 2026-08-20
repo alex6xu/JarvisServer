@@ -141,6 +141,26 @@ func TestRecoverInterruptedRunPreservesCheckpointAndEvent(t *testing.T) {
 	if err := store.CreateRun(context.Background(), st); err != nil {
 		t.Fatal(err)
 	}
+	now := time.Now().UTC()
+	if err := store.CreateChat(context.Background(), ChatExchange{
+		ID: "chat_interrupted", RunID: st.ID, SessionID: st.SessionID,
+		Model: "m", RequestText: "resume me", CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateProviderExchange(context.Background(), ProviderExchange{
+		ID: "provider_interrupted", RunID: st.ID, SessionID: st.SessionID,
+		Model: "m", CreatedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CreateRunAttempt(context.Background(), RunAttempt{
+		ID: "attempt_interrupted", RunID: st.ID, EndpointID: "provider_1",
+		Model: "m", Ordinal: 1, Turn: 1, Status: runStatusRunning,
+		CreatedAt: now.Format(time.RFC3339Nano),
+	}); err != nil {
+		t.Fatal(err)
+	}
 	if err := store.SaveRunCheckpoint(context.Background(), RunCheckpoint{
 		RunID: st.ID, Turn: 1, SessionID: st.SessionID, Model: "m",
 		Messages: agentcore.MessageList{agentcore.UserMessage{
@@ -165,6 +185,39 @@ func TestRecoverInterruptedRunPreservesCheckpointAndEvent(t *testing.T) {
 	if loaded.LastSeq != 1 || loaded.Events[0].Payload.Type != "run.interrupted" {
 		t.Fatalf("recovery events = %#v", loaded.Events)
 	}
+	var chatStatus, chatError string
+	var chatFinished int
+	if err := store.db.QueryRow(`
+SELECT status, error, finished_at IS NOT NULL FROM chat_exchanges WHERE run_id = ?`, st.ID).
+		Scan(&chatStatus, &chatError, &chatFinished); err != nil {
+		t.Fatal(err)
+	}
+	if chatStatus != runStatusInterrupted || chatError == "" || chatFinished != 1 {
+		t.Fatalf("recovered chat = status %q error %q finished %d", chatStatus, chatError, chatFinished)
+	}
+	var providerStatus, providerError string
+	var providerFinished int
+	if err := store.db.QueryRow(`
+SELECT status, error, finished_at IS NOT NULL FROM provider_exchanges WHERE run_id = ?`, st.ID).
+		Scan(&providerStatus, &providerError, &providerFinished); err != nil {
+		t.Fatal(err)
+	}
+	if providerStatus != runStatusInterrupted || providerError == "" || providerFinished != 1 {
+		t.Fatalf("recovered provider = status %q error %q finished %d", providerStatus, providerError, providerFinished)
+	}
+	var attemptStatus, failureStage, errorCategory, attemptError string
+	var attemptFinished int
+	if err := store.db.QueryRow(`
+SELECT status, failure_stage, error_category, error, finished_at IS NOT NULL
+FROM run_attempts WHERE run_id = ?`, st.ID).
+		Scan(&attemptStatus, &failureStage, &errorCategory, &attemptError, &attemptFinished); err != nil {
+		t.Fatal(err)
+	}
+	if attemptStatus != runStatusInterrupted || failureStage != "gateway_restart" ||
+		errorCategory != "interrupted" || attemptError == "" || attemptFinished != 1 {
+		t.Fatalf("recovered attempt = status %q stage %q category %q error %q finished %d",
+			attemptStatus, failureStage, errorCategory, attemptError, attemptFinished)
+	}
 	checkpoint, err := store.LoadLatestRunCheckpoint(context.Background(), st.ID)
 	if err != nil || checkpoint.Turn != 1 {
 		t.Fatalf("checkpoint = %+v, %v", checkpoint, err)
@@ -175,6 +228,36 @@ func TestRecoverInterruptedRunPreservesCheckpointAndEvent(t *testing.T) {
 	reloaded, err := store.LoadRun(context.Background(), st.ID)
 	if err != nil || reloaded.LastSeq != 1 {
 		t.Fatalf("idempotent recovery events = %d, %v", reloaded.LastSeq, err)
+	}
+	if _, err := store.db.Exec(`UPDATE chat_exchanges SET status = 'running' WHERE run_id = ?`, st.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec(`UPDATE provider_exchanges SET status = 'running' WHERE run_id = ?`, st.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec(`UPDATE run_attempts SET status = 'running' WHERE run_id = ?`, st.ID); err != nil {
+		t.Fatal(err)
+	}
+	if recovered, err := store.RecoverInterruptedRuns(context.Background()); err != nil || recovered != 1 {
+		t.Fatalf("reconcile legacy children = %d, %v", recovered, err)
+	}
+	var runningChildren int
+	if err := store.db.QueryRow(`
+SELECT (SELECT COUNT(*) FROM chat_exchanges WHERE run_id = ? AND status = 'running') +
+       (SELECT COUNT(*) FROM provider_exchanges WHERE run_id = ? AND status = 'running') +
+       (SELECT COUNT(*) FROM run_attempts WHERE run_id = ? AND status = 'running')`,
+		st.ID, st.ID, st.ID).Scan(&runningChildren); err != nil {
+		t.Fatal(err)
+	}
+	if runningChildren != 0 {
+		t.Fatalf("legacy running children = %d", runningChildren)
+	}
+	reloaded, err = store.LoadRun(context.Background(), st.ID)
+	if err != nil || reloaded.LastSeq != 1 {
+		t.Fatalf("legacy reconciliation duplicated events = %d, %v", reloaded.LastSeq, err)
+	}
+	if recovered, err := store.RecoverInterruptedRuns(context.Background()); err != nil || recovered != 0 {
+		t.Fatalf("post-reconciliation recovery = %d, %v", recovered, err)
 	}
 }
 

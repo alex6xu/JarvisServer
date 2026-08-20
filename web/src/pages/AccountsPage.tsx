@@ -37,10 +37,6 @@ export default function AccountsPage() {
   }
 
   const handleDelete = async (id: number, name: string) => {
-    if (name === 'admin') {
-      alert('默认 admin 账号不可删除')
-      return
-    }
     if (!confirm(`删除账号「${name}」将同时删除其频道与会话数据，确认？`)) return
     const ok = await deleteAccount(id)
     if (!ok) {
@@ -177,7 +173,7 @@ export default function AccountsPage() {
                             Switch
                           </button>
                         )}
-                        {account.username !== 'admin' && (
+                        {!isActive && (
                           <button
                             onClick={() => handleDelete(account.id, account.username)}
                             className="text-[13px] text-destructive font-medium"

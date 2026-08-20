@@ -62,6 +62,35 @@ func TestStubEndpoints(t *testing.T) {
 		}
 	})
 
+	t.Run("auth config and registration disabled by default", func(t *testing.T) {
+		configReq := httptest.NewRequest(http.MethodGet, "/v1/auth/config", nil)
+		configRes := httptest.NewRecorder()
+		svc.handleAuthConfig(configRes, configReq)
+		if configRes.Code != http.StatusOK || !strings.Contains(configRes.Body.String(), `"registration_enabled":false`) {
+			t.Fatalf("config status %d body %s", configRes.Code, configRes.Body.String())
+		}
+
+		registerReq := httptest.NewRequest(http.MethodPost, "/v1/auth/register",
+			strings.NewReader(`{"username":"public-user","password":"public-password"}`))
+		registerRes := httptest.NewRecorder()
+		svc.handleAuthRegister(registerRes, registerReq)
+		if registerRes.Code != http.StatusForbidden {
+			t.Fatalf("register status %d body %s", registerRes.Code, registerRes.Body.String())
+		}
+	})
+
+	t.Run("registration can be enabled explicitly", func(t *testing.T) {
+		svc.Opts.AllowRegistration = true
+		t.Cleanup(func() { svc.Opts.AllowRegistration = false })
+		req := httptest.NewRequest(http.MethodPost, "/v1/auth/register",
+			strings.NewReader(`{"username":"public-user","password":"public-password"}`))
+		res := httptest.NewRecorder()
+		svc.handleAuthRegister(res, req)
+		if res.Code != http.StatusOK {
+			t.Fatalf("register status %d body %s", res.Code, res.Body.String())
+		}
+	})
+
 	t.Run("session pathvar", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/v1/agent/sessions/missing", nil)
 		req = pathvar.WithVars(req, map[string]string{"sessionId": "missing"})
@@ -79,8 +108,9 @@ func TestConfigToOptions(t *testing.T) {
 	cfg.Port = 8080
 	cfg.Agent.Model = "m1"
 	cfg.Agent.Approve = true
+	cfg.Agent.AllowRegistration = true
 	opts := cfg.ToOptions()
-	if opts.Model != "m1" || opts.Addr != ":8080" {
+	if opts.Model != "m1" || opts.Addr != ":8080" || !opts.AllowRegistration {
 		t.Fatalf("opts=%+v", opts)
 	}
 }

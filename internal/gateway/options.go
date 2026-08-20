@@ -32,6 +32,9 @@ type Options struct {
 	// AdminPassword bootstraps the first dev administrator. Environment
 	// JARVIS_ADMIN_PASSWORD is used when this is empty.
 	AdminPassword string
+	// AllowRegistration enables unauthenticated account self-registration.
+	// It is disabled by default; administrators can still create accounts.
+	AllowRegistration bool
 	// WorkspacesRoot is the local directory for Coder workspaces (default: <cwd>/workspaces).
 	WorkspacesRoot string
 	// DatabasePath is the SQLite file used for chat and provider audit records.

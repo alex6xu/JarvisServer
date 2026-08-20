@@ -206,7 +206,17 @@ func (s *Service) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Service) handleAuthConfig(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]bool{
+		"registration_enabled": s.Opts.AllowRegistration,
+	})
+}
+
 func (s *Service) handleAuthRegister(w http.ResponseWriter, r *http.Request) {
+	if !s.Opts.AllowRegistration {
+		writeErr(w, http.StatusForbidden, "public registration is disabled")
+		return
+	}
 	var body struct {
 		Username string `json:"username"`
 		Email    string `json:"email"`

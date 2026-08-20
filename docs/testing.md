@@ -2,6 +2,8 @@
 
 本文档定义网关、Provider Router、Agent Runtime、SQLite 和 Web 的统一测试入口与合入要求。测试不得访问真实 Provider，也不得依赖开发机已有的 `.jarvis` 数据。
 
+对已经部署的服务器进行验收、可靠性、容量和安全边界测试时，使用 [`server-test-plan.md`](server-test-plan.md)。该方案将生产可执行检查与只能在隔离环境执行的故障注入和压测明确分开。
+
 ## 本地命令
 
 核心包快速验证：
