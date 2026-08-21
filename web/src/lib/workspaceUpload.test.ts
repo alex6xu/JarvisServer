@@ -7,6 +7,7 @@ import {
   collectDirPrefixes,
   detectCommonRoot,
   isHiddenRelativePath,
+  isExecutableBinary,
   normalizeArchiveRelativePath,
   MAX_UPLOAD_FILES,
   MAX_UPLOAD_TOTAL_BYTES,
@@ -39,10 +40,34 @@ describe('workspace upload path handling', () => {
   })
 
   it('filters dependency and platform metadata directories', () => {
-    expect(shouldSkipRelativePath('__MACOSX/project/file')).toBe('vendor')
+    expect(shouldSkipRelativePath('__MACOSX/project/file')).toBe('generated')
     expect(shouldSkipRelativePath('project/.git/config')).toBe('hidden')
-    expect(shouldSkipRelativePath('project/node_modules/pkg/index.js')).toBeNull()
-    expect(shouldSkipRelativePath('project/vendor/domain.go')).toBeNull()
+    expect(shouldSkipRelativePath('project/.github/workflows/ci.yml')).toBe('hidden')
+    expect(shouldSkipRelativePath('project/node_modules/pkg/index.js')).toBe('generated')
+    expect(shouldSkipRelativePath('project/vendor/domain.go')).toBe('generated')
+    expect(shouldSkipRelativePath('project/dist/index.js')).toBe('generated')
+  })
+
+  it('filters compiled files, archives, private configuration and keys', () => {
+    expect(shouldSkipRelativePath('server.exe')).toBe('binary')
+    expect(shouldSkipRelativePath('lib/native.so')).toBe('binary')
+    expect(shouldSkipRelativePath('release.zip')).toBe('binary')
+    expect(shouldSkipRelativePath('bundle.min.js')).toBe('generated')
+    expect(shouldSkipRelativePath('gateway.test')).toBe('binary')
+    expect(shouldSkipRelativePath('web/tsconfig.tsbuildinfo')).toBe('generated')
+    expect(shouldSkipRelativePath('config.yaml')).toBe('config')
+    expect(shouldSkipRelativePath('etc/gateway.yaml')).toBe('config')
+    expect(shouldSkipRelativePath('appsettings.Production.json')).toBe('config')
+    expect(shouldSkipRelativePath('server.pem')).toBe('config')
+    expect(shouldSkipRelativePath('package.json')).toBeNull()
+    expect(shouldSkipRelativePath('tsconfig.json')).toBeNull()
+  })
+
+  it('detects an extensionless ELF executable by magic bytes', async () => {
+    const binary = new File([new Uint8Array([0x7f, 0x45, 0x4c, 0x46, 0x01])], 'server')
+    const source = new File(['package main'], 'main')
+    await expect(isExecutableBinary(binary)).resolves.toBe(true)
+    await expect(isExecutableBinary(source)).resolves.toBe(false)
   })
 
   it('honors root and nested .gitignore rules including negation', async () => {
@@ -112,12 +137,12 @@ describe('workspace upload path handling', () => {
       projectFile('project/.git/config', 'private'),
     ])
 
-    expect(result.included).toBe(3)
-    expect(result.skippedHidden).toBe(2)
+    expect(result.included).toBe(2)
+    expect(result.skippedHidden).toBe(3)
     const zip = await JSZip.loadAsync(await result.blob.arrayBuffer())
     expect(Object.keys(zip.files)).toContain('src/main.ts')
     expect(Object.keys(zip.files)).toContain('.gitignore')
-    expect(Object.keys(zip.files)).toContain('.github/workflows/ci.yml')
+    expect(Object.keys(zip.files)).not.toContain('.github/workflows/ci.yml')
     expect(Object.keys(zip.files)).not.toContain('generated/output.js')
     expect(Object.keys(zip.files)).not.toContain('.env')
     expect(Object.keys(zip.files)).not.toContain('.git/config')

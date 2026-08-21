@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -96,6 +97,67 @@ func TestValidateWorkspaceZipLimitsAndConflicts(t *testing.T) {
 			t.Fatal("file limit must be enforced")
 		}
 	})
+}
+
+func TestWorkspaceUploadRejectsGeneratedBinaryAndPrivatePaths(t *testing.T) {
+	tests := []struct {
+		path      string
+		directory bool
+		allowed   bool
+	}{
+		{path: ".github/workflows/ci.yml"},
+		{path: "node_modules/pkg/index.js"},
+		{path: "dist/", directory: true},
+		{path: "bin/server.exe"},
+		{path: "release.zip"},
+		{path: "gateway.test"},
+		{path: "web/tsconfig.tsbuildinfo"},
+		{path: "config.yaml"},
+		{path: "etc/gateway.yaml"},
+		{path: "appsettings.Production.json"},
+		{path: "server.pem"},
+		{path: ".env.production"},
+		{path: "package.json", allowed: true},
+		{path: "tsconfig.json", allowed: true},
+		{path: ".gitignore", allowed: true},
+		{path: ".env.example", allowed: true},
+		{path: "src/main.go", allowed: true},
+	}
+	for _, test := range tests {
+		t.Run(test.path, func(t *testing.T) {
+			reason := disallowedWorkspacePath(test.path, test.directory)
+			if test.allowed && reason != "" {
+				t.Fatalf("allowed path rejected: %s", reason)
+			}
+			if !test.allowed && reason == "" {
+				t.Fatal("disallowed path was accepted")
+			}
+		})
+	}
+}
+
+func TestValidateWorkspaceZipRejectsExtensionlessExecutable(t *testing.T) {
+	var data bytes.Buffer
+	zw := zip.NewWriter(&data)
+	w, err := zw.Create("server")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = w.Write([]byte{0x7f, 'E', 'L', 'F', 0x01})
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	zr, err := zip.NewReader(bytes.NewReader(data.Bytes()), int64(data.Len()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	limits := workspaceUploadLimits{
+		archiveBytes: defaultWorkspaceArchiveBytes, uncompressedBytes: defaultWorkspaceUncompressedBytes,
+		fileBytes: defaultWorkspaceFileBytes,
+	}
+	if err := validateWorkspaceZip(zr, limits); err == nil || !strings.Contains(err.Error(), "executable") {
+		t.Fatalf("executable validation error = %v", err)
+	}
 }
 
 func TestWorkspaceUploadLimitsUseConfiguredValues(t *testing.T) {

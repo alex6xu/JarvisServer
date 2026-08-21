@@ -299,7 +299,8 @@ server {
     index index.html;
 
     # Match Agent.WorkspaceUploadMaxBytes (100 MiB by default), plus multipart overhead.
-    client_max_body_size 101m;
+    # Must exceed the 100 MiB ZIP limit because multipart adds framing bytes.
+    client_max_body_size 110m;
 
     location = /healthz {
         proxy_pass http://127.0.0.1:8080;

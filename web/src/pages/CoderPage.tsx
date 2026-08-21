@@ -529,9 +529,13 @@ export default function CoderPage() {
           stage: 'server_upload',
           status: response.status,
           requestId,
+          archiveBytes: built.blob.size,
           error: message,
         })
-        setUploadError(requestId ? `${message}（请求 ID：${requestId}）` : message)
+        const detail = response.status === 413
+          ? `${message}（压缩包 ${formatBytes(built.blob.size)}）`
+          : message
+        setUploadError(requestId ? `${detail}（请求 ID：${requestId}）` : detail)
         return
       }
       await fetchWorkspaces()

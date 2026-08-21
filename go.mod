@@ -1,6 +1,6 @@
 module github.com/alex6xu/jarvisserver
 
-go 1.27rc1
+go 1.27
 
 require (
 	charm.land/bubbles/v2 v2.1.1

@@ -40,12 +40,85 @@ export function isHiddenRelativePath(rel: string): boolean {
   return !['.env.example', '.env.sample', '.env.template'].includes(filename)
 }
 
-export function shouldSkipRelativePath(rel: string): 'hidden' | 'vendor' | null {
+export type WorkspaceSkipReason = 'hidden' | 'generated' | 'binary' | 'config'
+
+const GENERATED_DIRECTORY_NAMES = new Set([
+  '__macosx', '__pycache__', 'bin', 'build', 'coverage', 'deriveddata', 'dist',
+  'node_modules', 'obj', 'out', 'pods', 'release', 'debug', 'target', 'vendor', 'venv',
+  'bazel-bin', 'bazel-out', 'bazel-testlogs',
+])
+
+const BINARY_EXTENSIONS = new Set([
+  '.a', '.aab', '.apk', '.app', '.beam', '.bin', '.class', '.com', '.dex', '.dll',
+  '.dylib', '.ear', '.elf', '.exe', '.exp', '.gch', '.hi', '.idb', '.ilk', '.ipa',
+  '.jar', '.lib', '.lo', '.msi', '.node', '.o', '.obj', '.out', '.pch', '.pdb',
+  '.pyd', '.pyc', '.pyo', '.rlib', '.rmeta', '.so', '.test', '.wasm', '.war',
+  '.zip', '.7z', '.rar', '.tar', '.gz', '.bz2', '.xz',
+])
+
+const GENERATED_EXTENSIONS = new Set([
+  '.bak', '.d', '.gcda', '.gcno', '.log', '.map', '.orig', '.pprof', '.prof', '.swo',
+  '.swp', '.temp', '.tmp', '.tsbuildinfo',
+])
+
+const PRIVATE_CONFIG_EXTENSIONS = new Set([
+  '.conf', '.ini', '.json', '.properties', '.toml', '.xml', '.yaml', '.yml',
+])
+
+const PRIVATE_KEY_EXTENSIONS = new Set([
+  '.cer', '.crt', '.der', '.jks', '.key', '.keystore', '.p12', '.pem', '.pfx',
+])
+
+const REQUIRED_PROJECT_CONFIGS = new Set([
+  'cargo.toml', 'composer.json', 'deno.json', 'deno.jsonc', 'package-lock.json', 'package.json',
+  'pnpm-lock.yaml', 'pyproject.toml', 'yarn.lock',
+])
+
+export function shouldSkipRelativePath(rel: string): WorkspaceSkipReason | null {
   const norm = rel.replace(/\\/g, '/')
   if (isHiddenRelativePath(norm)) return 'hidden'
-  const parts = norm.split('/').filter(Boolean).map((part) => part.toLowerCase())
-  if (parts.includes('__macosx')) return 'vendor'
+  const parts = norm.split('/').filter(Boolean)
+  const directories = parts.slice(0, -1).map((part) => part.toLowerCase())
+  if (directories.some((part) => part.startsWith('.'))) return 'hidden'
+  if (directories.some((part) => GENERATED_DIRECTORY_NAMES.has(part) || part.startsWith('cmake-build-'))) {
+    return 'generated'
+  }
+  const filename = (parts[parts.length - 1] || '').toLowerCase()
+  const extension = filename.includes('.') ? filename.slice(filename.lastIndexOf('.')) : ''
+  if (BINARY_EXTENSIONS.has(extension)) return 'binary'
+  if (GENERATED_EXTENSIONS.has(extension) || filename.endsWith('~') || filename.endsWith('.min.js') || filename.endsWith('.min.css')) {
+    return 'generated'
+  }
+  if (filename === '.ds_store' || filename === 'thumbs.db' || filename === 'desktop.ini' ||
+      filename.endsWith('.tfstate') || filename.endsWith('.tfstate.backup')) {
+    return 'generated'
+  }
+  if (PRIVATE_KEY_EXTENSIONS.has(extension)) return 'config'
+  if (!REQUIRED_PROJECT_CONFIGS.has(filename) && PRIVATE_CONFIG_EXTENSIONS.has(extension)) {
+    const stem = filename.slice(0, -extension.length)
+    if (/^(config|settings|application|appsettings|gateway)([._-].*)?$/.test(stem) ||
+        /(^|[._-])(credentials?|secrets?|service-account)([._-]|$)/.test(stem)) {
+      return 'config'
+    }
+  }
   return null
+}
+
+export async function isExecutableBinary(file: File): Promise<boolean> {
+  if (file.size < 4 || typeof file.slice !== 'function') return false
+  const chunk = file.slice(0, 4)
+  let bytes: Uint8Array
+  if (ArrayBuffer.isView(chunk)) {
+    bytes = new Uint8Array(chunk.buffer, chunk.byteOffset, Math.min(chunk.byteLength, 4))
+  } else if (typeof chunk.arrayBuffer === 'function') {
+    bytes = new Uint8Array(await chunk.arrayBuffer())
+  } else {
+    return false
+  }
+  if (bytes[0] === 0x7f && bytes[1] === 0x45 && bytes[2] === 0x4c && bytes[3] === 0x46) return true // ELF
+  if (bytes[0] === 0x4d && bytes[1] === 0x5a) return true // PE/COFF
+  const magic = Array.from(bytes).map((value) => value.toString(16).padStart(2, '0')).join('')
+  return ['feedface', 'feedfacf', 'cefaedfe', 'cffaedfe', 'cafebabe', '0061736d'].includes(magic)
 }
 
 /** Detect shared first path segment (webkitdirectory folder name). */
@@ -221,12 +294,13 @@ export async function buildWorkspaceZipFromDirectory(
       skippedOther++
       continue
     }
-    const skip = shouldSkipRelativePath(raw)
+    const stripped = stripRootPrefix(raw, root)
+    const skip = shouldSkipRelativePath(stripped)
     if (skip === 'hidden') {
       skippedHidden++
       continue
     }
-    if (skip === 'vendor') {
+    if (skip !== null) {
       skippedOther++
       continue
     }
@@ -234,7 +308,10 @@ export async function buildWorkspaceZipFromDirectory(
       skippedLarge++
       continue
     }
-    const stripped = stripRootPrefix(raw, root)
+    if (await isExecutableBinary(file)) {
+      skippedOther++
+      continue
+    }
     const rel = normalizeArchiveRelativePath(stripped)
     if (!rel || rel.endsWith('/')) {
       skippedOther++

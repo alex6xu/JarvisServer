@@ -24,6 +24,46 @@ const (
 	legacyWorkspaceAccountID                = 1
 )
 
+var generatedWorkspaceDirectories = map[string]bool{
+	"__macosx": true, "__pycache__": true, "bin": true, "build": true, "coverage": true,
+	"deriveddata": true, "dist": true, "node_modules": true, "obj": true, "out": true,
+	"pods": true, "release": true, "debug": true, "target": true, "vendor": true, "venv": true,
+	"bazel-bin": true, "bazel-out": true, "bazel-testlogs": true,
+}
+
+var binaryWorkspaceExtensions = map[string]bool{
+	".a": true, ".aab": true, ".apk": true, ".app": true, ".beam": true, ".bin": true,
+	".class": true, ".com": true, ".dex": true, ".dll": true, ".dylib": true, ".ear": true,
+	".elf": true, ".exe": true, ".exp": true, ".gch": true, ".hi": true, ".idb": true,
+	".ilk": true, ".ipa": true, ".jar": true, ".lib": true, ".lo": true, ".msi": true,
+	".node": true, ".o": true, ".obj": true, ".out": true, ".pch": true, ".pdb": true,
+	".pyd": true, ".pyc": true, ".pyo": true, ".rlib": true, ".rmeta": true,
+	".so": true, ".test": true, ".wasm": true, ".war": true,
+	".zip": true, ".7z": true, ".rar": true, ".tar": true, ".gz": true, ".bz2": true, ".xz": true,
+}
+
+var generatedWorkspaceExtensions = map[string]bool{
+	".bak": true, ".d": true, ".gcda": true, ".gcno": true, ".log": true, ".map": true,
+	".orig": true, ".pprof": true, ".prof": true, ".swo": true, ".swp": true,
+	".temp": true, ".tmp": true, ".tsbuildinfo": true,
+}
+
+var privateConfigExtensions = map[string]bool{
+	".conf": true, ".ini": true, ".json": true, ".properties": true,
+	".toml": true, ".xml": true, ".yaml": true, ".yml": true,
+}
+
+var privateKeyExtensions = map[string]bool{
+	".cer": true, ".crt": true, ".der": true, ".jks": true, ".key": true,
+	".keystore": true, ".p12": true, ".pem": true, ".pfx": true,
+}
+
+var requiredProjectConfigs = map[string]bool{
+	"cargo.toml": true, "composer.json": true, "deno.json": true, "deno.jsonc": true,
+	"package-lock.json": true, "package.json": true, "pnpm-lock.yaml": true,
+	"pyproject.toml": true, "yarn.lock": true,
+}
+
 type workspaceUploadLimits struct {
 	archiveBytes      int64
 	uncompressedBytes int64
@@ -300,6 +340,9 @@ func validateWorkspaceZip(zr *zip.Reader, limits workspaceUploadLimits) error {
 		if f.FileInfo().Mode()&os.ModeSymlink != 0 {
 			return fmt.Errorf("symbolic links are not allowed in workspace zip: %s", name)
 		}
+		if reason := disallowedWorkspacePath(name, f.FileInfo().IsDir()); reason != "" {
+			return fmt.Errorf("disallowed workspace path %s (%s)", name, reason)
+		}
 		if f.FileInfo().IsDir() {
 			continue
 		}
@@ -317,12 +360,115 @@ func validateWorkspaceZip(zr *zip.Reader, limits workspaceUploadLimits) error {
 		if fileSize > limits.uncompressedBytes-total {
 			return fmt.Errorf("workspace exceeds %d MB uncompressed limit", limits.uncompressedBytes>>20)
 		}
+		binary, err := workspaceFileHasExecutableMagic(f)
+		if err != nil {
+			return fmt.Errorf("inspect workspace file %s: %w", name, err)
+		}
+		if binary {
+			return fmt.Errorf("disallowed executable file in workspace: %s", name)
+		}
 		total += fileSize
 	}
 	if files == 0 {
 		return fmt.Errorf("workspace zip contains no files")
 	}
 	return nil
+}
+
+func disallowedWorkspacePath(name string, directory bool) string {
+	parts := strings.Split(strings.ToLower(strings.ReplaceAll(name, `\`, "/")), "/")
+	directories := parts
+	if !directory && len(directories) > 0 {
+		directories = directories[:len(directories)-1]
+	}
+	for _, part := range directories {
+		if strings.HasPrefix(part, ".") {
+			return "hidden directory"
+		}
+		if generatedWorkspaceDirectories[part] || strings.HasPrefix(part, "cmake-build-") {
+			return "generated directory"
+		}
+	}
+	if directory || len(parts) == 0 {
+		return ""
+	}
+	filename := parts[len(parts)-1]
+	if filename == ".npmrc" || filename == ".yarnrc" || filename == ".pypirc" || filename == ".netrc" {
+		return "private configuration"
+	}
+	if strings.HasPrefix(filename, ".env") && filename != ".env.example" &&
+		filename != ".env.sample" && filename != ".env.template" {
+		return "private configuration"
+	}
+	ext := strings.ToLower(path.Ext(filename))
+	if binaryWorkspaceExtensions[ext] {
+		return "binary or archive"
+	}
+	if generatedWorkspaceExtensions[ext] || strings.HasSuffix(filename, "~") ||
+		strings.HasSuffix(filename, ".min.js") || strings.HasSuffix(filename, ".min.css") ||
+		filename == ".ds_store" || filename == "thumbs.db" || filename == "desktop.ini" ||
+		strings.HasSuffix(filename, ".tfstate") || strings.HasSuffix(filename, ".tfstate.backup") {
+		return "generated file"
+	}
+	if privateKeyExtensions[ext] {
+		return "private key or certificate"
+	}
+	if !requiredProjectConfigs[filename] && privateConfigExtensions[ext] {
+		stem := strings.TrimSuffix(filename, ext)
+		if configStem(stem) || credentialStem(stem) {
+			return "private configuration"
+		}
+	}
+	return ""
+}
+
+func configStem(stem string) bool {
+	for _, prefix := range []string{"config", "settings", "application", "appsettings", "gateway"} {
+		if stem == prefix || strings.HasPrefix(stem, prefix+".") || strings.HasPrefix(stem, prefix+"_") ||
+			strings.HasPrefix(stem, prefix+"-") {
+			return true
+		}
+	}
+	return false
+}
+
+func credentialStem(stem string) bool {
+	padded := "-" + strings.NewReplacer(".", "-", "_", "-").Replace(stem) + "-"
+	for _, marker := range []string{"-credential-", "-credentials-", "-secret-", "-secrets-", "-service-account-"} {
+		if strings.Contains(padded, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func workspaceFileHasExecutableMagic(file *zip.File) (bool, error) {
+	if file.UncompressedSize64 < 4 {
+		return false, nil
+	}
+	rc, err := file.Open()
+	if err != nil {
+		return false, err
+	}
+	defer rc.Close()
+	var header [4]byte
+	if _, err := io.ReadFull(rc, header[:]); err != nil {
+		return false, err
+	}
+	if header[0] == 0x7f && header[1] == 'E' && header[2] == 'L' && header[3] == 'F' {
+		return true, nil
+	}
+	if header[0] == 'M' && header[1] == 'Z' {
+		return true, nil
+	}
+	switch header {
+	case [4]byte{0xfe, 0xed, 0xfa, 0xce}, [4]byte{0xfe, 0xed, 0xfa, 0xcf},
+		[4]byte{0xce, 0xfa, 0xed, 0xfe}, [4]byte{0xcf, 0xfa, 0xed, 0xfe},
+		[4]byte{0xca, 0xfe, 0xba, 0xbe}, [4]byte{0x00, 0x61, 0x73, 0x6d}:
+		return true, nil
+	default:
+		return false, nil
+	}
 }
 
 func normalizedZipPath(raw string) (string, error) {
