@@ -362,8 +362,9 @@ func TestFormatSkillsForPrompt(t *testing.T) {
 	if strings.Contains(out, "secret") {
 		t.Errorf("disabled skill must be excluded:\n%s", out)
 	}
-	if !strings.Contains(out, "Use the read tool to load a skill's file") {
-		t.Errorf("guidance preamble missing:\n%s", out)
+	if !strings.Contains(out, "load a matching skill with the read tool") ||
+		!strings.Contains(out, "directory containing SKILL.md") {
+		t.Errorf("concise loading guidance missing:\n%s", out)
 	}
 }
 

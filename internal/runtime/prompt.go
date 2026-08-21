@@ -69,16 +69,16 @@ type PromptConfig struct {
 // this coding-agent identity by default.
 const DefaultBaseInstruction = CodingBaseInstruction
 
-// PersonalBaseInstruction is the Chat-mode identity (helpful personal agent).
-const PersonalBaseInstruction = "You are Jarvis, a helpful personal AI agent. " +
-	"Assist the user precisely and concisely."
+// PersonalBaseInstruction is the concise Chat-mode identity. Tool-specific
+// behavior belongs in each tool's description rather than being duplicated here.
+const PersonalBaseInstruction = "You are Jarvis, a precise personal AI assistant. " +
+	"Answer directly and concisely, using available tools when they improve accuracy."
 
-// CodingBaseInstruction is the Coder-mode identity (helpful coding agent) plus
-// guidance for the todo and task tools.
-const CodingBaseInstruction = "You are Jarvis, a helpful coding AI agent. " +
-	"Use the available tools to inspect files and accomplish the user's request precisely and concisely.\n\n" +
-	todoGuide + "\n\n" +
-	taskGuide
+// CodingBaseInstruction contains only durable, cross-tool behavior. The todo
+// and task contracts are already advertised with those tools when available.
+const CodingBaseInstruction = "You are Jarvis, a precise coding AI agent. " +
+	"Inspect the relevant code, make the smallest complete change that solves the request, " +
+	"verify the result, and report it concisely."
 
 // BaseInstructionForMode returns the Jarvis base instruction for a gateway mode.
 // Unknown or empty mode defaults to personal (Chat).
@@ -90,27 +90,6 @@ func BaseInstructionForMode(mode string) string {
 		return PersonalBaseInstruction
 	}
 }
-
-// todoGuide instructs the model on how to drive the todo tool. It is appended to
-// the default base instruction so multi-step work is planned and its progress is
-// made visible to the user (US-011).
-const todoGuide = "When a task has multiple steps or is non-trivial, use the todo tool to plan " +
-	"and track your work. Submit the entire task list each call (it replaces the previous " +
-	"list); each item has a content string and a status of pending, in_progress, or completed. " +
-	"Keep exactly one item in_progress at a time, and mark an item completed as soon as it is " +
-	"done before starting the next. Skip the todo tool for trivial single-step requests."
-
-// taskGuide instructs the model on how to use the generic `task` tool (US-008,
-// #458). The task tool dispatches an independent sub-agent that runs its own
-// agent loop with a fresh context and returns its final report, so it is the
-// mechanism for delegation and fan-out. The key affordance advertised here is
-// that emitting MULTIPLE task calls in a single assistant message runs those
-// sub-agents in parallel, letting skills like /graph achieve real concurrency.
-const taskGuide = "When work splits into independent subtasks, delegate them with the task tool: each " +
-	"task call dispatches an independent sub-agent that completes its subtask on a fresh context and " +
-	"returns its final report. To fan out, emit MULTIPLE task calls in a single message — they run in " +
-	"parallel. Give each a complete, self-contained prompt, since a sub-agent shares none of this " +
-	"conversation's context. Do the work directly for a single, sequential, or trivial task."
 
 // BuildSystemPrompt assembles the full system prompt from cfg: base instruction,
 // environment block, then AGENTS.md files ordered general-to-specific from Root

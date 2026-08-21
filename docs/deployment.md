@@ -2,6 +2,10 @@
 
 本文说明如何部署 JarvisServer Gateway 与 Web 管理界面。当前推荐拓扑是：
 
+当前 `web.alexuhui.win` 服务器的实际目录、systemd/Caddy 配置、数据位置和发布流程记录在
+[`current-server-deployment.md`](current-server-deployment.md)。该文档描述现状；本文仍是推荐的
+生产部署基线。
+
 ```mermaid
 flowchart LR
     U["Browser"] -->|"HTTPS"| N["Nginx"]

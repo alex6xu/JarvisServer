@@ -20,14 +20,14 @@ func fixedTime() time.Time { return time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC
 // TestBaseInstructionForMode verifies Chat vs Coder Jarvis identities.
 func TestBaseInstructionForMode(t *testing.T) {
 	personal := BaseInstructionForMode("chat")
-	if !strings.Contains(personal, "helpful personal AI agent") {
+	if !strings.Contains(personal, "personal AI assistant") {
 		t.Fatalf("chat mode: %q", personal)
 	}
 	if strings.Contains(personal, "coding AI agent") {
 		t.Fatalf("chat mode should not be coding: %q", personal)
 	}
 	coder := BaseInstructionForMode("coder")
-	if !strings.Contains(coder, "helpful coding AI agent") {
+	if !strings.Contains(coder, "coding AI agent") {
 		t.Fatalf("coder mode: %q", coder)
 	}
 	if got := BaseInstructionForMode(""); got != PersonalBaseInstruction {
@@ -63,11 +63,10 @@ func TestBuildSystemPromptBaseAndEnv(t *testing.T) {
 	}
 }
 
-// TestBuildSystemPromptAdvertisesTaskFanout verifies the base instruction tells
-// the model about the generic task tool: that it dispatches an independent
-// sub-agent (delegation) and that multiple task calls in one message run in
-// parallel (fan-out, US-008/#458).
-func TestBuildSystemPromptAdvertisesTaskFanout(t *testing.T) {
+// TestBuildSystemPromptAvoidsToolDescriptionDuplication keeps the base prompt
+// focused on durable behavior. Todo/task usage is already sent to the model in
+// the corresponding tool descriptions, and only when those tools are present.
+func TestBuildSystemPromptAvoidsToolDescriptionDuplication(t *testing.T) {
 	got, err := BuildSystemPrompt(PromptConfig{
 		WorkingDir: "/work/proj",
 		Now:        fixedTime,
@@ -77,14 +76,11 @@ func TestBuildSystemPromptAdvertisesTaskFanout(t *testing.T) {
 		t.Fatalf("BuildSystemPrompt: %v", err)
 	}
 	lower := strings.ToLower(got)
-	if !strings.Contains(lower, "task tool") {
-		t.Errorf("prompt should advertise the task tool:\n%s", got)
+	if strings.Contains(lower, "todo tool") || strings.Contains(lower, "task tool") {
+		t.Errorf("base prompt should not duplicate tool descriptions:\n%s", got)
 	}
-	if !strings.Contains(lower, "sub-agent") || !strings.Contains(lower, "independent") {
-		t.Errorf("prompt should describe the task tool as an independent sub-agent (delegation):\n%s", got)
-	}
-	if !strings.Contains(lower, "parallel") {
-		t.Errorf("prompt should state that multiple task calls run in parallel (fan-out):\n%s", got)
+	if !strings.Contains(lower, "verify the result") {
+		t.Errorf("base prompt should retain verification guidance:\n%s", got)
 	}
 }
 
