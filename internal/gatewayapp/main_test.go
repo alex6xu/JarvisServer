@@ -56,3 +56,37 @@ func TestStartupLog(t *testing.T) {
 		t.Fatalf("startup log = %q", got)
 	}
 }
+
+func TestRedactedGitHubConfigDoesNotLeakSecrets(t *testing.T) {
+	config := gateway.GitHubConf{
+		ClientID:       "client-identifier-1234",
+		ClientSecret:   "client-secret-value",
+		RedirectURL:    "https://user:password@example.com/v1/github/callback?token=query-secret#fragment-secret",
+		Scopes:         "repo read:user",
+		APIBaseURL:     "https://api.github.com?token=api-query-secret",
+		WebBaseURL:     "https://github.com/#web-fragment-secret",
+		TokenKey:       "token-encryption-key",
+		GitTimeoutSecs: 300,
+	}
+	got := redactedGitHubConfig(config)
+	for _, secret := range []string{
+		config.ClientID, config.ClientSecret, config.TokenKey, "user:password",
+		"query-secret", "fragment-secret", "api-query-secret", "web-fragment-secret",
+	} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("redacted GitHub config leaked %q: %s", secret, got)
+		}
+	}
+	for _, expected := range []string{
+		`"client_id":"clie...1234"`,
+		`"client_secret":"[REDACTED]"`,
+		`"redirect_url":"https://example.com/v1/github/callback"`,
+		`"scopes":"repo read:user"`,
+		`"token_key":"[REDACTED]"`,
+		`"git_timeout_secs":300`,
+	} {
+		if !strings.Contains(got, expected) {
+			t.Fatalf("redacted GitHub config missing %q: %s", expected, got)
+		}
+	}
+}

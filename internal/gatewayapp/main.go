@@ -3,11 +3,13 @@ package gatewayapp
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -50,6 +52,7 @@ func run(configFile string, output io.Writer) error {
 		return fmt.Errorf("load config %s: %w", configFile, err)
 	}
 	startupLog(output, "configuration loaded service=%q mode=%q", c.Name, c.Mode)
+	startupLog(output, "github configuration config=%s", redactedGitHubConfig(c.GitHub))
 	if err := logx.SetUp(c.Log); err != nil {
 		return fmt.Errorf("configure logging: %w", err)
 	}
@@ -96,6 +99,66 @@ func run(configFile string, output io.Writer) error {
 
 func startupLog(output io.Writer, format string, args ...any) {
 	fmt.Fprintf(output, "%s gateway: %s\n", time.Now().Format(time.RFC3339), fmt.Sprintf(format, args...))
+}
+
+type githubStartupConfig struct {
+	ClientID       string `json:"client_id"`
+	ClientSecret   string `json:"client_secret"`
+	RedirectURL    string `json:"redirect_url"`
+	Scopes         string `json:"scopes"`
+	APIBaseURL     string `json:"api_base_url"`
+	WebBaseURL     string `json:"web_base_url"`
+	TokenKey       string `json:"token_key"`
+	GitTimeoutSecs int    `json:"git_timeout_secs"`
+}
+
+func redactedGitHubConfig(config gateway.GitHubConf) string {
+	value := githubStartupConfig{
+		ClientID:       redactIdentifier(config.ClientID),
+		ClientSecret:   redactSecret(config.ClientSecret),
+		RedirectURL:    sanitizeStartupURL(config.RedirectURL),
+		Scopes:         config.Scopes,
+		APIBaseURL:     sanitizeStartupURL(config.APIBaseURL),
+		WebBaseURL:     sanitizeStartupURL(config.WebBaseURL),
+		TokenKey:       redactSecret(config.TokenKey),
+		GitTimeoutSecs: config.GitTimeoutSecs,
+	}
+	raw, _ := json.Marshal(value)
+	return string(raw)
+}
+
+func redactIdentifier(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if len(value) <= 8 {
+		return "[REDACTED]"
+	}
+	return value[:4] + "..." + value[len(value)-4:]
+}
+
+func redactSecret(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return ""
+	}
+	return "[REDACTED]"
+}
+
+func sanitizeStartupURL(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return "[INVALID URL]"
+	}
+	parsed.User = nil
+	parsed.RawQuery = ""
+	parsed.ForceQuery = false
+	parsed.Fragment = ""
+	return parsed.String()
 }
 
 func gatewayHealthURL(c gateway.Config) string {
