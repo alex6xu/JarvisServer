@@ -172,6 +172,13 @@ func TestWorkspaceUploadLimitsUseConfiguredValues(t *testing.T) {
 	}
 }
 
+func TestWorkspaceUploadRequestLimitIncludesMultipartOverhead(t *testing.T) {
+	limits := workspaceUploadLimits{archiveBytes: 100 << 20}
+	if got, want := workspaceUploadRequestMaxBytes(limits), int64(101<<20); got != want {
+		t.Fatalf("request max bytes = %d, want %d", got, want)
+	}
+}
+
 func TestWorkspaceOwnershipAndUserFileCount(t *testing.T) {
 	dir := t.TempDir()
 	svc, err := NewService(Options{

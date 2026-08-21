@@ -178,3 +178,16 @@ func TestNewServerRegisters(t *testing.T) {
 	}
 	srv.Stop()
 }
+
+func TestWorkspaceUploadUsesDedicatedRouteGroup(t *testing.T) {
+	svc := &Service{}
+	for _, route := range apiRoutes(svc) {
+		if route.Method == http.MethodPost && route.Path == "/v1/workspaces/upload" {
+			t.Fatal("upload route must not inherit the default 1 MiB request limit")
+		}
+	}
+	routes := workspaceUploadRoutes(svc)
+	if len(routes) != 1 || routes[0].Method != http.MethodPost || routes[0].Path != "/v1/workspaces/upload" {
+		t.Fatalf("unexpected upload routes: %+v", routes)
+	}
+}

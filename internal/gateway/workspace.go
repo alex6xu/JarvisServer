@@ -19,10 +19,15 @@ const (
 	defaultWorkspaceArchiveBytes      int64 = 100 << 20
 	defaultWorkspaceUncompressedBytes int64 = 100 << 20
 	defaultWorkspaceFileBytes         int64 = 10 << 20
+	workspaceMultipartOverheadBytes   int64 = 1 << 20
 	maxWorkspaceFiles                       = 5000
 	maxWorkspaceEntries                     = 10000
 	legacyWorkspaceAccountID                = 1
 )
+
+func workspaceUploadRequestMaxBytes(limits workspaceUploadLimits) int64 {
+	return limits.archiveBytes + workspaceMultipartOverheadBytes
+}
 
 var generatedWorkspaceDirectories = map[string]bool{
 	"__macosx": true, "__pycache__": true, "bin": true, "build": true, "coverage": true,

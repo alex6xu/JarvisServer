@@ -9,6 +9,8 @@ import (
 // registerRoutes mounts CodeGateway-compatible HTTP routes on the go-zero server.
 func registerRoutes(server *rest.Server, svc *Service) {
 	server.AddRoutes(apiRoutes(svc))
+	server.AddRoutes(workspaceUploadRoutes(svc),
+		rest.WithMaxBytes(workspaceUploadRequestMaxBytes(svc.workspaceUploadLimits())))
 	server.AddRoutes(sseRoutes(svc), rest.WithSSE(), rest.WithTimeout(0))
 }
 
@@ -42,7 +44,6 @@ func apiRoutes(svc *Service) []rest.Route {
 		// Workspaces (static before :id)
 		{Method: http.MethodGet, Path: "/v1/workspaces", Handler: svc.handleListWorkspaces},
 		{Method: http.MethodGet, Path: "/v1/workspaces/upload-limits", Handler: svc.handleWorkspaceUploadLimits},
-		{Method: http.MethodPost, Path: "/v1/workspaces/upload", Handler: svc.handleUploadWorkspace},
 		{Method: http.MethodGet, Path: "/v1/workspaces/:id/download", Handler: svc.handleDownloadWorkspace},
 		{Method: http.MethodDelete, Path: "/v1/workspaces/:id", Handler: svc.handleDeleteWorkspace},
 
@@ -100,6 +101,12 @@ func apiRoutes(svc *Service) []rest.Route {
 		{Method: http.MethodGet, Path: "/v1/admin/request-logs/:id", Handler: svc.handleGetRequestLog},
 		{Method: http.MethodGet, Path: "/v1/admin/route-profiles", Handler: svc.handleListRouteProfiles},
 		{Method: http.MethodPost, Path: "/v1/admin/route-profiles", Handler: svc.handleCreateRouteProfile},
+	}
+}
+
+func workspaceUploadRoutes(svc *Service) []rest.Route {
+	return []rest.Route{
+		{Method: http.MethodPost, Path: "/v1/workspaces/upload", Handler: svc.handleUploadWorkspace},
 	}
 }
 

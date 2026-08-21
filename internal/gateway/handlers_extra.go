@@ -47,7 +47,7 @@ func (s *Service) handleUploadWorkspace(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	limits := s.workspaceUploadLimits()
-	r.Body = http.MaxBytesReader(w, r.Body, limits.archiveBytes+(1<<20))
+	r.Body = http.MaxBytesReader(w, r.Body, workspaceUploadRequestMaxBytes(limits))
 	if err := r.ParseMultipartForm(8 << 20); err != nil {
 		var maxErr *http.MaxBytesError
 		if errors.As(err, &maxErr) {
