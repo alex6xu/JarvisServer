@@ -52,7 +52,8 @@ func run(configFile string, output io.Writer) error {
 		return fmt.Errorf("load config %s: %w", configFile, err)
 	}
 	startupLog(output, "configuration loaded service=%q mode=%q", c.Name, c.Mode)
-	startupLog(output, "github configuration config=%s", redactedGitHubConfig(c.GitHub))
+	options := c.ToOptions()
+	startupLog(output, "github effective configuration config=%s", redactedGitHubOptions(options))
 	if err := logx.SetUp(c.Log); err != nil {
 		return fmt.Errorf("configure logging: %w", err)
 	}
@@ -67,7 +68,7 @@ func run(configFile string, output io.Writer) error {
 		startupLog(output, "working directory changed path=%q", c.Agent.Cwd)
 	}
 
-	svc, err := gateway.NewService(c.ToOptions())
+	svc, err := gateway.NewService(options)
 	if err != nil {
 		return err
 	}
@@ -112,16 +113,16 @@ type githubStartupConfig struct {
 	GitTimeoutSecs int    `json:"git_timeout_secs"`
 }
 
-func redactedGitHubConfig(config gateway.GitHubConf) string {
+func redactedGitHubOptions(options gateway.Options) string {
 	value := githubStartupConfig{
-		ClientID:       redactIdentifier(config.ClientID),
-		ClientSecret:   redactSecret(config.ClientSecret),
-		RedirectURL:    sanitizeStartupURL(config.RedirectURL),
-		Scopes:         config.Scopes,
-		APIBaseURL:     sanitizeStartupURL(config.APIBaseURL),
-		WebBaseURL:     sanitizeStartupURL(config.WebBaseURL),
-		TokenKey:       redactSecret(config.TokenKey),
-		GitTimeoutSecs: config.GitTimeoutSecs,
+		ClientID:       redactIdentifier(options.GitHubClientID),
+		ClientSecret:   redactSecret(options.GitHubClientSecret),
+		RedirectURL:    sanitizeStartupURL(options.GitHubRedirectURL),
+		Scopes:         options.GitHubScopes,
+		APIBaseURL:     sanitizeStartupURL(options.GitHubAPIBaseURL),
+		WebBaseURL:     sanitizeStartupURL(options.GitHubWebBaseURL),
+		TokenKey:       redactSecret(options.GitHubTokenKey),
+		GitTimeoutSecs: int(options.GitHubGitTimeout / time.Second),
 	}
 	raw, _ := json.Marshal(value)
 	return string(raw)

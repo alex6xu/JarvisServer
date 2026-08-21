@@ -57,8 +57,8 @@ func TestStartupLog(t *testing.T) {
 	}
 }
 
-func TestRedactedGitHubConfigDoesNotLeakSecrets(t *testing.T) {
-	config := gateway.GitHubConf{
+func TestRedactedGitHubOptionsDoesNotLeakSecrets(t *testing.T) {
+	config := gateway.Config{GitHub: gateway.GitHubConf{
 		ClientID:       "client-identifier-1234",
 		ClientSecret:   "client-secret-value",
 		RedirectURL:    "https://user:password@example.com/v1/github/callback?token=query-secret#fragment-secret",
@@ -67,10 +67,10 @@ func TestRedactedGitHubConfigDoesNotLeakSecrets(t *testing.T) {
 		WebBaseURL:     "https://github.com/#web-fragment-secret",
 		TokenKey:       "token-encryption-key",
 		GitTimeoutSecs: 300,
-	}
-	got := redactedGitHubConfig(config)
+	}}
+	got := redactedGitHubOptions(config.ToOptions())
 	for _, secret := range []string{
-		config.ClientID, config.ClientSecret, config.TokenKey, "user:password",
+		config.GitHub.ClientID, config.GitHub.ClientSecret, config.GitHub.TokenKey, "user:password",
 		"query-secret", "fragment-secret", "api-query-secret", "web-fragment-secret",
 	} {
 		if strings.Contains(got, secret) {
@@ -87,6 +87,36 @@ func TestRedactedGitHubConfigDoesNotLeakSecrets(t *testing.T) {
 	} {
 		if !strings.Contains(got, expected) {
 			t.Fatalf("redacted GitHub config missing %q: %s", expected, got)
+		}
+	}
+}
+
+func TestRedactedGitHubOptionsIncludesEnvironmentFallbacks(t *testing.T) {
+	t.Setenv("GITHUB_CLIENT_ID", "environment-client-1234")
+	t.Setenv("GITHUB_CLIENT_SECRET", "environment-client-secret")
+	t.Setenv("GITHUB_REDIRECT_URL", "https://example.com/v1/github/callback?secret=query")
+	t.Setenv("GITHUB_TOKEN_KEY", "environment-token-key")
+
+	config := gateway.Config{GitHub: gateway.GitHubConf{GitTimeoutSecs: 300}}
+	got := redactedGitHubOptions(config.ToOptions())
+	for _, secret := range []string{
+		"environment-client-1234", "environment-client-secret", "environment-token-key", "secret=query",
+	} {
+		if strings.Contains(got, secret) {
+			t.Fatalf("effective GitHub config leaked %q: %s", secret, got)
+		}
+	}
+	for _, expected := range []string{
+		`"client_id":"envi...1234"`,
+		`"client_secret":"[REDACTED]"`,
+		`"redirect_url":"https://example.com/v1/github/callback"`,
+		`"scopes":"repo read:user"`,
+		`"api_base_url":"https://api.github.com"`,
+		`"web_base_url":"https://github.com"`,
+		`"token_key":"[REDACTED]"`,
+	} {
+		if !strings.Contains(got, expected) {
+			t.Fatalf("effective GitHub config missing %q: %s", expected, got)
 		}
 	}
 }
