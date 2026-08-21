@@ -7,9 +7,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"os"
 	"sync"
 	"time"
+
+	"github.com/alex6xu/jarvisserver/internal/distributedlog"
 )
 
 const (
@@ -34,25 +35,32 @@ type RunState struct {
 	Deadline    time.Time
 	Err         error
 
-	mu    sync.Mutex
-	subs  map[chan StoredEvent]struct{}
-	done  chan struct{}
-	store *GatewayStore
+	mu     sync.Mutex
+	subs   map[chan StoredEvent]struct{}
+	done   chan struct{}
+	store  *GatewayStore
+	logger *distributedlog.Logger
+	logCtx context.Context
 }
 
 // RunManager tracks in-process runs for SSE subscription and after_seq replay.
 type RunManager struct {
-	mu    sync.Mutex
-	runs  map[string]*RunState
-	store *GatewayStore
+	mu     sync.Mutex
+	runs   map[string]*RunState
+	store  *GatewayStore
+	logger *distributedlog.Logger
 }
 
 func NewRunManager(store ...*GatewayStore) *RunManager {
+	return newRunManager(distributedlog.New(distributedlog.Config{}), store...)
+}
+
+func newRunManager(logger *distributedlog.Logger, store ...*GatewayStore) *RunManager {
 	var persistent *GatewayStore
 	if len(store) > 0 {
 		persistent = store[0]
 	}
-	return &RunManager{runs: make(map[string]*RunState), store: persistent}
+	return &RunManager{runs: make(map[string]*RunState), store: persistent, logger: logger}
 }
 
 func newRunID() string {
@@ -73,7 +81,9 @@ func (m *RunManager) Register(sessionID, model, workspaceID string, cancel conte
 		subs:        make(map[chan StoredEvent]struct{}),
 		done:        make(chan struct{}),
 		store:       m.store,
+		logger:      m.logger,
 	}
+	st.logCtx = distributedlog.WithRun(context.Background(), st.ID, st.SessionID)
 	if len(deadline) > 0 {
 		st.Deadline = deadline[0]
 	}
@@ -124,11 +134,14 @@ func (m *RunManager) Get(id string) (*RunState, bool) {
 	loaded, err := m.store.LoadRun(context.Background(), id)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
-			fmt.Fprintf(os.Stderr, "gateway: load run %s: %v\n", id, err)
+			m.logger.Error(context.Background(), "load run failed",
+				distributedlog.F("run_id", id), distributedlog.Err(err))
 		}
 		return nil, false
 	}
 	loaded.store = m.store
+	loaded.logger = m.logger
+	loaded.logCtx = distributedlog.WithRun(context.Background(), loaded.ID, loaded.SessionID)
 	m.mu.Lock()
 	if existing, exists := m.runs[id]; exists {
 		loaded = existing
@@ -175,7 +188,8 @@ func (st *RunState) Publish(ev StreamEvent) {
 	st.Events = append(st.Events, stored)
 	if st.store != nil {
 		if err := st.store.AppendRunEvent(context.Background(), st.ID, stored); err != nil {
-			fmt.Fprintf(os.Stderr, "gateway: persist event %s/%d: %v\n", st.ID, stored.Seq, err)
+			st.logger.Error(st.logContext(), "persist run event failed",
+				distributedlog.F("event_seq", stored.Seq), distributedlog.Err(err))
 		}
 	}
 	for ch := range st.subs {
@@ -216,13 +230,20 @@ func (st *RunState) Finish(err error) {
 			errorText = err.Error()
 		}
 		if persistErr := st.store.FinishRun(context.Background(), st.ID, st.Status, errorText); persistErr != nil {
-			fmt.Fprintf(os.Stderr, "gateway: finish run %s: %v\n", st.ID, persistErr)
+			st.logger.Error(st.logContext(), "finish run failed", distributedlog.Err(persistErr))
 		}
 	}
 	for ch := range st.subs {
 		close(ch)
 		delete(st.subs, ch)
 	}
+}
+
+func (st *RunState) logContext() context.Context {
+	if st.logCtx != nil {
+		return st.logCtx
+	}
+	return distributedlog.WithRun(context.Background(), st.ID, st.SessionID)
 }
 
 // Subscribe returns a channel of events with Seq > afterSeq, then live updates

@@ -523,7 +523,15 @@ export default function CoderPage() {
       }, currentAccount?.id)
       const data = await response.json().catch(() => ({}))
       if (!response.ok) {
-        setUploadError(data.error || '上传失败')
+        const requestId = response.headers.get('X-Request-ID')
+        const message = data.error || '上传失败'
+        console.error('Workspace upload failed', {
+          stage: 'server_upload',
+          status: response.status,
+          requestId,
+          error: message,
+        })
+        setUploadError(requestId ? `${message}（请求 ID：${requestId}）` : message)
         return
       }
       await fetchWorkspaces()
@@ -541,7 +549,7 @@ export default function CoderPage() {
         ])
       }
     } catch (error) {
-      console.error(error)
+      console.error('Workspace upload failed', { stage: 'client_packaging', error })
       setUploadError(error instanceof Error ? error.message : '上传失败，请重试')
     } finally {
       setUploading(false)

@@ -25,6 +25,7 @@ func main() {
 	var c gateway.Config
 	conf.MustLoad(*configFile, &c)
 	logx.MustSetup(c.Log)
+	defer func() { _ = logx.Close() }()
 	logx.DisableStat()
 
 	if c.Agent.Cwd != "" {

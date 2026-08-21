@@ -3,6 +3,8 @@ package gateway
 import (
 	"os"
 	"time"
+
+	"github.com/alex6xu/jarvisserver/internal/distributedlog"
 )
 
 // Options configures the HTTP gateway server.
@@ -65,6 +67,8 @@ type Options struct {
 	// random key is generated under <cwd>/.jarvis.
 	GitHubTokenKey   string
 	GitHubGitTimeout time.Duration
+	// Logger emits structured, correlation-aware operational events.
+	Logger *distributedlog.Logger
 }
 
 func (o Options) withDefaults() Options {
@@ -115,6 +119,9 @@ func (o Options) withDefaults() Options {
 	}
 	if o.GitHubGitTimeout <= 0 {
 		o.GitHubGitTimeout = 5 * time.Minute
+	}
+	if o.Logger == nil {
+		o.Logger = distributedlog.New(distributedlog.Config{})
 	}
 	return o
 }

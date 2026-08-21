@@ -4,14 +4,24 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/alex6xu/jarvisserver/internal/distributedlog"
 	"github.com/zeromicro/go-zero/rest"
 )
 
 // Config is the go-zero gateway configuration (etc/gateway.yaml).
 type Config struct {
 	rest.RestConf
-	Agent  AgentConf  `json:",optional"`
-	GitHub GitHubConf `json:",optional"`
+	Agent          AgentConf          `json:",optional"`
+	GitHub         GitHubConf         `json:",optional"`
+	DistributedLog DistributedLogConf `json:",optional"`
+}
+
+// DistributedLogConf adds fields used to correlate logs across instances.
+// Output destination and rotation are configured by the standard Log section.
+type DistributedLogConf struct {
+	ServiceName string `json:",optional"`
+	Environment string `json:",optional"`
+	InstanceID  string `json:",optional"`
 }
 
 // GitHubConf configures the optional GitHub OAuth and repository integration.
@@ -62,6 +72,14 @@ func (c Config) ToOptions() Options {
 	if host == "0.0.0.0" {
 		addr = fmt.Sprintf(":%d", c.Port)
 	}
+	serviceName := c.DistributedLog.ServiceName
+	if serviceName == "" {
+		serviceName = c.Name
+	}
+	environment := c.DistributedLog.Environment
+	if environment == "" {
+		environment = c.Mode
+	}
 	return Options{
 		Addr:                     addr,
 		Cwd:                      c.Agent.Cwd,
@@ -94,5 +112,8 @@ func (c Config) ToOptions() Options {
 		GitHubWebBaseURL:         c.GitHub.WebBaseURL,
 		GitHubTokenKey:           c.GitHub.TokenKey,
 		GitHubGitTimeout:         time.Duration(c.GitHub.GitTimeoutSecs) * time.Second,
+		Logger: distributedlog.New(distributedlog.Config{
+			Service: serviceName, Environment: environment, InstanceID: c.DistributedLog.InstanceID,
+		}),
 	}.withDefaults()
 }

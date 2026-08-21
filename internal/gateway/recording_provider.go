@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/alex6xu/jarvisserver/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/distributedlog"
 	"github.com/alex6xu/jarvisserver/internal/provider"
 )
 
@@ -18,6 +18,7 @@ type recordingProvider struct {
 	sessionID    string
 	providerID   int
 	providerName string
+	logger       *distributedlog.Logger
 }
 
 type auditTool struct {
@@ -59,15 +60,15 @@ func (p *recordingProvider) StreamCompletion(ctx context.Context, req provider.C
 
 	upstream, err := p.inner.StreamCompletion(ctx, req)
 	if err != nil {
-		p.finish(id, agentcore.AssistantMessage{}, providerExchangeStatus(agentcore.AssistantMessage{}, err), err)
+		p.finish(ctx, id, req.Model, started, agentcore.AssistantMessage{}, providerExchangeStatus(agentcore.AssistantMessage{}, err), err)
 		return nil, err
 	}
 	stream := provider.NewAssistantMessageEventStream(0)
-	go p.proxy(ctx, id, upstream, stream)
+	go p.proxy(ctx, id, req.Model, started, upstream, stream)
 	return stream, nil
 }
 
-func (p *recordingProvider) proxy(ctx context.Context, id string, upstream, downstream *provider.AssistantMessageEventStream) {
+func (p *recordingProvider) proxy(ctx context.Context, id, model string, started time.Time, upstream, downstream *provider.AssistantMessageEventStream) {
 	defer downstream.Close()
 	var final agentcore.AssistantMessage
 	var streamErr error
@@ -99,7 +100,7 @@ func (p *recordingProvider) proxy(ctx context.Context, id string, upstream, down
 		}
 	}
 	status := providerExchangeStatus(final, streamErr)
-	p.finish(id, final, status, streamErr)
+	p.finish(ctx, id, model, started, final, status, streamErr)
 }
 
 func providerExchangeStatus(msg agentcore.AssistantMessage, runErr error) string {
@@ -115,7 +116,7 @@ func providerExchangeStatus(msg agentcore.AssistantMessage, runErr error) string
 	return "done"
 }
 
-func (p *recordingProvider) finish(id string, msg agentcore.AssistantMessage, status string, runErr error) {
+func (p *recordingProvider) finish(ctx context.Context, id, model string, started time.Time, msg agentcore.AssistantMessage, status string, runErr error) {
 	errorText := ""
 	if runErr != nil {
 		errorText = runErr.Error()
@@ -133,6 +134,41 @@ func (p *recordingProvider) finish(id string, msg agentcore.AssistantMessage, st
 	}
 	if err := p.store.FinishProviderExchange(context.Background(), id, p.store.marshalAuditJSON(msg), status,
 		errorText, statusCode, promptTokens, completionTokens, 0, time.Now().UTC()); err != nil {
-		fmt.Fprintf(os.Stderr, "gateway: finish provider audit %s: %v\n", id, err)
+		logger := p.logger
+		if logger == nil {
+			logger = distributedlog.New(distributedlog.Config{})
+		}
+		logCtx := distributedlog.WithRun(ctx, p.runID, p.sessionID)
+		logger.Error(logCtx, "finish provider audit failed",
+			distributedlog.F("provider_exchange_id", id),
+			distributedlog.F("provider_id", p.providerID),
+			distributedlog.F("provider_name", p.providerName),
+			distributedlog.Err(err),
+		)
+		return
+	}
+	logger := p.logger
+	if logger == nil {
+		logger = distributedlog.New(distributedlog.Config{})
+	}
+	logCtx := distributedlog.WithRun(ctx, p.runID, p.sessionID)
+	fields := []distributedlog.Field{
+		distributedlog.F("provider_exchange_id", id),
+		distributedlog.F("provider_id", p.providerID),
+		distributedlog.F("provider_name", p.providerName),
+		distributedlog.F("model", model),
+		distributedlog.F("status", status),
+		distributedlog.F("status_code", statusCode),
+		distributedlog.F("prompt_tokens", promptTokens),
+		distributedlog.F("completion_tokens", completionTokens),
+		distributedlog.F("duration_ms", time.Since(started).Milliseconds()),
+	}
+	if errorText != "" {
+		fields = append(fields, distributedlog.F("error", errorText))
+	}
+	if status == "done" {
+		logger.Info(logCtx, "provider request completed", fields...)
+	} else {
+		logger.Error(logCtx, "provider request completed", fields...)
 	}
 }

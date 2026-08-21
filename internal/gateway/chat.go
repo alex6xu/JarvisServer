@@ -14,6 +14,7 @@ import (
 	"github.com/alex6xu/jarvisserver/internal/cli/run"
 	"github.com/alex6xu/jarvisserver/internal/cli/ui"
 	"github.com/alex6xu/jarvisserver/internal/compaction"
+	"github.com/alex6xu/jarvisserver/internal/distributedlog"
 	"github.com/alex6xu/jarvisserver/internal/plugin"
 	"github.com/alex6xu/jarvisserver/internal/provider"
 	"github.com/alex6xu/jarvisserver/internal/runtime"
@@ -32,6 +33,7 @@ type Service struct {
 	Trust   *trust.Manager
 	Mem     *MemStore
 	GitHub  *GitHubService
+	Logger  *distributedlog.Logger
 }
 
 // gatewayToolPolicy keeps conversational runs read-only and lightweight. The
@@ -164,16 +166,18 @@ func NewService(opts Options) (*Service, error) {
 		_ = audit.Close()
 		return nil, fmt.Errorf("recover interrupted runs: %w", err)
 	} else if recovered > 0 {
-		fmt.Fprintf(os.Stderr, "gateway: recovered %d interrupted run(s)\n", recovered)
+		opts.Logger.Info(context.Background(), "interrupted runs recovered",
+			distributedlog.F("recovered_runs", recovered))
 	}
 	githubService, err := NewGitHubService(opts, audit, stateRoot)
 	if err != nil {
 		_ = audit.Close()
 		return nil, fmt.Errorf("initialize github integration: %w", err)
 	}
+	runs := newRunManager(opts.Logger, audit)
 	return &Service{
 		Opts:    opts,
-		Runs:    NewRunManager(audit),
+		Runs:    runs,
 		Store:   audit,
 		Control: audit,
 		Audit:   audit,
@@ -181,6 +185,7 @@ func NewService(opts Options) (*Service, error) {
 		Trust:   mgr,
 		Mem:     mem,
 		GitHub:  githubService,
+		Logger:  opts.Logger,
 	}, nil
 }
 
@@ -194,7 +199,6 @@ func (s *Service) Close() error {
 
 // StartChat begins an async agent run and returns session/run ids immediately.
 func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse, error) {
-	_ = ctx
 	msg := strings.TrimSpace(req.Message)
 	if msg == "" {
 		return ChatResponse{}, fmt.Errorf("message is required")
@@ -294,12 +298,13 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 		baseOnEvent = n.Handle
 	}
 
+	runBaseCtx := distributedlog.WithRequestID(context.Background(), distributedlog.RequestID(ctx))
 	var runCtx context.Context
 	var cancel context.CancelFunc
 	if s.Opts.RunTimeout > 0 {
-		runCtx, cancel = context.WithTimeout(context.Background(), s.Opts.RunTimeout)
+		runCtx, cancel = context.WithTimeout(runBaseCtx, s.Opts.RunTimeout)
 	} else {
-		runCtx, cancel = context.WithCancel(context.Background())
+		runCtx, cancel = context.WithCancel(runBaseCtx)
 	}
 	deadline, _ := runCtx.Deadline()
 	state, err := s.Runs.Register(hs.header.ID, model, req.WorkspaceID, cancel, deadline)
@@ -308,6 +313,8 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 		closeEnv(env)
 		return ChatResponse{}, err
 	}
+	runCtx = distributedlog.WithRun(runCtx, state.ID, hs.header.ID)
+	state.logCtx = runCtx
 	if err := s.Audit.CreateChat(context.Background(), ChatExchange{
 		ID: newID("chat"), RunID: state.ID, SessionID: hs.header.ID,
 		WorkspaceID: req.WorkspaceID, Mode: req.Mode, Model: model,
@@ -350,6 +357,12 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 	_, onEvent := run.InstallDriverHooks(runCtx, &runCfg, set, hookDeps, source, baseOnEvent)
 	pub := func(ev StreamEvent) { state.Publish(ev) }
 	handler, finish := NewTranslateHandler(pub, model, hs.header.ID, onEvent)
+	runStarted := time.Now()
+	s.Logger.Info(runCtx, "agent run started",
+		distributedlog.F("mode", req.Mode),
+		distributedlog.F("model", model),
+		distributedlog.F("workspace_id", req.WorkspaceID),
+	)
 
 	go func() {
 		defer cancel()
@@ -359,7 +372,7 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 		_, drainErr := runtime.DrainStream(runCtx, stream, handler)
 		finish(drainErr)
 		if perr := persistSession(hs, agentCtx, model, env.ProviderName); perr != nil {
-			fmt.Fprintf(os.Stderr, "gateway: persist session %s: %v\n", hs.header.ID, perr)
+			s.Logger.Error(runCtx, "persist session failed", distributedlog.Err(perr))
 		}
 		status, errorText := runStatusDone, ""
 		responseText, stopReason, responseError := finalAssistantResult(agentCtx.Messages, hs.persisted)
@@ -379,9 +392,24 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 			}
 		}
 		if err := s.Audit.FinishChat(context.Background(), state.ID, responseText, status, errorText, time.Now().UTC()); err != nil {
-			fmt.Fprintf(os.Stderr, "gateway: finish chat audit %s: %v\n", state.ID, err)
+			s.Logger.Error(runCtx, "finish chat audit failed", distributedlog.Err(err))
 		}
 		state.Finish(drainErr)
+		fields := []distributedlog.Field{
+			distributedlog.F("mode", req.Mode),
+			distributedlog.F("model", model),
+			distributedlog.F("workspace_id", req.WorkspaceID),
+			distributedlog.F("status", status),
+			distributedlog.F("duration_ms", time.Since(runStarted).Milliseconds()),
+		}
+		if errorText != "" {
+			fields = append(fields, distributedlog.F("error", errorText))
+		}
+		if status == runStatusError || status == runStatusTimedOut {
+			s.Logger.Error(runCtx, "agent run completed", fields...)
+		} else {
+			s.Logger.Info(runCtx, "agent run completed", fields...)
+		}
 	}()
 
 	return ChatResponse{
@@ -405,7 +433,7 @@ func (s *Service) instantiateRoutePlan(plan RoutePlan, runID, sessionID string) 
 		}
 		recorder := &recordingProvider{
 			inner: candidateProvider, store: s.Audit, runID: runID, sessionID: sessionID,
-			providerID: route.ProviderID, providerName: label,
+			providerID: route.ProviderID, providerName: label, logger: s.Logger,
 		}
 		candidates = append(candidates, routedCandidate{route: route, provider: recorder})
 	}

@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
+
+	"github.com/alex6xu/jarvisserver/internal/distributedlog"
 )
 
 func (s *Service) handleListWorkspaces(w http.ResponseWriter, r *http.Request) {
@@ -36,8 +39,10 @@ func (s *Service) handleWorkspaceUploadLimits(w http.ResponseWriter, r *http.Req
 }
 
 func (s *Service) handleUploadWorkspace(w http.ResponseWriter, r *http.Request) {
+	started := time.Now()
 	accountID, ok := s.requestAccountID(r)
 	if !ok {
+		s.logWorkspaceUploadFailure(r, 0, "account", http.StatusUnauthorized, errors.New("account context is required"), started)
 		writeErr(w, http.StatusUnauthorized, "account context is required")
 		return
 	}
@@ -46,9 +51,11 @@ func (s *Service) handleUploadWorkspace(w http.ResponseWriter, r *http.Request) 
 	if err := r.ParseMultipartForm(8 << 20); err != nil {
 		var maxErr *http.MaxBytesError
 		if errors.As(err, &maxErr) {
+			s.logWorkspaceUploadFailure(r, accountID, "multipart_parse", http.StatusRequestEntityTooLarge, err, started)
 			writeErr(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("workspace archive exceeds %d MB limit", limits.archiveBytes>>20))
 			return
 		}
+		s.logWorkspaceUploadFailure(r, accountID, "multipart_parse", http.StatusBadRequest, err, started)
 		writeErr(w, http.StatusBadRequest, "invalid multipart form")
 		return
 	}
@@ -58,29 +65,54 @@ func (s *Service) handleUploadWorkspace(w http.ResponseWriter, r *http.Request) 
 	name := r.FormValue("name")
 	file, _, err := r.FormFile("archive")
 	if err != nil {
+		s.logWorkspaceUploadFailure(r, accountID, "archive_lookup", http.StatusBadRequest, err, started)
 		writeErr(w, http.StatusBadRequest, "archive is required")
 		return
 	}
 	defer file.Close()
 	size, err := file.Seek(0, io.SeekEnd)
 	if err != nil {
+		s.logWorkspaceUploadFailure(r, accountID, "archive_inspect", http.StatusBadRequest, err, started)
 		writeErr(w, http.StatusBadRequest, "cannot inspect workspace archive")
 		return
 	}
 	if size <= 0 || size > limits.archiveBytes {
+		s.logWorkspaceUploadFailure(r, accountID, "archive_size", http.StatusRequestEntityTooLarge,
+			fmt.Errorf("archive size %d is outside allowed range 1..%d", size, limits.archiveBytes), started)
 		writeErr(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("workspace archive exceeds %d MB limit", limits.archiveBytes>>20))
 		return
 	}
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		s.logWorkspaceUploadFailure(r, accountID, "archive_rewind", http.StatusBadRequest, err, started)
 		writeErr(w, http.StatusBadRequest, "cannot read workspace archive")
 		return
 	}
 	info, err := s.createWorkspaceFromZip(name, accountID, file, size)
 	if err != nil {
+		s.logWorkspaceUploadFailure(r, accountID, "workspace_create", http.StatusBadRequest, err, started)
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.Logger.Info(r.Context(), "workspace upload completed",
+		distributedlog.F("account_id", accountID),
+		distributedlog.F("workspace_id", info.ID),
+		distributedlog.F("archive_bytes", size),
+		distributedlog.F("file_count", info.FileCount),
+		distributedlog.F("workspace_bytes", info.SizeBytes),
+		distributedlog.F("duration_ms", time.Since(started).Milliseconds()),
+	)
 	writeJSON(w, http.StatusOK, map[string]any{"workspace": info})
+}
+
+func (s *Service) logWorkspaceUploadFailure(r *http.Request, accountID int, stage string, status int, err error, started time.Time) {
+	s.Logger.Error(r.Context(), "workspace upload failed",
+		distributedlog.F("account_id", accountID),
+		distributedlog.F("stage", stage),
+		distributedlog.F("status", status),
+		distributedlog.F("content_length", r.ContentLength),
+		distributedlog.F("duration_ms", time.Since(started).Milliseconds()),
+		distributedlog.Err(err),
+	)
 }
 
 func (s *Service) handleDownloadWorkspace(w http.ResponseWriter, r *http.Request) {

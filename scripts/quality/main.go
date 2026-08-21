@@ -19,6 +19,7 @@ import (
 )
 
 var corePackages = []string{
+	"./internal/distributedlog",
 	"./internal/gateway",
 	"./internal/router",
 	"./internal/runtime",

@@ -32,6 +32,7 @@ sudo install -d -o root   -g root  -m 0755 /opt/jarvis/bin
 sudo install -d -o root   -g root  -m 0755 /opt/jarvis/web
 sudo install -d -o root   -g jarvis -m 0750 /etc/jarvis
 sudo install -d -o jarvis -g jarvis -m 0700 /var/lib/jarvis/data
+sudo install -d -o jarvis -g jarvis -m 0700 /var/lib/jarvis/logs
 sudo install -d -o jarvis -g jarvis -m 0700 /var/lib/jarvis/home
 sudo install -d -o jarvis -g jarvis -m 0700 /var/lib/jarvis/workspaces
 sudo install -o root -g root -m 0755 /opt/jarvis/bin/gateway /opt/jarvis/bin/gateway
@@ -95,5 +96,21 @@ bash deploy/update-screen.sh
 ```bash
 screen -ls
 screen -r jarvis-gateway
-tail -f /root/JarvisServer/data/gateway.screen.log
+tail -f /root/JarvisServer/data/logs/access.log /root/JarvisServer/data/logs/error.log
+```
+
+业务日志以 JSON 写入文件并自动按 50 MB 轮转，最多保留 10 个备份和 7 天，旧日志会压缩。每条分布式日志包含 `service`、`environment`、`instance_id`，请求和 Agent 流程还会带 `request_id`、`run_id`、`session_id` 等关联字段。上传失败会记录 `workspace upload failed`，且不会记录令牌或文件内容。
+
+开发/screen 配置默认写入 `/root/JarvisServer/data/logs`，生产配置写入 `/var/lib/jarvis/logs`。可按消息或请求 ID 定位：
+
+```bash
+grep 'workspace upload' /root/JarvisServer/data/logs/error.log | tail -n 50
+grep 'req_xxxxxxxxxxxx' /root/JarvisServer/data/logs/*.log
+```
+
+使用 systemd 和生产配置时：
+
+```bash
+tail -f /var/lib/jarvis/logs/access.log /var/lib/jarvis/logs/error.log
+journalctl -u jarvis-gateway -f  # 仅查看启动失败和进程级输出
 ```

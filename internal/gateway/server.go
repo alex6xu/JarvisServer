@@ -1,8 +1,9 @@
 package gateway
 
 import (
-	"fmt"
+	"context"
 
+	"github.com/alex6xu/jarvisserver/internal/distributedlog"
 	"github.com/zeromicro/go-zero/rest"
 )
 
@@ -24,8 +25,12 @@ func NewServer(svc *Service, cfg Config) *Server {
 
 // Start blocks on the go-zero server.
 func (s *Server) Start() {
-	fmt.Printf("gateway listening on %s:%d (routing=provider approve=%v)\n",
-		s.Cfg.Host, s.Cfg.Port, s.Svc.Opts.Approve)
+	s.Svc.Logger.Info(context.Background(), "gateway listening",
+		distributedlog.F("host", s.Cfg.Host),
+		distributedlog.F("port", s.Cfg.Port),
+		distributedlog.F("routing", "provider"),
+		distributedlog.F("approve", s.Svc.Opts.Approve),
+	)
 	s.Rest.Start()
 }
 

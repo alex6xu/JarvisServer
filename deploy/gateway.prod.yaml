@@ -7,8 +7,21 @@ Port: 8080
 Timeout: 0
 Mode: pro              # 生产模式（关闭 dev 的宽松 CORS 等）
 Log:
-  Mode: console
+  ServiceName: jarvis-gateway
+  Mode: file
+  Encoding: json
+  Path: /var/lib/jarvis/logs
   Level: info
+  Rotation: size
+  MaxSize: 50
+  MaxBackups: 10
+  KeepDays: 7
+  Compress: true
+
+DistributedLog:
+  ServiceName: jarvis-gateway
+  Environment: production
+  # InstanceID: "" # or set JARVIS_INSTANCE_ID; defaults to hostname-pid
 
 Middlewares:
   Timeout: false       # 关闭默认请求超时，SSE / 长轮询不被截断

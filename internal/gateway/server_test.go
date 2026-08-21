@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -128,6 +129,30 @@ Agent:
 `), &cfg)
 	if err != nil {
 		t.Fatalf("legacy Model field must not break config loading: %v", err)
+	}
+}
+
+func TestGatewayConfigFilesEnableRotatingJSONLogs(t *testing.T) {
+	for _, path := range []string{"../../etc/gateway.yaml", "../../deploy/gateway.prod.yaml"} {
+		t.Run(path, func(t *testing.T) {
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var cfg Config
+			if err := conf.LoadFromYamlBytes(raw, &cfg); err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Log.Mode != "file" || cfg.Log.Encoding != "json" || cfg.Log.Path == "" {
+				t.Fatalf("file logging is not enabled: %+v", cfg.Log)
+			}
+			if cfg.Log.Rotation != "size" || cfg.Log.MaxSize <= 0 || cfg.Log.MaxBackups <= 0 || cfg.Log.KeepDays <= 0 {
+				t.Fatalf("log retention is incomplete: %+v", cfg.Log)
+			}
+			if cfg.DistributedLog.ServiceName == "" || cfg.DistributedLog.Environment == "" {
+				t.Fatalf("distributed log identity is incomplete: %+v", cfg.DistributedLog)
+			}
+		})
 	}
 }
 

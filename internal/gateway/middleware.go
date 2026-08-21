@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/alex6xu/jarvisserver/internal/distributedlog"
 	"github.com/zeromicro/go-zero/rest"
 )
 
@@ -19,7 +21,93 @@ func serverRunOptions() []rest.RunOption {
 
 // registerMiddlewares attaches request middlewares via rest.Server.Use.
 func registerMiddlewares(server *rest.Server, svc *Service) {
+	server.Use(requestLogMiddleware(svc.Logger))
 	server.Use(bearerAuthMiddleware(svc))
+}
+
+type requestLogResponseWriter struct {
+	http.ResponseWriter
+	status int
+	bytes  int64
+}
+
+func (w *requestLogResponseWriter) WriteHeader(status int) {
+	if w.status != 0 {
+		return
+	}
+	w.status = status
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *requestLogResponseWriter) Write(data []byte) (int, error) {
+	if w.status == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	n, err := w.ResponseWriter.Write(data)
+	w.bytes += int64(n)
+	return n, err
+}
+
+func (w *requestLogResponseWriter) Flush() {
+	if w.status == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	_ = http.NewResponseController(w.ResponseWriter).Flush()
+}
+
+func (w *requestLogResponseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
+func requestLogMiddleware(logger *distributedlog.Logger) rest.Middleware {
+	return func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			started := time.Now()
+			requestID := incomingRequestID(r.Header.Get("X-Request-ID"))
+			if requestID == "" {
+				requestID = newID("req")
+			}
+			w.Header().Set("X-Request-ID", requestID)
+			r = r.WithContext(distributedlog.WithRequestID(r.Context(), requestID))
+			logged := &requestLogResponseWriter{ResponseWriter: w}
+			next(logged, r)
+
+			status := logged.status
+			if status == 0 {
+				status = http.StatusOK
+			}
+			fields := []distributedlog.Field{
+				distributedlog.F("method", r.Method),
+				distributedlog.F("path", r.URL.Path),
+				distributedlog.F("status", status),
+				distributedlog.F("duration_ms", time.Since(started).Milliseconds()),
+				distributedlog.F("response_bytes", logged.bytes),
+				distributedlog.F("content_length", r.ContentLength),
+				distributedlog.F("remote_addr", r.RemoteAddr),
+			}
+			if status >= http.StatusBadRequest {
+				logger.Error(r.Context(), "http request failed", fields...)
+			}
+		}
+	}
+}
+
+func incomingRequestID(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > 128 {
+		return ""
+	}
+	for _, ch := range value {
+		if !(ch >= 'a' && ch <= 'z') && !(ch >= 'A' && ch <= 'Z') &&
+			!(ch >= '0' && ch <= '9') && ch != '-' && ch != '_' && ch != '.' {
+			return ""
+		}
+	}
+	return value
+}
+
+func requestID(r *http.Request) string {
+	return distributedlog.RequestID(r.Context())
 }
 
 // bearerAuthMiddleware enforces Authorization when AuthMode=token.

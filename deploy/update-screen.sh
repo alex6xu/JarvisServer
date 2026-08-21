@@ -108,7 +108,8 @@ for _ in {1..30}; do
     echo "    screen: ${SCREEN_NAME}"
     echo "    binary: ${BINARY}"
     echo "    web:    ${ROOT_DIR}/web/dist"
-    echo "    log:    ${LOG_FILE}"
+    echo "    process log: ${LOG_FILE}"
+    echo "    app logs:    see Log.Path in ${CONFIG_FILE}"
     exit 0
   fi
   sleep 1

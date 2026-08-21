@@ -4,8 +4,21 @@ Port: 8080
 Timeout: 0
 Mode: dev
 Log:
-  Mode: console
+  ServiceName: jarvis-gateway
+  Mode: file
+  Encoding: json
+  Path: ./data/logs
   Level: info
+  Rotation: size
+  MaxSize: 50
+  MaxBackups: 10
+  KeepDays: 7
+  Compress: true
+
+DistributedLog:
+  ServiceName: jarvis-gateway
+  Environment: development
+  # InstanceID: "" # or set JARVIS_INSTANCE_ID; defaults to hostname-pid
 
 # Disable default request timeout middleware so SSE / long polls are not cut.
 Middlewares:
