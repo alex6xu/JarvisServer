@@ -2,9 +2,10 @@ import { FormEvent, useEffect, useState } from 'react'
 import { apiFetch, useAccount } from '../context/AccountContext'
 import { useAuth } from '../context/AuthContext'
 import NotificationSettings from '../components/NotificationSettings'
+import SkillSettings from '../components/SkillSettings'
 
 export default function SettingsPage() {
-  const { user, changePassword } = useAuth()
+  const { user, changePassword, isAdmin } = useAuth()
   const { currentAccount } = useAccount()
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -416,6 +417,8 @@ export default function SettingsPage() {
         </div>
 
         <NotificationSettings accountId={currentAccount?.id} />
+
+        <SkillSettings accountId={currentAccount?.id} isAdmin={isAdmin} />
 
         <form onSubmit={onChangePassword} className="bg-card border border-border rounded-xl p-5 space-y-4">
           <h3 className="text-sm font-semibold text-foreground">修改密码</h3>

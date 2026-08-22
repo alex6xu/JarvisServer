@@ -56,6 +56,7 @@ type NotificationConfig struct {
 }
 
 type RunNotification struct {
+	RunID       string
 	Status      string
 	Mode        string
 	Model       string
@@ -64,6 +65,30 @@ type RunNotification struct {
 	Response    string
 	Error       string
 	Duration    time.Duration
+}
+
+type NotificationMessage struct {
+	Event          string            `json:"event"`
+	Title          string            `json:"title"`
+	Body           string            `json:"body"`
+	IdempotencyKey string            `json:"-"`
+	Metadata       map[string]string `json:"metadata,omitempty"`
+}
+
+type NotificationDeliveryResult struct {
+	Channel string `json:"channel"`
+	Status  string `json:"status"`
+	Error   string `json:"error,omitempty"`
+}
+
+type NotificationPublishResult struct {
+	Event       string                       `json:"event"`
+	Configured  int                          `json:"configured"`
+	Sent        int                          `json:"sent"`
+	AlreadySent int                          `json:"already_sent"`
+	Failed      int                          `json:"failed"`
+	Skipped     int                          `json:"skipped"`
+	Deliveries  []NotificationDeliveryResult `json:"deliveries"`
 }
 
 func NewNotificationService(opts Options, store *GatewayStore, stateRoot string) (*NotificationService, error) {
@@ -84,7 +109,7 @@ func normalizeNotificationEvents(events []string) ([]string, error) {
 	seen := map[string]bool{}
 	result := make([]string, 0, len(events))
 	for _, event := range events {
-		if event != "run_done" && event != "run_failed" {
+		if !validNotificationEvent(event) {
 			return nil, fmt.Errorf("unsupported notification event %q", event)
 		}
 		if !seen[event] {
@@ -96,6 +121,10 @@ func normalizeNotificationEvents(events []string) ([]string, error) {
 		return nil, errors.New("at least one notification event is required")
 	}
 	return result, nil
+}
+
+func validNotificationEvent(event string) bool {
+	return event == "run_done" || event == "run_failed" || event == "stock_digest"
 }
 
 func (s *NotificationService) encryptConfig(accountID int, kind string, config NotificationConfig) (string, error) {
@@ -235,24 +264,104 @@ func (s *NotificationService) NotifyRun(ctx context.Context, accountID int, run 
 	if run.Status != runStatusDone {
 		event = "run_failed"
 	}
+	key := strings.TrimSpace(run.RunID)
+	if key == "" {
+		key = run.SessionID + ":" + run.Status + ":" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	}
+	_, _ = s.Publish(ctx, accountID, NotificationMessage{
+		Event: event, Title: "CodeGateway 任务通知", Body: formatRunNotification(run),
+		IdempotencyKey: "run:" + key,
+	})
+}
+
+// Publish sends an event to every enabled, subscribed channel. The delivery
+// reservation is persisted before the network request so retries of the same
+// tool call cannot duplicate a mobile notification.
+func (s *NotificationService) Publish(ctx context.Context, accountID int, message NotificationMessage) (NotificationPublishResult, error) {
+	message.Event = strings.TrimSpace(message.Event)
+	message.IdempotencyKey = strings.TrimSpace(message.IdempotencyKey)
+	if !validNotificationEvent(message.Event) {
+		return NotificationPublishResult{}, fmt.Errorf("unsupported notification event %q", message.Event)
+	}
+	if message.IdempotencyKey == "" || len(message.IdempotencyKey) > 256 {
+		return NotificationPublishResult{}, errors.New("notification idempotency key is required")
+	}
+	body := strings.TrimSpace(message.Body)
+	if body == "" {
+		return NotificationPublishResult{}, errors.New("notification body is required")
+	}
+	if len([]rune(body)) > 4000 {
+		body = string([]rune(body)[:4000])
+	}
+	result := NotificationPublishResult{Event: message.Event, Deliveries: []NotificationDeliveryResult{}}
 	channels, err := s.List(ctx, accountID)
 	if err != nil {
-		return
+		return result, err
 	}
 	for _, channel := range channels {
-		if !channel.Enabled || !containsString(channel.Events, event) {
+		if !channel.Enabled || !containsString(channel.Events, message.Event) {
 			continue
 		}
-		_, config, loadErr := s.channelConfig(ctx, accountID, channel.Kind)
-		if loadErr == nil {
-			loadErr = s.send(ctx, channel.Kind, config, formatRunNotification(run))
+		result.Configured++
+		reserved, existingStatus, reserveErr := s.reserveDelivery(ctx, accountID, message.Event, message.IdempotencyKey, channel.Kind)
+		if reserveErr != nil {
+			return result, reserveErr
 		}
-		errorText := ""
-		if loadErr != nil {
-			errorText = loadErr.Error()
+		if !reserved {
+			result.Skipped++
+			status := "duplicate_" + existingStatus
+			if existingStatus == "sent" {
+				result.AlreadySent++
+			} else if existingStatus == "failed" {
+				result.Failed++
+			}
+			result.Deliveries = append(result.Deliveries, NotificationDeliveryResult{Channel: channel.Kind, Status: status})
+			continue
 		}
+		_, config, sendErr := s.channelConfig(ctx, accountID, channel.Kind)
+		if sendErr == nil {
+			sendErr = s.send(ctx, channel.Kind, config, body)
+		}
+		status, errorText := "sent", ""
+		if sendErr != nil {
+			status, errorText = "failed", sendErr.Error()
+			result.Failed++
+		} else {
+			result.Sent++
+		}
+		_ = s.finishDelivery(context.Background(), accountID, message.IdempotencyKey, channel.Kind, status, errorText)
 		_, _ = s.store.db.ExecContext(context.Background(), `UPDATE notification_channels SET last_error=? WHERE account_id=? AND kind=?`, errorText, accountID, channel.Kind)
+		result.Deliveries = append(result.Deliveries, NotificationDeliveryResult{Channel: channel.Kind, Status: status, Error: errorText})
 	}
+	return result, nil
+}
+
+func (s *NotificationService) reserveDelivery(ctx context.Context, accountID int, event, key, kind string) (bool, string, error) {
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	result, err := s.store.db.ExecContext(ctx, `
+INSERT INTO notification_deliveries(account_id, event, idempotency_key, channel_kind, status, created_at, updated_at)
+VALUES (?, ?, ?, ?, 'pending', ?, ?) ON CONFLICT(account_id, idempotency_key, channel_kind) DO NOTHING`,
+		accountID, event, key, kind, now, now)
+	if err != nil {
+		return false, "", err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil || affected == 1 {
+		return affected == 1, "", err
+	}
+	var status string
+	err = s.store.db.QueryRowContext(ctx, `
+SELECT status FROM notification_deliveries
+WHERE account_id=? AND idempotency_key=? AND channel_kind=?`, accountID, key, kind).Scan(&status)
+	return false, status, err
+}
+
+func (s *NotificationService) finishDelivery(ctx context.Context, accountID int, key, kind, status, errorText string) error {
+	_, err := s.store.db.ExecContext(ctx, `
+UPDATE notification_deliveries SET status=?, error=?, updated_at=?
+WHERE account_id=? AND idempotency_key=? AND channel_kind=?`,
+		status, errorText, time.Now().UTC().Format(time.RFC3339Nano), accountID, key, kind)
+	return err
 }
 
 func (s *NotificationService) validateConfig(ctx context.Context, kind string, config NotificationConfig) error {

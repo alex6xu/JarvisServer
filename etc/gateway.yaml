@@ -43,7 +43,7 @@ Agent:
   # APIKey: ""
   # ThinkingLevel: ""
   # NoTools: false
-  # NoSkills: false
+  # NoSkills: false # Skill directory defaults to ~/.agents/skills; override with JARVIS_SKILLS_DIR.
   # WorkspacesRoot: ./workspaces
   # DatabasePath: ./.jarvis/gateway.db
   # APIToken: ""

@@ -117,6 +117,8 @@ export interface WatchlistItem {
   code: string
   name: string
   market: string
+  asset_type?: 'stock' | 'crypto'
+  sort_order?: number
 }
 
 export type CryptoExchange = 'binance' | 'okx'

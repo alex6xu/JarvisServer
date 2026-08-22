@@ -233,6 +233,24 @@ Environment=BOCHA_API_KEYS=REPLACE_WITH_API_KEY
 Environment=BRAVE_API_KEY=REPLACE_WITH_API_KEY
 ```
 
+启用自定义 Skill 和内置 `stock-latest-digest` 时，为 Gateway 配置一个可写、不可被
+Web 直接访问的目录：
+
+```ini
+Environment=JARVIS_SKILLS_DIR=/var/lib/jarvis/skills
+```
+
+```bash
+sudo install -d -o jarvis -g jarvis -m 0750 /var/lib/jarvis/skills
+```
+
+同时保持 `Agent.NoSkills: false`。Gateway 启动时会安装缺失的内置 Skill，并在
+Settings 中提供管理员编辑、校验、启停和 Reload。普通账号只能启停已发布 Skill。
+Skill 文件不能保存 API Key；密钥继续通过服务环境或 Gateway 的加密配置提供。
+
+股票摘要还会自动创建 `skills`、`account_skills`、`watchlist_items` 和
+`notification_deliveries` 表。无需手工执行 SQL；升级前仍应先备份 SQLite 数据库。
+
 舆情接口会把 `AAPL`、`AAPL.US`、`US:AAPL` 和东财 `105.AAPL` 等形式统一为
 `AAPL`。默认缓存 24 小时，以控制第三方免费额度消耗；上游不可用时会回退 SQLite
 中最近一次快照并标记为过期。详细说明见 [`stock-sentiment.md`](stock-sentiment.md)。

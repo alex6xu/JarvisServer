@@ -36,7 +36,7 @@ func TestNotificationChannelCRUDAndOpenClawDelivery(t *testing.T) {
 	t.Cleanup(func() { _ = svc.Close() })
 
 	channel, err := svc.Notifications.Upsert(context.Background(), 1, notificationWeChat, "微信", true,
-		[]string{"run_done", "run_failed"}, NotificationConfig{BridgeURL: bridge.URL, AccessToken: "bridge-secret", Target: "wx-user"})
+		[]string{"run_done", "run_failed", "stock_digest"}, NotificationConfig{BridgeURL: bridge.URL, AccessToken: "bridge-secret", Target: "wx-user"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,6 +61,50 @@ func TestNotificationChannelCRUDAndOpenClawDelivery(t *testing.T) {
 	}
 	if err := svc.Notifications.Delete(context.Background(), 1, notificationWeChat); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestNotificationPublishIsIdempotent(t *testing.T) {
+	requests := 0
+	fail := false
+	bridge := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		if fail {
+			http.Error(w, "failed", http.StatusBadGateway)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	}))
+	t.Cleanup(bridge.Close)
+	root := t.TempDir()
+	svc, err := NewService(Options{Cwd: root, DatabasePath: filepath.Join(root, "gateway.db"), AdminPassword: "test-password", NoTools: true, AllowPrivateNotificationURLs: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = svc.Close() })
+	_, err = svc.Notifications.Upsert(context.Background(), 1, notificationWeChat, "微信", true,
+		[]string{"stock_digest"}, NotificationConfig{BridgeURL: bridge.URL, Target: "wx-user"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	message := NotificationMessage{Event: "stock_digest", Body: "digest", IdempotencyKey: "digest-1"}
+	first, err := svc.Notifications.Publish(context.Background(), 1, message)
+	if err != nil || first.Sent != 1 {
+		t.Fatalf("first=%+v err=%v", first, err)
+	}
+	second, err := svc.Notifications.Publish(context.Background(), 1, message)
+	if err != nil || second.Skipped != 1 || second.AlreadySent != 1 || requests != 1 {
+		t.Fatalf("second=%+v requests=%d err=%v", second, requests, err)
+	}
+	fail = true
+	failedMessage := NotificationMessage{Event: "stock_digest", Body: "digest", IdempotencyKey: "digest-2"}
+	failed, err := svc.Notifications.Publish(context.Background(), 1, failedMessage)
+	if err != nil || failed.Failed != 1 {
+		t.Fatalf("failed=%+v err=%v", failed, err)
+	}
+	duplicateFailed, err := svc.Notifications.Publish(context.Background(), 1, failedMessage)
+	if err != nil || duplicateFailed.Failed != 1 || duplicateFailed.AlreadySent != 0 || requests != 2 {
+		t.Fatalf("duplicate failed=%+v requests=%d err=%v", duplicateFailed, requests, err)
 	}
 }
 

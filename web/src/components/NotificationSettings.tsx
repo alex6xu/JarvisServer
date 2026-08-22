@@ -12,7 +12,7 @@ import {
 import { apiFetch } from '../context/AccountContext'
 
 type ChannelKind = 'wechat' | 'telegram' | 'dingtalk'
-type NotificationEvent = 'run_done' | 'run_failed'
+type NotificationEvent = 'run_done' | 'run_failed' | 'stock_digest'
 
 interface NotificationChannel {
   kind: ChannelKind
@@ -40,6 +40,7 @@ interface ChannelDraft {
   enabled: boolean
   runDone: boolean
   runFailed: boolean
+  stockDigest: boolean
   config: ChannelConfig
 }
 
@@ -92,7 +93,7 @@ const CHANNELS: ChannelDefinition[] = [
 ]
 
 function newDraft(): ChannelDraft {
-  return { enabled: true, runDone: true, runFailed: true, config: {} }
+  return { enabled: true, runDone: true, runFailed: true, stockDigest: false, config: {} }
 }
 
 function initialDrafts(): Record<ChannelKind, ChannelDraft> {
@@ -152,6 +153,7 @@ export default function NotificationSettings({ accountId }: { accountId?: number
             enabled: channel.enabled,
             runDone: channel.events.includes('run_done'),
             runFailed: channel.events.includes('run_failed'),
+            stockDigest: channel.events.includes('stock_digest'),
             config: {},
           }
         }
@@ -182,6 +184,7 @@ export default function NotificationSettings({ accountId }: { accountId?: number
     const events: NotificationEvent[] = []
     if (draft.runDone) events.push('run_done')
     if (draft.runFailed) events.push('run_failed')
+    if (draft.stockDigest) events.push('stock_digest')
     if (events.length === 0) {
       setErrors((current) => ({ ...current, [kind]: '至少选择一种通知事件' }))
       return
@@ -357,6 +360,15 @@ export default function NotificationSettings({ accountId }: { accountId?: number
                   className="h-4 w-4 rounded border-border accent-primary"
                 />
                 任务失败
+              </label>
+              <label className="flex cursor-pointer items-center gap-2 text-[12px] text-foreground">
+                <input
+                  type="checkbox"
+                  checked={draft.stockDigest}
+                  onChange={(event) => updateDraft(kind, (current) => ({ ...current, stockDigest: event.target.checked }))}
+                  className="h-4 w-4 rounded border-border accent-primary"
+                />
+                股票摘要
               </label>
             </div>
 

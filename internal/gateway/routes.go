@@ -22,11 +22,18 @@ func apiRoutes(svc *Service) []rest.Route {
 		{Method: http.MethodGet, Path: "/v1/stocks/search", Handler: svc.handleStockSearch},
 		{Method: http.MethodGet, Path: "/v1/stocks/sentiment", Handler: svc.handleStockSentiment},
 		{Method: http.MethodGet, Path: "/v1/stocks/news-sentiment", Handler: svc.handleStockNewsSentiment},
+		{Method: http.MethodPost, Path: "/v1/stocks/latest-digest", Handler: svc.handleStockLatestDigest},
+		{Method: http.MethodGet, Path: "/v1/stocks/watchlist", Handler: svc.handleListWatchlist},
+		{Method: http.MethodPost, Path: "/v1/stocks/watchlist", Handler: svc.handleUpsertWatchlist},
+		{Method: http.MethodPut, Path: "/v1/stocks/watchlist/order", Handler: svc.handleReorderWatchlist},
+		{Method: http.MethodDelete, Path: "/v1/stocks/watchlist/:symbol", Handler: svc.handleDeleteWatchlist},
 		{Method: http.MethodGet, Path: "/v1/crypto/candles", Handler: svc.handleCryptoCandles},
 		{Method: http.MethodGet, Path: "/v1/notifications/channels", Handler: svc.handleListNotificationChannels},
 		{Method: http.MethodPut, Path: "/v1/notifications/channels/:kind", Handler: svc.handleUpsertNotificationChannel},
 		{Method: http.MethodDelete, Path: "/v1/notifications/channels/:kind", Handler: svc.handleDeleteNotificationChannel},
 		{Method: http.MethodPost, Path: "/v1/notifications/channels/:kind/test", Handler: svc.handleTestNotificationChannel},
+		{Method: http.MethodGet, Path: "/v1/skills", Handler: svc.handleListAccountSkills},
+		{Method: http.MethodPut, Path: "/v1/skills/:name/status", Handler: svc.handleAccountSkillStatus},
 
 		// Auth
 		{Method: http.MethodGet, Path: "/v1/auth/config", Handler: svc.handleAuthConfig},
@@ -106,6 +113,16 @@ func apiRoutes(svc *Service) []rest.Route {
 		{Method: http.MethodPost, Path: "/v1/admin/route-policies", Handler: svc.handlePublishRoutePolicy},
 		{Method: http.MethodPut, Path: "/v1/admin/route-policies/:id", Handler: svc.handlePublishRoutePolicy},
 		{Method: http.MethodGet, Path: "/v1/admin/runs/:runId/attempts", Handler: svc.handleListRunAttempts},
+
+		// Admin skills (static paths before :name)
+		{Method: http.MethodGet, Path: "/v1/admin/skills", Handler: svc.handleAdminListSkills},
+		{Method: http.MethodPost, Path: "/v1/admin/skills/validate", Handler: svc.handleAdminValidateSkill},
+		{Method: http.MethodPost, Path: "/v1/admin/skills/reload", Handler: svc.handleAdminReloadSkills},
+		{Method: http.MethodPost, Path: "/v1/admin/skills", Handler: svc.handleAdminCreateSkill},
+		{Method: http.MethodGet, Path: "/v1/admin/skills/:name", Handler: svc.handleAdminGetSkill},
+		{Method: http.MethodPut, Path: "/v1/admin/skills/:name", Handler: svc.handleAdminUpdateSkill},
+		{Method: http.MethodPut, Path: "/v1/admin/skills/:name/status", Handler: svc.handleAdminSkillStatus},
+		{Method: http.MethodDelete, Path: "/v1/admin/skills/:name", Handler: svc.handleAdminDeleteSkill},
 
 		// Admin stats / logs / route profiles
 		{Method: http.MethodGet, Path: "/v1/admin/stats", Handler: svc.handleAdminStats},

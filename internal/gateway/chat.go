@@ -38,6 +38,8 @@ type Service struct {
 	NewsSentiment *StockNewsSentimentService
 	Crypto        *CryptoService
 	Notifications *NotificationService
+	Digest        *StockDigestService
+	Skills        *SkillRegistryService
 	Logger        *distributedlog.Logger
 }
 
@@ -48,7 +50,37 @@ func gatewayToolPolicy(mode string, disabled bool) run.ToolPolicy {
 	if disabled || strings.EqualFold(mode, "coder") {
 		return run.ToolPolicy{}
 	}
-	return run.NewToolPolicy([]string{"websearch", "webfetch"}, nil)
+	return run.NewToolPolicy([]string{"websearch", "webfetch", "memory_search", "stock_latest_digest", "skill_load"}, nil)
+}
+
+func applyGatewayToolPolicy(mode string, disabled bool, tools []agentcore.AgentTool, snapshot SkillSnapshot) []agentcore.AgentTool {
+	policy := gatewayToolPolicy(mode, disabled)
+	if policy.IsZero() {
+		return tools
+	}
+	restrictedBuiltins := map[string]bool{
+		"read": true, "write": true, "edit": true, "grep": true, "find": true,
+		"bash": true, "bash_output": true, "kill_bash": true, "todo": true, "task": true,
+	}
+	allowed := make(map[string]bool, len(policy.Allow))
+	for _, name := range policy.Allow {
+		allowed[name] = true
+	}
+	// An administrator-installed plugin may be enabled by a Skill. Built-in
+	// workspace tools remain governed by the Chat profile and cannot be added by
+	// Markdown frontmatter.
+	for _, skill := range snapshot.Skills {
+		for _, name := range skillAllowedTools(skill) {
+			if !restrictedBuiltins[name] {
+				allowed[name] = true
+			}
+		}
+	}
+	names := make([]string, 0, len(allowed))
+	for name := range allowed {
+		names = append(names, name)
+	}
+	return run.ApplyToolPolicy(tools, run.NewToolPolicy(names, nil))
 }
 
 func attachChatMemoryTool(mode string, env *run.Env) {
@@ -185,7 +217,7 @@ func NewService(opts Options) (*Service, error) {
 		return nil, fmt.Errorf("initialize notifications: %w", err)
 	}
 	runs := newRunManager(opts.Logger, audit)
-	return &Service{
+	service := &Service{
 		Opts:          opts,
 		Runs:          runs,
 		Store:         audit,
@@ -201,7 +233,20 @@ func NewService(opts Options) (*Service, error) {
 		Crypto:        NewCryptoService(opts),
 		Notifications: notifications,
 		Logger:        opts.Logger,
-	}, nil
+	}
+	service.Digest = NewStockDigestService(service.Stocks, service.Crypto, service.NewsSentiment, service.Sentiment, service.Notifications, audit)
+	if !opts.NoSkills {
+		_, _ = run.LoadSkills(false)
+		knownTools := []string{"stock_latest_digest", "skill_load", "memory_search"}
+		for _, tool := range run.BuiltinTools(opts.Cwd, false) {
+			knownTools = append(knownTools, tool.Name())
+		}
+		service.Skills = NewSkillRegistryService(audit, run.SkillsDir(), knownTools)
+		if _, reloadErr := service.Skills.Reload(context.Background()); reloadErr != nil {
+			opts.Logger.Error(context.Background(), "skill registry reload failed", distributedlog.Err(reloadErr))
+		}
+	}
+	return service, nil
 }
 
 // Close releases persistent Gateway resources.
@@ -219,6 +264,15 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 		return ChatResponse{}, fmt.Errorf("message is required")
 	}
 	model := strings.TrimSpace(req.Model)
+	var skillSnapshot SkillSnapshot
+	if s.Skills != nil {
+		var snapshotErr error
+		skillSnapshot, snapshotErr = s.Skills.Snapshot(ctx, req.AccountID)
+		if snapshotErr != nil {
+			return ChatResponse{}, fmt.Errorf("load skills: %w", snapshotErr)
+		}
+		msg = expandGatewaySkillCommand(msg, skillSnapshot)
+	}
 
 	runCwd := s.Opts.Cwd
 	var err error
@@ -288,22 +342,30 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 		route.ProviderName,
 		route.APIKey,
 		noTools,
-		s.Opts.NoSkills,
+		true,
 		runtime.BaseInstructionForMode(req.Mode),
 		nil,
 		true,
-		gatewayToolPolicy(req.Mode, noTools),
+		run.ToolPolicy{},
 	)
 	if err != nil {
 		return ChatResponse{}, err
 	}
 	attachChatMemoryTool(req.Mode, &env)
+	if !noTools && s.Digest != nil {
+		env.Tools = append(env.Tools, &StockDigestTool{Service: s.Digest, AccountID: req.AccountID, SessionID: hs.header.ID})
+	}
+	if !noTools && len(skillSnapshot.Skills) > 0 {
+		env.Tools = append(env.Tools, &SkillLoadTool{Snapshot: skillSnapshot})
+	}
+	env.Tools = applyGatewayToolPolicy(req.Mode, noTools, env.Tools, skillSnapshot)
 
 	sysPrompt := hs.header.SystemPrompt
 	if sysPrompt == "" {
 		sysPrompt = env.SysPrompt
-		hs.header.SystemPrompt = sysPrompt
 	}
+	sysPrompt = withGatewaySkillCatalog(sysPrompt, skillSnapshot)
+	hs.header.SystemPrompt = sysPrompt
 
 	messages := append(agentcore.MessageList{}, prior...)
 	messages = append(messages, agentcore.UserMessage{
@@ -464,7 +526,7 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 		state.Finish(drainErr)
 		if s.Notifications != nil {
 			go s.Notifications.NotifyRun(context.Background(), req.AccountID, RunNotification{
-				Status: status, Mode: req.Mode, Model: model, SessionID: hs.header.ID,
+				RunID: state.ID, Status: status, Mode: req.Mode, Model: model, SessionID: hs.header.ID,
 				WorkspaceID: req.WorkspaceID, Duration: time.Since(runStarted), Response: responseText, Error: errorText,
 			})
 		}

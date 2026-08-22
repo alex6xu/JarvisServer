@@ -58,6 +58,22 @@ var goalWorkflowSkills = []string{
 	"architecture-diagram", "weather",
 }
 
+var marketSkills = []string{"stock-latest-digest"}
+
+// IsBuiltin reports whether name belongs to an embedded collection. Gateway
+// management uses it to keep built-in definitions immutable while still
+// allowing administrators to disable them.
+func IsBuiltin(name string) bool {
+	for _, set := range Manifest() {
+		for _, candidate := range set.Skills {
+			if candidate == name {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // Manifest is the single source of truth for the built-in skill collections
 // installed on first run. It seeds one collection today; adding a Set is all
 // that is needed to bundle another collection.
@@ -68,6 +84,13 @@ func Manifest() []Set {
 			Version: "2026-07-24",
 			Root:    "skills",
 			Skills:  goalWorkflowSkills,
+			FS:      skillsFS,
+		},
+		{
+			Name:    "market",
+			Version: "2026-08-22",
+			Root:    "skills",
+			Skills:  marketSkills,
 			FS:      skillsFS,
 		},
 	}

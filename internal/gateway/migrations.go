@@ -317,6 +317,65 @@ CREATE INDEX IF NOT EXISTS idx_stock_news_sentiment_expires
     ON stock_news_sentiment_cache(expires_at);
 `
 
+const skillRegistrySchema = `
+CREATE TABLE IF NOT EXISTS skills (
+    name TEXT PRIMARY KEY,
+    relative_path TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL,
+    allowed_tools_json TEXT NOT NULL DEFAULT '[]',
+    source TEXT NOT NULL DEFAULT 'custom',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    revision INTEGER NOT NULL DEFAULT 1,
+    content_sha256 TEXT NOT NULL,
+    validation_error TEXT NOT NULL DEFAULT '',
+    created_by INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS account_skills (
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    skill_name TEXT NOT NULL REFERENCES skills(name) ON DELETE CASCADE,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(account_id, skill_name)
+);
+`
+
+const watchlistSchema = `
+CREATE TABLE IF NOT EXISTS watchlist_items (
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    symbol TEXT NOT NULL,
+    code TEXT NOT NULL DEFAULT '',
+    name TEXT NOT NULL DEFAULT '',
+    market TEXT NOT NULL DEFAULT '',
+    asset_type TEXT NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(account_id, symbol)
+);
+CREATE INDEX IF NOT EXISTS idx_watchlist_account_order
+    ON watchlist_items(account_id, sort_order, created_at);
+`
+
+const notificationDeliveriesSchema = `
+CREATE TABLE IF NOT EXISTS notification_deliveries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    event TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    channel_kind TEXT NOT NULL,
+    status TEXT NOT NULL,
+    error TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(account_id, idempotency_key, channel_kind)
+);
+CREATE INDEX IF NOT EXISTS idx_notification_deliveries_account_created
+    ON notification_deliveries(account_id, created_at DESC);
+`
+
 var gatewayMigrations = []gatewayMigration{
 	{version: 1, name: "gateway_base", schema: gatewaySchema},
 	{version: 2, name: "control_plane_repositories", schema: controlPlaneSchema},
@@ -331,6 +390,9 @@ var gatewayMigrations = []gatewayMigration{
 	{version: 11, name: "notification_channels", schema: notificationChannelsSchema},
 	{version: 12, name: "stock_sentiment", schema: stockSentimentSchema},
 	{version: 13, name: "stock_news_sentiment", schema: stockNewsSentimentSchema},
+	{version: 14, name: "skill_registry", schema: skillRegistrySchema},
+	{version: 15, name: "watchlist", schema: watchlistSchema},
+	{version: 16, name: "notification_deliveries", schema: notificationDeliveriesSchema},
 }
 
 func applyGatewayMigrations(db *sql.DB) error {

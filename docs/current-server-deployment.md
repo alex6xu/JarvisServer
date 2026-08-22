@@ -166,6 +166,22 @@ GITHUB_REDIRECT_URL
 GITHUB_TOKEN_KEY
 ```
 
+部署 Skill Registry 和股票摘要功能时，需要在该环境文件新增：
+
+```text
+JARVIS_SKILLS_DIR=/root/JarvisServer/data/skills
+```
+
+并在重启前创建目录：
+
+```bash
+install -d -m 0750 /root/JarvisServer/data/skills
+```
+
+新闻和社交舆情按需增加 `ANSPIRE_API_KEYS`、`TAVILY_API_KEY`、
+`BOCHA_API_KEYS`、`BRAVE_API_KEY` 和 `SOCIAL_SENTIMENT_API_KEY`。这些值不能写入
+`gateway.server.yaml`、Skill 正文或 Git。
+
 `JARVIS_ADMIN_PASSWORD` 只应作为首个管理员初始化手段。账号已经写入数据库后，认证以数据库
 中的密码哈希为准。`GITHUB_TOKEN_KEY` 用于加密数据库内的 GitHub 用户凭据，必须和数据库
 一起备份，否则已有 GitHub 连接将无法解密。
@@ -240,6 +256,9 @@ PRAGMA busy_timeout = 5000;
 - `workspace_metadata`：Workspace 名称、来源和账号归属。
 - `route_profiles`、`route_policies`、`route_policy_versions`：模型路由配置。
 - `github_credentials`：使用 `GITHUB_TOKEN_KEY` 加密的 GitHub Token。
+- `skills`、`account_skills`：Skill 修订、全局状态和账号启停，不保存 Skill 正文。
+- `watchlist_items`：账号服务端自选股。
+- `notification_deliveries`：通知投递状态和幂等键，不保存渠道 Secret。
 - `schema_migrations`：数据库迁移版本。
 
 当前服务器没有安装 `sqlite3`，也没有发现 Jarvis 数据库的 cron 或 systemd 定时备份。建议先安装

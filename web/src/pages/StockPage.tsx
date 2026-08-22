@@ -34,8 +34,8 @@ import {
   formatSigned,
 	isUSStockSymbol,
   loadStockWatchlist,
-  quoteDirection,
-  saveStockWatchlist,
+	quoteDirection,
+	stockWatchlistKey,
 } from '../lib/stocks'
 
 const REFRESH_INTERVAL_MS = 30_000
@@ -105,7 +105,6 @@ async function responseError(response: Response, fallback: string): Promise<stri
 export default function StockPage() {
   const { currentAccount } = useAccount()
   const [watchlist, setWatchlist] = useState<WatchlistItem[]>([])
-  const [loadedAccountId, setLoadedAccountId] = useState<number | null>(null)
   const [quotes, setQuotes] = useState<Record<string, StockQuote>>({})
   const [query, setQuery] = useState('')
   const [searchResults, setSearchResults] = useState<StockSearchResult[]>([])
@@ -114,6 +113,7 @@ export default function StockPage() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [quoteError, setQuoteError] = useState('')
+  const [watchlistError, setWatchlistError] = useState('')
   const [fetchedAt, setFetchedAt] = useState<string | null>(null)
 	const [sentimentTicker, setSentimentTicker] = useState('')
 	const [sentiment, setSentiment] = useState<StockSentimentSnapshot | null>(null)
@@ -137,19 +137,42 @@ export default function StockPage() {
     const accountId = currentAccount?.id
     if (!accountId) {
       setWatchlist([])
-      setLoadedAccountId(null)
       return
     }
-    setWatchlist(loadStockWatchlist(localStorage, accountId))
-    setLoadedAccountId(accountId)
-  }, [currentAccount?.id])
-
-  useEffect(() => {
-    const accountId = currentAccount?.id
-    if (accountId && loadedAccountId === accountId) {
-      saveStockWatchlist(localStorage, accountId, watchlist)
+    let active = true
+    setWatchlist([])
+    setWatchlistError('')
+    void apiFetch('/v1/stocks/watchlist', {}, accountId)
+      .then(async (response) => {
+        if (!response.ok) throw new Error(await responseError(response, '自选股加载失败'))
+        const body = await response.json() as { items?: WatchlistItem[] }
+        let items = body.items || []
+        if (items.length === 0) {
+          const localItems = loadStockWatchlist(localStorage, accountId)
+          if (localItems.length > 0) {
+            const migration = await apiFetch('/v1/stocks/watchlist', {
+              method: 'POST',
+              body: JSON.stringify({
+                items: localItems.map((item, index) => ({ ...item, asset_type: 'stock', sort_order: index })),
+              }),
+            }, accountId)
+            if (!migration.ok) throw new Error(await responseError(migration, '本地自选股迁移失败'))
+            const migrated = await migration.json() as { items?: WatchlistItem[] }
+            items = migrated.items || []
+            localStorage.removeItem(stockWatchlistKey(accountId))
+          }
+        }
+        if (active) {
+          setWatchlist(items)
+        }
+      })
+      .catch((error: unknown) => {
+        if (active) setWatchlistError(error instanceof Error ? error.message : '自选股加载失败')
+      })
+    return () => {
+      active = false
     }
-  }, [currentAccount?.id, loadedAccountId, watchlist])
+  }, [currentAccount?.id])
 
   const symbolsKey = useMemo(() => {
     const symbols = [...MARKET_OVERVIEW, ...watchlist].map((item) => item.symbol)
@@ -338,23 +361,41 @@ export default function StockPage() {
   const watchlistFull = watchlist.length >= 26
   const isStale = fetchedAt ? Date.now() - new Date(fetchedAt).getTime() > STALE_AFTER_MS : false
 
-  const addToWatchlist = (result: StockSearchResult) => {
-    if (watchlistFull) return
-    setWatchlist((current) => {
-      if (current.some((item) => item.symbol === result.symbol) || current.length >= 26) return current
-      return [...current, {
-        symbol: result.symbol,
-        code: result.code,
-        name: result.name,
-        market: result.market,
-      }]
-    })
-    setQuery('')
-    setSearchResults([])
+  const addToWatchlist = async (result: StockSearchResult) => {
+    if (watchlistFull || !currentAccount?.id || watchlistSymbols.has(result.symbol)) return
+    setWatchlistError('')
+    try {
+      const response = await apiFetch('/v1/stocks/watchlist', {
+        method: 'POST',
+        body: JSON.stringify({ items: [{
+          symbol: result.symbol,
+          code: result.code,
+          name: result.name,
+          market: result.market,
+          asset_type: 'stock',
+          sort_order: watchlist.length,
+        }] }),
+      }, currentAccount.id)
+      if (!response.ok) throw new Error(await responseError(response, '添加自选股失败'))
+      const body = await response.json() as { items?: WatchlistItem[] }
+      setWatchlist(body.items || [])
+      setQuery('')
+      setSearchResults([])
+    } catch (error) {
+      setWatchlistError(error instanceof Error ? error.message : '添加自选股失败')
+    }
   }
 
-  const removeFromWatchlist = (symbol: string) => {
-    setWatchlist((current) => current.filter((item) => item.symbol !== symbol))
+  const removeFromWatchlist = async (symbol: string) => {
+    if (!currentAccount?.id) return
+    setWatchlistError('')
+    try {
+      const response = await apiFetch(`/v1/stocks/watchlist/${encodeURIComponent(symbol)}`, { method: 'DELETE' }, currentAccount.id)
+      if (!response.ok) throw new Error(await responseError(response, '移除自选股失败'))
+      setWatchlist((current) => current.filter((item) => item.symbol !== symbol))
+    } catch (error) {
+      setWatchlistError(error instanceof Error ? error.message : '移除自选股失败')
+    }
   }
 
   return (
@@ -384,10 +425,10 @@ export default function StockPage() {
       </header>
 
       <div className="space-y-7 px-4 py-5 sm:px-6">
-        {quoteError && (
+        {(quoteError || watchlistError) && (
           <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-[12px] text-amber-300">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-            <span>{quoteError}{Object.keys(quotes).length > 0 ? '，当前展示上次获取的数据。' : ''}</span>
+            <span>{watchlistError || quoteError}{quoteError && Object.keys(quotes).length > 0 ? '，当前展示上次获取的数据。' : ''}</span>
           </div>
         )}
 
@@ -766,7 +807,7 @@ export default function StockPage() {
                       <button
                         key={result.symbol}
                         type="button"
-                        onClick={() => !added && addToWatchlist(result)}
+                        onClick={() => !added && void addToWatchlist(result)}
                         disabled={added || watchlistFull}
                         title={watchlistFull && !added ? '自选列表已达上限' : undefined}
                         className="flex w-full items-center gap-3 border-b border-border px-3 py-2.5 text-left transition-colors last:border-b-0 hover:bg-accent disabled:cursor-default"
@@ -838,7 +879,7 @@ export default function StockPage() {
                         <td className="px-3 py-3 text-right">
                           <button
                             type="button"
-                            onClick={() => removeFromWatchlist(item.symbol)}
+                            onClick={() => void removeFromWatchlist(item.symbol)}
                             title={`移除 ${item.name}`}
                             aria-label={`移除 ${item.name}`}
                             className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-400"
@@ -869,7 +910,7 @@ export default function StockPage() {
                           </div>
                           <button
                             type="button"
-                            onClick={() => removeFromWatchlist(item.symbol)}
+                            onClick={() => void removeFromWatchlist(item.symbol)}
                             title={`移除 ${item.name}`}
                             aria-label={`移除 ${item.name}`}
                             className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-red-500/10 hover:text-red-400"
