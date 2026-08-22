@@ -146,6 +146,10 @@ Log:
 Middlewares:
   # Chat 使用 SSE，不能应用普通短请求超时。
   Timeout: false
+  # Coder 构建会拉高单核 CPU，不使用会误伤 Chat/恢复接口的全局丢弃。
+  Shedding: false
+  # 使用 Gateway 自有结构化访问日志，避免原始请求头进入日志。
+  Log: false
 
 Agent:
   Cwd: /var/lib/jarvis

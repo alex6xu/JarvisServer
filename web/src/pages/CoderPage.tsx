@@ -189,21 +189,6 @@ export default function CoderPage() {
         const result = await restoreSession({
           accountId: currentAccount.id,
           storageKey: sessionStorageKey,
-          consumeActiveRun: async (targetRunId, assistantId, afterSeq, model) => {
-            if (cancelled) return
-            setRunId(targetRunId)
-            setIsLoading(true)
-            await consumeRunEvents(targetRunId, assistantId, {
-              accountId: currentAccount.id,
-              afterSeq,
-              fallbackModel: model || selectedModel,
-              onSessionId: setSessionId,
-              onUserInjected: markQueuedMessageInjected,
-              setMessages,
-              setIsLoading,
-              setRunId,
-            })
-          },
         })
         if (cancelled) return
         if (!result) {
@@ -218,6 +203,16 @@ export default function CoderPage() {
         if (result.activeRunId) {
           setRunId(result.activeRunId)
           setIsLoading(true)
+          await consumeRunEvents(result.activeRunId, `run-${result.activeRunId}`, {
+            accountId: currentAccount.id,
+            afterSeq: result.afterSeq,
+            fallbackModel: result.activeModel || selectedModel,
+            onSessionId: setSessionId,
+            onUserInjected: markQueuedMessageInjected,
+            setMessages,
+            setIsLoading,
+            setRunId,
+          })
         } else {
           setRunId('')
           setIsLoading(false)

@@ -176,6 +176,9 @@ func TestGatewayConfigFilesEnableRotatingJSONLogs(t *testing.T) {
 			if cfg.DistributedLog.ServiceName == "" || cfg.DistributedLog.Environment == "" {
 				t.Fatalf("distributed log identity is incomplete: %+v", cfg.DistributedLog)
 			}
+			if cfg.Middlewares.Timeout || cfg.Middlewares.Shedding || cfg.Middlewares.Log {
+				t.Fatalf("unsafe default middleware is enabled: %+v", cfg.Middlewares)
+			}
 		})
 	}
 }

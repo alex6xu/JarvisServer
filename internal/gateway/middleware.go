@@ -87,6 +87,8 @@ func requestLogMiddleware(logger *distributedlog.Logger) rest.Middleware {
 			}
 			if status >= http.StatusBadRequest {
 				logger.Error(r.Context(), "http request failed", fields...)
+			} else {
+				logger.Info(r.Context(), "http request completed", fields...)
 			}
 		}
 	}

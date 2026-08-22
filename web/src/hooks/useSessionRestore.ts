@@ -28,12 +28,6 @@ type RestoreOpts = {
   preferUrl?: boolean
   /** Explicit session override (e.g. from navigation). */
   sessionId?: string
-  consumeActiveRun?: (
-    runId: string,
-    assistantId: string,
-    afterSeq: number,
-    model?: string,
-  ) => Promise<void>
 }
 
 /**
@@ -118,21 +112,14 @@ export function useSessionRestore() {
         } else {
           messages = attachToolStepsToMessages(messages, data.active_run_tool_steps)
         }
-        const afterSeq = typeof data.last_event_seq === 'number' ? 0 : 0
-        if (opts.consumeActiveRun) {
-          await opts.consumeActiveRun(active.id, assistantId, afterSeq, active.model)
-          return {
-            sessionId: saved,
-            messages,
-            workspaceId,
-          }
-        }
         return {
           sessionId: saved,
           messages,
           activeRunId: active.id,
           activeModel: active.model,
-          afterSeq,
+          // Partial active-run output is not in the session transcript, so
+          // replay the run after the placeholder has been mounted.
+          afterSeq: 0,
           workspaceId,
         }
       }

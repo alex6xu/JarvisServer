@@ -140,6 +140,8 @@ Log:
 
 Middlewares:
   Timeout: false
+  Shedding: false
+  Log: false
 
 Agent:
   Cwd: /root/JarvisServer/runtime

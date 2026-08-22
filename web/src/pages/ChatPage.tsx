@@ -36,20 +36,6 @@ export default function ChatPage() {
         const result = await restoreSession({
           accountId: currentAccount.id,
           storageKey,
-          consumeActiveRun: async (targetRunId, assistantId, afterSeq, model) => {
-            if (cancelled) return
-            setRunId(targetRunId)
-            setIsLoading(true)
-            await consumeRunEvents(targetRunId, assistantId, {
-              accountId: currentAccount.id,
-              afterSeq,
-              fallbackModel: model,
-              onSessionId: setSessionId,
-              setMessages,
-              setIsLoading,
-              setRunId,
-            })
-          },
         })
         if (cancelled) return
         if (!result) {
@@ -64,6 +50,15 @@ export default function ChatPage() {
         if (result.activeRunId) {
           setRunId(result.activeRunId)
           setIsLoading(true)
+          await consumeRunEvents(result.activeRunId, `run-${result.activeRunId}`, {
+            accountId: currentAccount.id,
+            afterSeq: result.afterSeq,
+            fallbackModel: result.activeModel,
+            onSessionId: setSessionId,
+            setMessages,
+            setIsLoading,
+            setRunId,
+          })
         } else {
           setRunId('')
           setIsLoading(false)
@@ -183,13 +178,13 @@ export default function ChatPage() {
         )
         setIsLoading(false)
       }
-    } catch {
+    } catch (err) {
       setMessages((prev) => [
         ...prev,
         {
           id: Date.now().toString(),
           role: 'assistant',
-          content: 'Error: Failed to send message. Is the backend running?',
+          content: err instanceof Error ? `Error: ${err.message}` : 'Error: Failed to send message',
           timestamp: new Date(),
         },
       ])

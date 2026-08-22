@@ -25,6 +25,8 @@ DistributedLog:
 
 Middlewares:
   Timeout: false       # 关闭默认请求超时，SSE / 长轮询不被截断
+  Shedding: false      # Coder 高 CPU 时不丢弃 Chat / Session / Run 恢复请求
+  Log: false           # 使用项目结构化日志，避免记录 Authorization / Cookie
 
 Agent:
   Cwd: /var/lib/jarvis
