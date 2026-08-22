@@ -16,7 +16,7 @@ type ConsumeOpts = {
   afterSeq?: number
   fallbackModel?: string
   onSessionId?: (sessionId: string) => void
-  onUserInjected?: (content: string) => void
+  onUserInjected?: (content: string, pinned: boolean) => void
   setMessages: Dispatch<SetStateAction<UiMessage[]>>
   setIsLoading?: (v: boolean) => void
   setRunId?: (v: string) => void
@@ -99,7 +99,7 @@ export function useRunEventStream() {
               segments = upsertToolSegment(segments, ev.step)
               publish(ev.model)
             } else if (ev.type === 'user_injected' && ev.content) {
-              opts.onUserInjected?.(ev.content)
+              opts.onUserInjected?.(ev.content, !!ev.pinned)
             } else if (ev.type === 'done') {
               if (ev.content && !fullText) {
                 fullText = ev.content

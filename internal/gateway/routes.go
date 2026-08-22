@@ -18,6 +18,15 @@ func apiRoutes(svc *Service) []rest.Route {
 	return []rest.Route{
 		{Method: http.MethodGet, Path: "/healthz", Handler: svc.handleHealthz},
 		{Method: http.MethodGet, Path: "/v1/models", Handler: svc.handleModels},
+		{Method: http.MethodGet, Path: "/v1/stocks/quotes", Handler: svc.handleStockQuotes},
+		{Method: http.MethodGet, Path: "/v1/stocks/search", Handler: svc.handleStockSearch},
+		{Method: http.MethodGet, Path: "/v1/stocks/sentiment", Handler: svc.handleStockSentiment},
+		{Method: http.MethodGet, Path: "/v1/stocks/news-sentiment", Handler: svc.handleStockNewsSentiment},
+		{Method: http.MethodGet, Path: "/v1/crypto/candles", Handler: svc.handleCryptoCandles},
+		{Method: http.MethodGet, Path: "/v1/notifications/channels", Handler: svc.handleListNotificationChannels},
+		{Method: http.MethodPut, Path: "/v1/notifications/channels/:kind", Handler: svc.handleUpsertNotificationChannel},
+		{Method: http.MethodDelete, Path: "/v1/notifications/channels/:kind", Handler: svc.handleDeleteNotificationChannel},
+		{Method: http.MethodPost, Path: "/v1/notifications/channels/:kind/test", Handler: svc.handleTestNotificationChannel},
 
 		// Auth
 		{Method: http.MethodGet, Path: "/v1/auth/config", Handler: svc.handleAuthConfig},
@@ -116,5 +125,6 @@ func workspaceUploadRoutes(svc *Service) []rest.Route {
 func sseRoutes(svc *Service) []rest.Route {
 	return []rest.Route{
 		{Method: http.MethodGet, Path: "/v1/agent/runs/:runId/events", Handler: svc.handleRunEvents},
+		{Method: http.MethodGet, Path: "/v1/crypto/stream", Handler: svc.handleCryptoStream},
 	}
 }

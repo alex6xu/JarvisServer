@@ -175,6 +175,43 @@ func TestAgentLoopSteeringInjected(t *testing.T) {
 	}
 }
 
+func TestAgentLoopSteeringOverridesToolTerminationAndStopHook(t *testing.T) {
+	steer := agentcore.UserMessage{
+		RoleField: agentcore.RoleUser,
+		Content:   agentcore.ContentList{agentcore.NewTextContent("pinned correction")},
+	}
+	pulled := false
+	cfg := newRunCfg(scriptedStream([]agentcore.AssistantMessage{
+		oneToolAssistant("c1", "finish"),
+		{RoleField: agentcore.RoleAssistant, StopReason: agentcore.StopReasonEndTurn},
+	}), echoTool("finish", agentcore.ToolExecutionParallel, true))
+	cfg.GetSteeringMessages = func(context.Context) []agentcore.AgentMessage {
+		if pulled {
+			return nil
+		}
+		pulled = true
+		return []agentcore.AgentMessage{steer}
+	}
+	cfg.ShouldStopAfterTurn = func(context.Context, *agentcore.AgentContext) bool { return true }
+	agentCtx := &agentcore.AgentContext{Messages: agentcore.MessageList{
+		agentcore.UserMessage{RoleField: agentcore.RoleUser},
+	}}
+
+	kinds, _ := collectStream(t, agentLoop(context.Background(), agentCtx, cfg))
+	if got := countKind(kinds, agentcore.EventTurnStart); got != 2 {
+		t.Fatalf("pinned steering must receive a model turn before termination, got %d turns (%v)", got, kinds)
+	}
+	var found bool
+	for _, message := range agentCtx.Messages {
+		if user, ok := message.(agentcore.UserMessage); ok && agentcore.ContentToText(user.Content) == "pinned correction" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("steering message was not added to model context")
+	}
+}
+
 func TestAgentLoopFinalMessagesContinueBeforeEnd(t *testing.T) {
 	var providerCalls int
 	cfg := newRunCfg(func(ctx context.Context, model string, llm provider.LlmContext, cfg provider.StreamConfig) (*provider.AssistantMessageEventStream, error) {

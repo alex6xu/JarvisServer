@@ -27,6 +27,7 @@ const (
 type queuedMessage struct {
 	content string
 	message agentcore.AgentMessage
+	pinned  bool
 }
 
 // RunState holds one agent run's sequenced event log and live subscribers.
@@ -54,7 +55,7 @@ type RunState struct {
 
 // EnqueueMessage adds user guidance to a running agent. The runtime drains the
 // queue after a tool batch or immediately before a natural run end.
-func (st *RunState) EnqueueMessage(content string, message agentcore.AgentMessage) error {
+func (st *RunState) EnqueueMessage(content string, message agentcore.AgentMessage, pinned bool) error {
 	st.mu.Lock()
 	if st.Status != runStatusRunning || !st.accepting {
 		st.mu.Unlock()
@@ -64,13 +65,14 @@ func (st *RunState) EnqueueMessage(content string, message agentcore.AgentMessag
 		st.mu.Unlock()
 		return fmt.Errorf("run message queue is full")
 	}
-	st.queued = append(st.queued, queuedMessage{content: content, message: message})
+	st.queued = append(st.queued, queuedMessage{content: content, message: message, pinned: pinned})
 	st.mu.Unlock()
-	st.Publish(StreamEvent{Type: "user_queued", Content: content})
+	st.Publish(StreamEvent{Type: "user_queued", Content: content, Pinned: pinned})
 	return nil
 }
 
-// DrainMessages atomically removes all queued guidance in submission order.
+// DrainMessages atomically removes queued guidance, with pinned messages first
+// and stable submission order within each priority.
 func (st *RunState) DrainMessages() []agentcore.AgentMessage {
 	return st.drainMessages(false)
 }
@@ -83,7 +85,19 @@ func (st *RunState) DrainFinalMessages() []agentcore.AgentMessage {
 
 func (st *RunState) drainMessages(sealWhenEmpty bool) []agentcore.AgentMessage {
 	st.mu.Lock()
-	queued := append([]queuedMessage(nil), st.queued...)
+	queued := make([]queuedMessage, 0, len(st.queued))
+	// Keep submission order within each priority while ensuring pinned guidance
+	// reaches the next model turn before ordinary follow-ups.
+	for _, item := range st.queued {
+		if item.pinned {
+			queued = append(queued, item)
+		}
+	}
+	for _, item := range st.queued {
+		if !item.pinned {
+			queued = append(queued, item)
+		}
+	}
 	st.queued = nil
 	if sealWhenEmpty && len(queued) == 0 {
 		st.accepting = false
@@ -95,7 +109,7 @@ func (st *RunState) drainMessages(sealWhenEmpty bool) []agentcore.AgentMessage {
 	messages := make([]agentcore.AgentMessage, 0, len(queued))
 	for _, item := range queued {
 		messages = append(messages, item.message)
-		st.Publish(StreamEvent{Type: "user_injected", Content: item.content})
+		st.Publish(StreamEvent{Type: "user_injected", Content: item.content, Pinned: item.pinned})
 	}
 	return messages
 }

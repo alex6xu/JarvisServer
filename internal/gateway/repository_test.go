@@ -20,7 +20,7 @@ func TestGatewayMigrationsApplied(t *testing.T) {
 	if count != len(gatewayMigrations) || latest != gatewayMigrations[len(gatewayMigrations)-1].version {
 		t.Fatalf("migrations count=%d latest=%d", count, latest)
 	}
-	for _, table := range []string{"sessions", "session_entries", "route_profiles", "tags", "workspace_metadata", "agent_profiles", "channel_bindings", "provider_endpoints", "provider_models", "route_policies", "route_policy_versions", "health_samples", "github_credentials", "github_oauth_states"} {
+	for _, table := range []string{"sessions", "session_entries", "route_profiles", "tags", "workspace_metadata", "agent_profiles", "channel_bindings", "provider_endpoints", "provider_models", "route_policies", "route_policy_versions", "health_samples", "github_credentials", "github_oauth_states", "stock_sentiment_snapshots", "stock_news_sentiment_cache"} {
 		var found int
 		if err := store.db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, table).Scan(&found); err != nil {
 			t.Fatal(err)

@@ -35,6 +35,7 @@ Agent:
   WorkspaceMaxBytes: 104857600
   WorkspaceMaxFileBytes: 10485760
   AllowPrivateProviderURLs: false
+  AllowPrivateNotificationURLs: false
   # Cwd: .
   # BaseURL: ""
   # Protocol: ""
@@ -58,3 +59,33 @@ GitHub:
   # APIBaseURL: "https://api.github.com"
   # WebBaseURL: "https://github.com"
   GitTimeoutSecs: 300
+
+# Public market streams do not require exchange API keys. Override these URLs
+# when the deployment network uses an exchange-specific proxy or mirror.
+MarketData:
+  BinanceWSURL: "wss://data-stream.binance.vision/stream"
+  OKXWSURL: "wss://ws.okx.com:8443/ws/v5/public"
+  BinanceRESTURL: "https://data-api.binance.vision"
+  OKXRESTURL: "https://www.okx.com"
+  # Optional US stock sentiment (Reddit / X / Polymarket). Prefer setting
+  # SOCIAL_SENTIMENT_API_KEY in the service environment instead of this file.
+  # StockSentimentAPIKey: ""
+  StockSentimentAPIURL: "https://api.adanos.org"
+  StockSentimentCacheTTLSeconds: 86400
+  # Cross-market latest news sentiment. Keys may be comma-separated and are
+  # preferably supplied through environment variables.
+  NewsSentiment:
+    CacheTTLSeconds: 1800
+    MaxResults: 12
+    Anspire:
+      # APIKeys: ""
+      APIURL: "https://plugin.anspire.cn/api/ntsearch/search"
+    Tavily:
+      # APIKeys: ""
+      APIURL: "https://api.tavily.com/search"
+    Bocha:
+      # APIKeys: ""
+      APIURL: "https://api.bocha.cn/v1/web-search"
+    Brave:
+      # APIKeys: ""
+      APIURL: "https://api.search.brave.com/res/v1/web/search"

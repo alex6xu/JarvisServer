@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, ChangeEvent, useCallback } from 'react'
+import { Pin } from 'lucide-react'
 import { apiFetch, useAccount } from '../context/AccountContext'
 import VoiceInputButton from '../components/VoiceInputButton'
 import MessageBubble from '../components/MessageBubble'
@@ -111,15 +112,17 @@ export default function CoderPage() {
   const activeWorkspace = workspaces.find((w) => w.id === workspaceId) || null
 
   const [runId, setRunId] = useState('')
+  const [pinNextMessage, setPinNextMessage] = useState(false)
   const { consumeRunEvents, abortRunStream } = useRunEventStream()
   const { restoreSession, persistSessionId, clearPersistedSession } = useSessionRestore()
 
-  const markQueuedMessageInjected = useCallback((content: string) => {
+  const markQueuedMessageInjected = useCallback((content: string, pinned: boolean) => {
     setMessages((prev) => {
       const next = [...prev]
       for (let i = next.length - 1; i >= 0; i--) {
-        if (next[i].role === 'system' && next[i].content === `已排队：${content}`) {
-          next[i] = { ...next[i], content: `已加入当前执行：${content}` }
+        const queuedLabel = pinned ? `已置顶：${content}` : `已排队：${content}`
+        if (next[i].role === 'system' && next[i].content === queuedLabel) {
+          next[i] = { ...next[i], content: `${pinned ? '置顶指令' : '排队消息'}已加入当前执行：${content}` }
           return next
         }
       }
@@ -129,7 +132,7 @@ export default function CoderPage() {
         {
           id: `inj-${Date.now()}`,
           role: 'system',
-          content: `已加入当前执行：${content}`,
+          content: `${pinned ? '置顶指令' : '排队消息'}已加入当前执行：${content}`,
           timestamp: new Date(),
         },
       ]
@@ -233,6 +236,10 @@ export default function CoderPage() {
   useEffect(() => {
     if (sessionId && sessionStorageKey) persistSessionId(sessionStorageKey, sessionId)
   }, [sessionId, sessionStorageKey, persistSessionId])
+
+  useEffect(() => {
+    if (!runId) setPinNextMessage(false)
+  }, [runId])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -603,6 +610,7 @@ export default function CoderPage() {
     }
 
     const content = input
+    const pinned = isLoading && !!runId && pinNextMessage
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
@@ -628,6 +636,7 @@ export default function CoderPage() {
               model: selectedModel || undefined,
               workspace_id: workspaceId || undefined,
               stream: false,
+              pinned,
             }),
           },
           currentAccount?.id,
@@ -643,10 +652,11 @@ export default function CoderPage() {
           {
             id: `queued-${userMessage.id}`,
             role: 'system',
-            content: `已排队：${content}`,
+            content: `${data.pinned ? '已置顶' : '已排队'}：${content}`,
             timestamp: new Date(),
           },
         ])
+        setPinNextMessage(false)
       } catch (err) {
         setMessages((prev) => [
           ...prev,
@@ -1061,7 +1071,7 @@ export default function CoderPage() {
             </div>
           </div>
         ) : (
-          messages.map((msg) => <MessageBubble key={msg.id} message={msg} />)
+          messages.map((msg) => <MessageBubble key={msg.id} message={msg} collapseTools />)
         )}
 
         {isLoading && (
@@ -1129,12 +1139,27 @@ export default function CoderPage() {
             }
             onClick={() => void voice.toggle()}
           />
+          {isLoading && runId && (
+            <button
+              type="button"
+              onClick={() => setPinNextMessage((value) => !value)}
+              aria-pressed={pinNextMessage}
+              title={pinNextMessage ? '取消置顶发送' : '置顶到当前任务'}
+              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border transition-colors ${
+                pinNextMessage
+                  ? 'border-primary bg-primary/10 text-primary'
+                  : 'border-border text-muted-foreground hover:bg-accent hover:text-foreground'
+              }`}
+            >
+              <Pin className="h-4 w-4" />
+            </button>
+          )}
           <button
             onClick={sendMessage}
             disabled={!input.trim()}
             className="h-10 px-4 bg-primary text-primary-foreground rounded-lg text-[13px] font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
           >
-            {isLoading ? 'Queue' : 'Run'}
+            {isLoading ? (pinNextMessage ? 'Pin' : 'Queue') : 'Run'}
           </button>
         </div>
       </div>

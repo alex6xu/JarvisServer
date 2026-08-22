@@ -57,3 +57,23 @@ Agent:
 
   # 共享管理员 Token，泄露风险大；留空改用账号/API Token
   # APIToken: ""
+
+MarketData:
+  BinanceWSURL: "wss://data-stream.binance.vision/stream"
+  OKXWSURL: "wss://ws.okx.com:8443/ws/v5/public"
+  BinanceRESTURL: "https://data-api.binance.vision"
+  OKXRESTURL: "https://www.okx.com"
+  # 密钥使用 SOCIAL_SENTIMENT_API_KEY 环境变量注入。
+  StockSentimentAPIURL: "https://api.adanos.org"
+  StockSentimentCacheTTLSeconds: 86400
+  NewsSentiment:
+    CacheTTLSeconds: 1800
+    MaxResults: 12
+    Anspire:
+      APIURL: "https://plugin.anspire.cn/api/ntsearch/search"
+    Tavily:
+      APIURL: "https://api.tavily.com/search"
+    Bocha:
+      APIURL: "https://api.bocha.cn/v1/web-search"
+    Brave:
+      APIURL: "https://api.search.brave.com/res/v1/web/search"

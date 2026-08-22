@@ -8,6 +8,7 @@ type ChatRequest struct {
 	Stream      bool   `json:"stream,omitempty"`
 	WorkspaceID string `json:"workspace_id,omitempty"`
 	Mode        string `json:"mode,omitempty"` // "chat" (personal Jarvis) or "coder" (coding Jarvis)
+	Pinned      bool   `json:"pinned,omitempty"`
 	AccountID   int    `json:"-"`
 }
 
@@ -17,6 +18,7 @@ type ChatResponse struct {
 	RunID     string `json:"run_id"`
 	Model     string `json:"model,omitempty"`
 	Queued    bool   `json:"queued,omitempty"`
+	Pinned    bool   `json:"pinned,omitempty"`
 }
 
 // ToolStep matches web/src/lib/sessionPersist.ts ToolStep.
@@ -39,6 +41,7 @@ type StreamEvent struct {
 	Seq       int64      `json:"seq,omitempty"`
 	AttemptID string     `json:"attempt_id,omitempty"`
 	Purpose   string     `json:"purpose,omitempty"`
+	Pinned    bool       `json:"pinned,omitempty"`
 	Timestamp string     `json:"timestamp,omitempty"`
 }
 

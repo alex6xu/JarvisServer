@@ -55,6 +55,8 @@ type Options struct {
 	RunTimeout time.Duration
 	// AllowPrivateProviderURLs permits custom providers on private/link-local networks.
 	AllowPrivateProviderURLs bool
+	// AllowPrivateNotificationURLs permits OpenClaw bridges on private networks.
+	AllowPrivateNotificationURLs bool
 	// GitHub OAuth and API settings. A personal access token can still be
 	// connected per account when the OAuth client is not configured.
 	GitHubClientID     string
@@ -67,6 +69,19 @@ type Options struct {
 	// random key is generated under <cwd>/.jarvis.
 	GitHubTokenKey   string
 	GitHubGitTimeout time.Duration
+	// Public crypto market-data streams. These endpoints require no API keys.
+	BinanceMarketWSURL   string
+	OKXMarketWSURL       string
+	BinanceMarketRESTURL string
+	OKXMarketRESTURL     string
+	// Stock sentiment uses the optional Reddit/X/Polymarket aggregation API.
+	StockSentimentAPIKey   string
+	StockSentimentAPIURL   string
+	StockSentimentCacheTTL time.Duration
+	// Configured news-search providers feed the cross-market sentiment endpoint.
+	StockNewsProviders  []StockNewsProviderOptions
+	StockNewsCacheTTL   time.Duration
+	StockNewsMaxResults int
 	// Logger emits structured, correlation-aware operational events.
 	Logger *distributedlog.Logger
 }
@@ -119,6 +134,40 @@ func (o Options) withDefaults() Options {
 	}
 	if o.GitHubGitTimeout <= 0 {
 		o.GitHubGitTimeout = 5 * time.Minute
+	}
+	if o.BinanceMarketWSURL == "" {
+		o.BinanceMarketWSURL = "wss://data-stream.binance.vision/stream"
+	}
+	if o.OKXMarketWSURL == "" {
+		o.OKXMarketWSURL = "wss://ws.okx.com:8443/ws/v5/public"
+	}
+	if o.BinanceMarketRESTURL == "" {
+		o.BinanceMarketRESTURL = "https://data-api.binance.vision"
+	}
+	if o.OKXMarketRESTURL == "" {
+		o.OKXMarketRESTURL = "https://www.okx.com"
+	}
+	if o.StockSentimentAPIKey == "" {
+		o.StockSentimentAPIKey = os.Getenv("SOCIAL_SENTIMENT_API_KEY")
+	}
+	if o.StockSentimentAPIURL == "" {
+		o.StockSentimentAPIURL = os.Getenv("SOCIAL_SENTIMENT_API_URL")
+	}
+	if o.StockSentimentAPIURL == "" {
+		o.StockSentimentAPIURL = defaultStockSentimentAPIURL
+	}
+	if o.StockSentimentCacheTTL <= 0 {
+		o.StockSentimentCacheTTL = 24 * time.Hour
+	}
+	o.StockNewsProviders = withDefaultStockNewsProviders(o.StockNewsProviders)
+	if o.StockNewsCacheTTL <= 0 {
+		o.StockNewsCacheTTL = 30 * time.Minute
+	}
+	if o.StockNewsMaxResults <= 0 {
+		o.StockNewsMaxResults = 12
+	}
+	if o.StockNewsMaxResults > 30 {
+		o.StockNewsMaxResults = 30
 	}
 	if o.Logger == nil {
 		o.Logger = distributedlog.New(distributedlog.Config{})

@@ -260,6 +260,63 @@ const removeLegacyAgentTasksSchema = `
 DROP TABLE IF EXISTS agent_tasks;
 `
 
+const notificationChannelsSchema = `
+CREATE TABLE IF NOT EXISTS notification_channels (
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL,
+    name TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    events_json TEXT NOT NULL,
+    config_cipher TEXT NOT NULL,
+    target_hint TEXT NOT NULL DEFAULT '',
+    last_error TEXT NOT NULL DEFAULT '',
+    last_test_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(account_id, kind)
+);
+`
+
+const stockSentimentSchema = `
+CREATE TABLE IF NOT EXISTS stock_sentiment_snapshots (
+    ticker TEXT PRIMARY KEY,
+    score REAL,
+    label TEXT NOT NULL DEFAULT '数据不足',
+    buzz_score REAL,
+    mentions INTEGER NOT NULL DEFAULT 0,
+    sources_json TEXT NOT NULL DEFAULT '[]',
+    diagnostics_json TEXT NOT NULL DEFAULT '[]',
+    analysis_context TEXT NOT NULL DEFAULT '',
+    fetched_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_stock_sentiment_expires
+    ON stock_sentiment_snapshots(expires_at);
+`
+
+const stockNewsSentimentSchema = `
+CREATE TABLE IF NOT EXISTS stock_news_sentiment_cache (
+    cache_key TEXT PRIMARY KEY,
+    symbol TEXT NOT NULL,
+    name TEXT NOT NULL DEFAULT '',
+    query TEXT NOT NULL,
+    sentiment_score REAL,
+    sentiment_label TEXT NOT NULL DEFAULT '数据不足',
+    sentiment_method TEXT NOT NULL DEFAULT 'keyword_v1',
+    status TEXT NOT NULL,
+    message TEXT NOT NULL DEFAULT '',
+    items_json TEXT NOT NULL DEFAULT '[]',
+    diagnostics_json TEXT NOT NULL DEFAULT '[]',
+    analysis_context TEXT NOT NULL DEFAULT '',
+    fetched_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_stock_news_sentiment_symbol
+    ON stock_news_sentiment_cache(symbol, fetched_at DESC);
+CREATE INDEX IF NOT EXISTS idx_stock_news_sentiment_expires
+    ON stock_news_sentiment_cache(expires_at);
+`
+
 var gatewayMigrations = []gatewayMigration{
 	{version: 1, name: "gateway_base", schema: gatewaySchema},
 	{version: 2, name: "control_plane_repositories", schema: controlPlaneSchema},
@@ -271,6 +328,9 @@ var gatewayMigrations = []gatewayMigration{
 	{version: 8, name: "chat_retrieval_tools", schema: chatRetrievalToolsSchema},
 	{version: 9, name: "github_integration", schema: githubIntegrationSchema},
 	{version: 10, name: "remove_legacy_agent_tasks", schema: removeLegacyAgentTasksSchema},
+	{version: 11, name: "notification_channels", schema: notificationChannelsSchema},
+	{version: 12, name: "stock_sentiment", schema: stockSentimentSchema},
+	{version: 13, name: "stock_news_sentiment", schema: stockNewsSentimentSchema},
 }
 
 func applyGatewayMigrations(db *sql.DB) error {

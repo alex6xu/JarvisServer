@@ -108,14 +108,36 @@ func TestStubEndpoints(t *testing.T) {
 }
 
 func TestConfigToOptions(t *testing.T) {
-	cfg := Config{GitHub: GitHubConf{ClientID: "github-client", ClientSecret: "github-secret", GitTimeoutSecs: 42}}
+	cfg := Config{
+		GitHub: GitHubConf{ClientID: "github-client", ClientSecret: "github-secret", GitTimeoutSecs: 42},
+		MarketData: MarketDataConf{
+			BinanceWSURL:                  "wss://binance.test/stream",
+			OKXWSURL:                      "wss://okx.test/public",
+			BinanceRESTURL:                "https://binance.test",
+			OKXRESTURL:                    "https://okx.test",
+			StockSentimentAPIKey:          "sentiment-key",
+			StockSentimentAPIURL:          "https://sentiment.test",
+			StockSentimentCacheTTLSeconds: 900,
+			NewsSentiment: StockNewsSentimentConf{
+				CacheTTLSeconds: 600,
+				MaxResults:      8,
+				Anspire:         StockNewsProviderConf{APIKeys: "key-one,key-two", APIURL: "https://anspire.test/search"},
+			},
+		},
+	}
 	cfg.Host = "0.0.0.0"
 	cfg.Port = 8080
 	cfg.Agent.Approve = true
 	cfg.Agent.AllowRegistration = true
 	opts := cfg.ToOptions()
 	if opts.Addr != ":8080" || !opts.AllowRegistration || opts.GitHubClientID != "github-client" ||
-		opts.GitHubClientSecret != "github-secret" || opts.GitHubGitTimeout != 42*time.Second {
+		opts.GitHubClientSecret != "github-secret" || opts.GitHubGitTimeout != 42*time.Second ||
+		opts.BinanceMarketWSURL != "wss://binance.test/stream" || opts.OKXMarketWSURL != "wss://okx.test/public" ||
+		opts.BinanceMarketRESTURL != "https://binance.test" || opts.OKXMarketRESTURL != "https://okx.test" ||
+		opts.StockSentimentAPIKey != "sentiment-key" || opts.StockSentimentAPIURL != "https://sentiment.test" ||
+		opts.StockSentimentCacheTTL != 15*time.Minute || opts.StockNewsCacheTTL != 10*time.Minute ||
+		opts.StockNewsMaxResults != 8 || len(opts.StockNewsProviders) != 4 ||
+		len(opts.StockNewsProviders[0].APIKeys) != 2 || opts.StockNewsProviders[0].APIURL != "https://anspire.test/search" {
 		t.Fatalf("opts=%+v", opts)
 	}
 }

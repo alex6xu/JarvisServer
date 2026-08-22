@@ -143,6 +143,12 @@ export default function ToolStepCard({
 }: Props) {
   if (!steps.length) return null
 
+  const runningCount = steps.filter((step) => step.status === 'running').length
+  const errorCount = steps.filter((step) => step.status === 'error').length
+  const toolNames = [...new Set(steps.map((step) => step.tool).filter(Boolean))]
+  const toolsLabel = toolNames.slice(0, 3).join(', ') + (toolNames.length > 3 ? ` +${toolNames.length - 3}` : '')
+  const statusLabel = runningCount > 0 ? '执行中' : errorCount > 0 ? `${errorCount} 项失败` : '已完成'
+
   if (compact) {
     return (
       <div className="space-y-2">
@@ -160,8 +166,20 @@ export default function ToolStepCard({
 
   return (
     <details open={defaultOpen} className="mt-3 text-[12px] text-muted-foreground border-t border-border/60 pt-2">
-      <summary className="cursor-pointer text-foreground/80 font-medium">
-        执行过程 · {steps.length} 步工具调用
+      <summary className="cursor-pointer text-foreground/80 font-medium py-0.5">
+        <span
+          className={`inline-block mr-2 rounded px-1.5 py-0.5 text-[10px] font-normal ${
+            errorCount > 0
+              ? 'bg-destructive/10 text-destructive'
+              : runningCount > 0
+                ? 'bg-amber-500/10 text-amber-600'
+                : 'bg-muted text-muted-foreground'
+          }`}
+        >
+          {statusLabel}
+        </span>
+        <span>{steps.length} 步工具调用</span>
+        {toolsLabel && <span className="ml-2 font-mono text-[11px] text-muted-foreground">{toolsLabel}</span>}
       </summary>
       <div className="mt-2 space-y-2">
         {steps.map((step, idx) => (

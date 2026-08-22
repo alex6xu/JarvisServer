@@ -253,4 +253,5 @@ export type AgentStreamEvent = {
   model?: string
   step?: ToolStep
   tool_steps?: ToolStep[]
+  pinned?: boolean
 }

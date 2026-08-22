@@ -43,7 +43,9 @@ sudo chown root:jarvis /etc/jarvis/gateway.yaml && sudo chmod 0640 /etc/jarvis/g
 ### 3. 安装 systemd 服务
 ```bash
 sudo cp deploy/jarvis-gateway.service /etc/systemd/system/
-# 编辑 JARVIS_ADMIN_PASSWORD 为长随机串
+# 编辑 JARVIS_ADMIN_PASSWORD 为长随机串；如需美股社交舆情，同时填写
+# SOCIAL_SENTIMENT_API_KEY。新闻舆情至少填写 ANSPIRE_API_KEYS，或选择
+# TAVILY_API_KEY、BOCHA_API_KEYS、BRAVE_API_KEY 中任意一个。
 sudo systemctl daemon-reload
 sudo systemctl enable --now jarvis-gateway
 sudo systemctl status jarvis-gateway

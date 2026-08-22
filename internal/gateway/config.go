@@ -13,7 +13,34 @@ type Config struct {
 	rest.RestConf
 	Agent          AgentConf          `json:",optional"`
 	GitHub         GitHubConf         `json:",optional"`
+	MarketData     MarketDataConf     `json:",optional"`
 	DistributedLog DistributedLogConf `json:",optional"`
+}
+
+// MarketDataConf configures public, unauthenticated market-data streams.
+type MarketDataConf struct {
+	BinanceWSURL                  string                 `json:",optional"`
+	OKXWSURL                      string                 `json:",optional"`
+	BinanceRESTURL                string                 `json:",optional"`
+	OKXRESTURL                    string                 `json:",optional"`
+	StockSentimentAPIKey          string                 `json:",optional"`
+	StockSentimentAPIURL          string                 `json:",optional"`
+	StockSentimentCacheTTLSeconds int                    `json:",default=86400"`
+	NewsSentiment                 StockNewsSentimentConf `json:",optional"`
+}
+
+type StockNewsSentimentConf struct {
+	CacheTTLSeconds int                   `json:",default=1800"`
+	MaxResults      int                   `json:",default=12"`
+	Anspire         StockNewsProviderConf `json:",optional"`
+	Tavily          StockNewsProviderConf `json:",optional"`
+	Bocha           StockNewsProviderConf `json:",optional"`
+	Brave           StockNewsProviderConf `json:",optional"`
+}
+
+type StockNewsProviderConf struct {
+	APIKeys string `json:",optional"`
+	APIURL  string `json:",optional"`
 }
 
 // DistributedLogConf adds fields used to correlate logs across instances.
@@ -38,28 +65,29 @@ type GitHubConf struct {
 
 // AgentConf holds jarvis agent / auth settings layered on RestConf.
 type AgentConf struct {
-	Cwd                      string `json:",optional"`
-	BaseURL                  string `json:",optional"`
-	Protocol                 string `json:",optional"`
-	ProviderName             string `json:",optional"`
-	APIKey                   string `json:",optional"`
-	ThinkingLevel            string `json:",optional"`
-	Approve                  bool   `json:",optional"`
-	NoTools                  bool   `json:",optional"`
-	NoSkills                 bool   `json:",optional"`
-	AuthMode                 string `json:",default=token"`
-	APIToken                 string `json:",optional"`
-	AdminPassword            string `json:",optional"`
-	AllowRegistration        bool   `json:",optional"`
-	WorkspacesRoot           string `json:",optional"`
-	WorkspaceUploadMaxBytes  int64  `json:",default=104857600"`
-	WorkspaceMaxBytes        int64  `json:",default=104857600"`
-	WorkspaceMaxFileBytes    int64  `json:",default=10485760"`
-	DatabasePath             string `json:",optional"`
-	AuditRetentionDays       int    `json:",default=30"`
-	AuditMaxBodyBytes        int    `json:",default=1048576"`
-	RunTimeoutSeconds        int    `json:",default=1800"`
-	AllowPrivateProviderURLs bool   `json:",optional"`
+	Cwd                          string `json:",optional"`
+	BaseURL                      string `json:",optional"`
+	Protocol                     string `json:",optional"`
+	ProviderName                 string `json:",optional"`
+	APIKey                       string `json:",optional"`
+	ThinkingLevel                string `json:",optional"`
+	Approve                      bool   `json:",optional"`
+	NoTools                      bool   `json:",optional"`
+	NoSkills                     bool   `json:",optional"`
+	AuthMode                     string `json:",default=token"`
+	APIToken                     string `json:",optional"`
+	AdminPassword                string `json:",optional"`
+	AllowRegistration            bool   `json:",optional"`
+	WorkspacesRoot               string `json:",optional"`
+	WorkspaceUploadMaxBytes      int64  `json:",default=104857600"`
+	WorkspaceMaxBytes            int64  `json:",default=104857600"`
+	WorkspaceMaxFileBytes        int64  `json:",default=10485760"`
+	DatabasePath                 string `json:",optional"`
+	AuditRetentionDays           int    `json:",default=30"`
+	AuditMaxBodyBytes            int    `json:",default=1048576"`
+	RunTimeoutSeconds            int    `json:",default=1800"`
+	AllowPrivateProviderURLs     bool   `json:",optional"`
+	AllowPrivateNotificationURLs bool   `json:",optional"`
 }
 
 // ToOptions maps Config into the existing Service Options.
@@ -81,37 +109,48 @@ func (c Config) ToOptions() Options {
 		environment = c.Mode
 	}
 	return Options{
-		Addr:                     addr,
-		Cwd:                      c.Agent.Cwd,
-		BaseURL:                  c.Agent.BaseURL,
-		Protocol:                 c.Agent.Protocol,
-		ProviderName:             c.Agent.ProviderName,
-		APIKey:                   c.Agent.APIKey,
-		ThinkingLevel:            c.Agent.ThinkingLevel,
-		Approve:                  c.Agent.Approve,
-		NoTools:                  c.Agent.NoTools,
-		NoSkills:                 c.Agent.NoSkills,
-		AuthMode:                 c.Agent.AuthMode,
-		APIToken:                 c.Agent.APIToken,
-		AdminPassword:            c.Agent.AdminPassword,
-		AllowRegistration:        c.Agent.AllowRegistration,
-		WorkspacesRoot:           c.Agent.WorkspacesRoot,
-		WorkspaceUploadMaxBytes:  c.Agent.WorkspaceUploadMaxBytes,
-		WorkspaceMaxBytes:        c.Agent.WorkspaceMaxBytes,
-		WorkspaceMaxFileBytes:    c.Agent.WorkspaceMaxFileBytes,
-		DatabasePath:             c.Agent.DatabasePath,
-		AuditRetentionDays:       c.Agent.AuditRetentionDays,
-		AuditMaxBodyBytes:        c.Agent.AuditMaxBodyBytes,
-		RunTimeout:               time.Duration(c.Agent.RunTimeoutSeconds) * time.Second,
-		AllowPrivateProviderURLs: c.Agent.AllowPrivateProviderURLs,
-		GitHubClientID:           c.GitHub.ClientID,
-		GitHubClientSecret:       c.GitHub.ClientSecret,
-		GitHubRedirectURL:        c.GitHub.RedirectURL,
-		GitHubScopes:             c.GitHub.Scopes,
-		GitHubAPIBaseURL:         c.GitHub.APIBaseURL,
-		GitHubWebBaseURL:         c.GitHub.WebBaseURL,
-		GitHubTokenKey:           c.GitHub.TokenKey,
-		GitHubGitTimeout:         time.Duration(c.GitHub.GitTimeoutSecs) * time.Second,
+		Addr:                         addr,
+		Cwd:                          c.Agent.Cwd,
+		BaseURL:                      c.Agent.BaseURL,
+		Protocol:                     c.Agent.Protocol,
+		ProviderName:                 c.Agent.ProviderName,
+		APIKey:                       c.Agent.APIKey,
+		ThinkingLevel:                c.Agent.ThinkingLevel,
+		Approve:                      c.Agent.Approve,
+		NoTools:                      c.Agent.NoTools,
+		NoSkills:                     c.Agent.NoSkills,
+		AuthMode:                     c.Agent.AuthMode,
+		APIToken:                     c.Agent.APIToken,
+		AdminPassword:                c.Agent.AdminPassword,
+		AllowRegistration:            c.Agent.AllowRegistration,
+		WorkspacesRoot:               c.Agent.WorkspacesRoot,
+		WorkspaceUploadMaxBytes:      c.Agent.WorkspaceUploadMaxBytes,
+		WorkspaceMaxBytes:            c.Agent.WorkspaceMaxBytes,
+		WorkspaceMaxFileBytes:        c.Agent.WorkspaceMaxFileBytes,
+		DatabasePath:                 c.Agent.DatabasePath,
+		AuditRetentionDays:           c.Agent.AuditRetentionDays,
+		AuditMaxBodyBytes:            c.Agent.AuditMaxBodyBytes,
+		RunTimeout:                   time.Duration(c.Agent.RunTimeoutSeconds) * time.Second,
+		AllowPrivateProviderURLs:     c.Agent.AllowPrivateProviderURLs,
+		AllowPrivateNotificationURLs: c.Agent.AllowPrivateNotificationURLs,
+		GitHubClientID:               c.GitHub.ClientID,
+		GitHubClientSecret:           c.GitHub.ClientSecret,
+		GitHubRedirectURL:            c.GitHub.RedirectURL,
+		GitHubScopes:                 c.GitHub.Scopes,
+		GitHubAPIBaseURL:             c.GitHub.APIBaseURL,
+		GitHubWebBaseURL:             c.GitHub.WebBaseURL,
+		GitHubTokenKey:               c.GitHub.TokenKey,
+		GitHubGitTimeout:             time.Duration(c.GitHub.GitTimeoutSecs) * time.Second,
+		BinanceMarketWSURL:           c.MarketData.BinanceWSURL,
+		OKXMarketWSURL:               c.MarketData.OKXWSURL,
+		BinanceMarketRESTURL:         c.MarketData.BinanceRESTURL,
+		OKXMarketRESTURL:             c.MarketData.OKXRESTURL,
+		StockSentimentAPIKey:         c.MarketData.StockSentimentAPIKey,
+		StockSentimentAPIURL:         c.MarketData.StockSentimentAPIURL,
+		StockSentimentCacheTTL:       time.Duration(c.MarketData.StockSentimentCacheTTLSeconds) * time.Second,
+		StockNewsCacheTTL:            time.Duration(c.MarketData.NewsSentiment.CacheTTLSeconds) * time.Second,
+		StockNewsMaxResults:          c.MarketData.NewsSentiment.MaxResults,
+		StockNewsProviders:           stockNewsProviderOptionsFromConfig(c.MarketData.NewsSentiment),
 		Logger: distributedlog.New(distributedlog.Config{
 			Service: serviceName, Environment: environment, InstanceID: c.DistributedLog.InstanceID,
 		}),

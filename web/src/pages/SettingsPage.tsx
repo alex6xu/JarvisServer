@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { apiFetch, useAccount } from '../context/AccountContext'
 import { useAuth } from '../context/AuthContext'
+import NotificationSettings from '../components/NotificationSettings'
 
 export default function SettingsPage() {
   const { user, changePassword } = useAuth()
@@ -413,6 +414,8 @@ export default function SettingsPage() {
           {githubError && <p className="text-[12px] text-red-500">{githubError}</p>}
           {githubMessage && <p className="text-[12px] text-green-500">{githubMessage}</p>}
         </div>
+
+        <NotificationSettings accountId={currentAccount?.id} />
 
         <form onSubmit={onChangePassword} className="bg-card border border-border rounded-xl p-5 space-y-4">
           <h3 className="text-sm font-semibold text-foreground">修改密码</h3>

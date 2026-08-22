@@ -56,7 +56,7 @@ func TestRunStateQueueDrainsInSubmissionOrder(t *testing.T) {
 	}
 	for _, content := range []string{"first", "second"} {
 		message := agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent(content)}}
-		if err := state.EnqueueMessage(content, message); err != nil {
+		if err := state.EnqueueMessage(content, message, false); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -76,6 +76,57 @@ func TestRunStateQueueDrainsInSubmissionOrder(t *testing.T) {
 	state.Finish(nil)
 }
 
+func TestRunStateQueueDrainsPinnedMessagesFirst(t *testing.T) {
+	manager := NewRunManager()
+	state, err := manager.Register("session", "m", "ws", func() {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range []struct {
+		content string
+		pinned  bool
+	}{
+		{content: "normal-1"},
+		{content: "pinned-1", pinned: true},
+		{content: "normal-2"},
+		{content: "pinned-2", pinned: true},
+	} {
+		message := agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent(item.content)}}
+		if err := state.EnqueueMessage(item.content, message, item.pinned); err != nil {
+			t.Fatal(err)
+		}
+	}
+	messages := state.DrainMessages()
+	for i, want := range []string{"pinned-1", "pinned-2", "normal-1", "normal-2"} {
+		message, ok := messages[i].(agentcore.UserMessage)
+		if !ok || agentcore.ContentToText(message.Content) != want {
+			t.Fatalf("message %d = %#v, want %q", i, messages[i], want)
+		}
+	}
+	var injected []StreamEvent
+	for _, event := range state.Events {
+		if event.Payload.Type == "user_injected" {
+			injected = append(injected, event.Payload)
+		}
+	}
+	if len(injected) != 4 || !injected[0].Pinned || !injected[1].Pinned || injected[2].Pinned || injected[3].Pinned {
+		t.Fatalf("injected events = %#v", injected)
+	}
+	state.Finish(nil)
+}
+
+func TestQueuedUserMessageMarksPinnedIntent(t *testing.T) {
+	original := agentcore.ContentList{agentcore.NewTextContent("finish migration before stopping")}
+	message := queuedUserMessage(original, true)
+	text := agentcore.ContentToText(message.Content)
+	if !strings.Contains(text, "highest-priority current user intent") || !strings.Contains(text, "finish migration before stopping") {
+		t.Fatalf("pinned message = %q", text)
+	}
+	if got := agentcore.ContentToText(original); got != "finish migration before stopping" {
+		t.Fatalf("input content was mutated: %q", got)
+	}
+}
+
 func TestRunStateQueueRejectsTerminalAndFullRuns(t *testing.T) {
 	manager := NewRunManager()
 	state, err := manager.Register("session", "m", "", func() {})
@@ -84,15 +135,15 @@ func TestRunStateQueueRejectsTerminalAndFullRuns(t *testing.T) {
 	}
 	message := agentcore.UserMessage{RoleField: agentcore.RoleUser}
 	for i := 0; i < maxQueuedMessages; i++ {
-		if err := state.EnqueueMessage(fmt.Sprintf("message-%d", i), message); err != nil {
+		if err := state.EnqueueMessage(fmt.Sprintf("message-%d", i), message, false); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := state.EnqueueMessage("overflow", message); err == nil {
+	if err := state.EnqueueMessage("overflow", message, false); err == nil {
 		t.Fatal("expected full queue to reject a message")
 	}
 	state.Finish(nil)
-	if err := state.EnqueueMessage("late", message); err == nil {
+	if err := state.EnqueueMessage("late", message, false); err == nil {
 		t.Fatal("expected terminal run to reject a message")
 	}
 }
@@ -107,7 +158,7 @@ func TestRunStateFinalDrainSealsEmptyQueue(t *testing.T) {
 		t.Fatalf("final drain = %d messages, want 0", len(messages))
 	}
 	message := agentcore.UserMessage{RoleField: agentcore.RoleUser}
-	if err := state.EnqueueMessage("late", message); err == nil {
+	if err := state.EnqueueMessage("late", message, false); err == nil {
 		t.Fatal("expected a sealed inbox to reject late messages")
 	}
 	state.Finish(nil)

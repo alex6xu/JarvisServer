@@ -192,7 +192,50 @@ GitHub:
   # 建议通过 GITHUB_TOKEN_KEY 环境变量注入。若留空，Gateway 会生成
   # /var/lib/jarvis/.jarvis/github-token.key（路径相对于 Agent.Cwd）。
   # TokenKey: "REPLACE_WITH_A_LONG_RANDOM_SECRET"
+
+MarketData:
+  BinanceWSURL: "wss://data-stream.binance.vision/stream"
+  OKXWSURL: "wss://ws.okx.com:8443/ws/v5/public"
+  BinanceRESTURL: "https://data-api.binance.vision"
+  OKXRESTURL: "https://www.okx.com"
+  # 美股舆情可选配置。密钥建议通过 systemd 环境变量提供。
+  StockSentimentAPIURL: "https://api.adanos.org"
+  StockSentimentCacheTTLSeconds: 86400
+  NewsSentiment:
+    CacheTTLSeconds: 1800
+    MaxResults: 12
+    Anspire:
+      APIURL: "https://plugin.anspire.cn/api/ntsearch/search"
+    Tavily:
+      APIURL: "https://api.tavily.com/search"
+    Bocha:
+      APIURL: "https://api.bocha.cn/v1/web-search"
+    Brave:
+      APIURL: "https://api.search.brave.com/res/v1/web/search"
 ```
+
+启用 Reddit、X 和 Polymarket 美股舆情时，在 Gateway 服务环境中设置：
+
+```ini
+Environment=SOCIAL_SENTIMENT_API_KEY=REPLACE_WITH_API_KEY
+# 可选；默认 https://api.adanos.org
+Environment=SOCIAL_SENTIMENT_API_URL=https://api.adanos.org
+```
+
+新闻舆情至少配置一个搜索 Provider；支持逗号分隔的多 Key，当前 Key 失败时会自动尝试
+下一个：
+
+```ini
+Environment=ANSPIRE_API_KEYS=REPLACE_WITH_API_KEY
+# 以下来源均为可选
+Environment=TAVILY_API_KEY=REPLACE_WITH_API_KEY
+Environment=BOCHA_API_KEYS=REPLACE_WITH_API_KEY
+Environment=BRAVE_API_KEY=REPLACE_WITH_API_KEY
+```
+
+舆情接口会把 `AAPL`、`AAPL.US`、`US:AAPL` 和东财 `105.AAPL` 等形式统一为
+`AAPL`。默认缓存 24 小时，以控制第三方免费额度消耗；上游不可用时会回退 SQLite
+中最近一次快照并标记为过期。详细说明见 [`stock-sentiment.md`](stock-sentiment.md)。
 
 保护配置：
 

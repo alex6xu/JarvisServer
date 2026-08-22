@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Jarvis</string>
+    <string name="refresh">刷新</string>
+    <string name="server_settings">服务器设置</string>
+    <string name="server_address">服务器地址</string>
+    <string name="server_address_hint">https://example.com</string>
+    <string name="server_address_help">请输入部署了 Jarvis 前端和 Gateway 的地址。正式版只接受 HTTPS。</string>
+    <string name="save_and_open">保存并打开</string>
+    <string name="cancel">取消</string>
+    <string name="invalid_server_address">请输入有效的 HTTP 或 HTTPS 地址</string>
+    <string name="https_required">正式版仅允许 HTTPS 地址</string>
+    <string name="page_unavailable">页面暂时无法打开</string>
+    <string name="check_network">请检查网络和服务器地址后重试。</string>
+    <string name="retry">重试</string>
+    <string name="change_server">更换服务器</string>
+    <string name="offline">当前网络不可用</string>
+    <string name="opening_external_failed">无法打开外部链接</string>
+    <string name="choose_files">选择要上传的文件</string>
+    <string name="save_file">保存下载文件</string>
+    <string name="download_ready">请选择下载文件的保存位置</string>
+    <string name="download_failed">下载失败</string>
+    <string name="download_saved">文件已保存</string>
+</resources>

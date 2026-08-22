@@ -24,16 +24,21 @@ import (
 
 // Service owns shared gateway state and starts agent runs.
 type Service struct {
-	Opts    Options
-	Runs    *RunManager
-	Store   SessionRepository
-	Control ControlRepository
-	Audit   *GatewayStore
-	Router  *ProviderRouter
-	Trust   *trust.Manager
-	Mem     *MemStore
-	GitHub  *GitHubService
-	Logger  *distributedlog.Logger
+	Opts          Options
+	Runs          *RunManager
+	Store         SessionRepository
+	Control       ControlRepository
+	Audit         *GatewayStore
+	Router        *ProviderRouter
+	Trust         *trust.Manager
+	Mem           *MemStore
+	GitHub        *GitHubService
+	Stocks        *StockService
+	Sentiment     *StockSentimentService
+	NewsSentiment *StockNewsSentimentService
+	Crypto        *CryptoService
+	Notifications *NotificationService
+	Logger        *distributedlog.Logger
 }
 
 // gatewayToolPolicy keeps conversational runs read-only and lightweight. The
@@ -174,18 +179,28 @@ func NewService(opts Options) (*Service, error) {
 		_ = audit.Close()
 		return nil, fmt.Errorf("initialize github integration: %w", err)
 	}
+	notifications, err := NewNotificationService(opts, audit, stateRoot)
+	if err != nil {
+		_ = audit.Close()
+		return nil, fmt.Errorf("initialize notifications: %w", err)
+	}
 	runs := newRunManager(opts.Logger, audit)
 	return &Service{
-		Opts:    opts,
-		Runs:    runs,
-		Store:   audit,
-		Control: audit,
-		Audit:   audit,
-		Router:  routerEngine,
-		Trust:   mgr,
-		Mem:     mem,
-		GitHub:  githubService,
-		Logger:  opts.Logger,
+		Opts:          opts,
+		Runs:          runs,
+		Store:         audit,
+		Control:       audit,
+		Audit:         audit,
+		Router:        routerEngine,
+		Trust:         mgr,
+		Mem:           mem,
+		GitHub:        githubService,
+		Stocks:        NewStockService(),
+		Sentiment:     NewStockSentimentService(opts, audit),
+		NewsSentiment: NewStockNewsSentimentService(opts, audit),
+		Crypto:        NewCryptoService(opts),
+		Notifications: notifications,
+		Logger:        opts.Logger,
 	}, nil
 }
 
@@ -235,8 +250,8 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 			if active.WorkspaceID != req.WorkspaceID {
 				return ChatResponse{}, fmt.Errorf("active run workspace does not match requested workspace")
 			}
-			queued := agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: content}
-			if err := active.EnqueueMessage(msg, queued); err != nil {
+			queued := queuedUserMessage(content, req.Pinned)
+			if err := active.EnqueueMessage(msg, queued, req.Pinned); err != nil {
 				return ChatResponse{}, err
 			}
 			return ChatResponse{
@@ -244,6 +259,7 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 				RunID:     active.ID,
 				Model:     active.Model,
 				Queued:    true,
+				Pinned:    req.Pinned,
 			}, nil
 		}
 	}
@@ -446,6 +462,12 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 			s.Logger.Error(runCtx, "finish chat audit failed", distributedlog.Err(err))
 		}
 		state.Finish(drainErr)
+		if s.Notifications != nil {
+			go s.Notifications.NotifyRun(context.Background(), req.AccountID, RunNotification{
+				Status: status, Mode: req.Mode, Model: model, SessionID: hs.header.ID,
+				WorkspaceID: req.WorkspaceID, Duration: time.Since(runStarted), Response: responseText, Error: errorText,
+			})
+		}
 		fields := []distributedlog.Field{
 			distributedlog.F("mode", req.Mode),
 			distributedlog.F("model", model),
@@ -468,6 +490,19 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 		RunID:     state.ID,
 		Model:     model,
 	}, nil
+}
+
+const pinnedGuidancePreamble = `<system-reminder>
+The user pinned the guidance below during the active run. Treat it as the highest-priority current user intent and re-plan the remaining work around it. Do not claim completion until its requested outcome or termination condition is satisfied. If it defines a stop condition, stop when that condition is met. It supersedes conflicting earlier user guidance, but never system or developer instructions.
+</system-reminder>`
+
+func queuedUserMessage(content agentcore.ContentList, pinned bool) agentcore.UserMessage {
+	if pinned {
+		prioritized := make(agentcore.ContentList, 0, len(content)+1)
+		prioritized = append(prioritized, agentcore.NewTextContent(pinnedGuidancePreamble))
+		content = append(prioritized, content...)
+	}
+	return agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: content}
 }
 
 func (s *Service) instantiateRoutePlan(plan RoutePlan, runID, sessionID string) ([]routedCandidate, error) {

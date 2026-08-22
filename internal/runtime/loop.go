@@ -217,7 +217,7 @@ func runLoop(ctx context.Context, agentCtx *agentcore.AgentContext, cfg RunConfi
 					finish()
 					return
 				}
-				if afterTurn(ctx, agentCtx, &cfg, true, emit, tel) {
+				if stop, _ := afterTurn(ctx, agentCtx, &cfg, true, emit, tel); stop {
 					finish()
 					return
 				}
@@ -236,7 +236,7 @@ func runLoop(ctx context.Context, agentCtx *agentcore.AgentContext, cfg RunConfi
 					finish()
 					return
 				}
-				if afterTurn(ctx, agentCtx, &cfg, false, emit, tel) {
+				if stop, _ := afterTurn(ctx, agentCtx, &cfg, false, emit, tel); stop {
 					finish()
 					return
 				}
@@ -257,12 +257,14 @@ func runLoop(ctx context.Context, agentCtx *agentcore.AgentContext, cfg RunConfi
 				finish()
 				return
 			}
-			if allTerminate {
-				// Every tool asked to terminate the run.
+			stop, steered := afterTurn(ctx, agentCtx, &cfg, true, emit, tel)
+			if stop {
 				finish()
 				return
 			}
-			if afterTurn(ctx, agentCtx, &cfg, true, emit, tel) {
+			if allTerminate && !steered {
+				// Every tool asked to terminate, unless fresh user guidance was
+				// injected at this boundary and still needs a model turn.
 				finish()
 				return
 			}
@@ -307,11 +309,13 @@ func runLoop(ctx context.Context, agentCtx *agentcore.AgentContext, cfg RunConfi
 // true it first pulls getSteeringMessages and injects them before the next turn
 // (pi per-turn semantics). It then applies prepareNextTurn, runs auto-compaction
 // when the context has outgrown its window, and finally consults
-// shouldStopAfterTurn, returning true when the run should end.
-func afterTurn(ctx context.Context, agentCtx *agentcore.AgentContext, cfg *RunConfig, hadToolExecution bool, emit func(agentcore.AgentEvent) error, tel *telemetry) (stop bool) {
+// shouldStopAfterTurn, returning whether the run should end and whether fresh
+// steering was injected. Injected steering always receives another model turn.
+func afterTurn(ctx context.Context, agentCtx *agentcore.AgentContext, cfg *RunConfig, hadToolExecution bool, emit func(agentcore.AgentEvent) error, tel *telemetry) (stop, steered bool) {
 	if hadToolExecution && cfg.GetSteeringMessages != nil {
 		if steer := cfg.GetSteeringMessages(ctx); len(steer) > 0 {
 			agentCtx.Messages = append(agentCtx.Messages, steer...)
+			steered = true
 		}
 	}
 	if cfg.PrepareNextTurn != nil {
@@ -328,10 +332,12 @@ func afterTurn(ctx context.Context, agentCtx *agentcore.AgentContext, cfg *RunCo
 		tokens := compaction.EstimateContextTokens(agentCtx.Messages).Tokens
 		tel.recordContext(tokens, cfg.ContextWindow)
 	}
-	if cfg.ShouldStopAfterTurn != nil {
-		return cfg.ShouldStopAfterTurn(ctx, agentCtx)
+	// Fresh user steering must receive at least one model turn. A stop hook may
+	// decide again after that turn, but cannot discard guidance it has not read.
+	if !steered && cfg.ShouldStopAfterTurn != nil {
+		return cfg.ShouldStopAfterTurn(ctx, agentCtx), false
 	}
-	return false
+	return false, steered
 }
 
 // maybeAutoCompact checks whether the context has outgrown its usable window and,
