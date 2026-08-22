@@ -82,7 +82,7 @@ func parseImportMarkdown(content string) []map[string]string {
 	return out
 }
 
-func (s *Service) importSession(content, title string) (SessionMeta, error) {
+func (s *Service) importSession(content, title string, accountID int) (SessionMeta, error) {
 	title, pairs := ImportPreview(content, title)
 	now := time.Now().UTC()
 	header := session.SessionHeader{
@@ -91,6 +91,7 @@ func (s *Service) importSession(content, title string) (SessionMeta, error) {
 		UpdatedAt: now,
 		Model:     "auto",
 		Cwd:       s.Opts.Cwd,
+		AccountID: accountID,
 	}
 	msgs := make(agentcore.MessageList, 0, len(pairs))
 	for _, p := range pairs {

@@ -1,6 +1,8 @@
 package gateway
 
 import (
+	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -11,23 +13,22 @@ import (
 
 // GetSession builds the SessionDetailResponse for web session restore.
 func (s *Service) GetSession(id string) (SessionDetailResponse, error) {
+	return s.getSessionForAccount(id, 0)
+}
+
+func (s *Service) getSessionForAccount(id string, accountID int) (SessionDetailResponse, error) {
 	h, entries, err := s.Store.LoadEntries(id)
 	if err != nil {
 		return SessionDetailResponse{}, err
 	}
-	msgs := entriesToRestored(entries, h.Model)
-	resp := SessionDetailResponse{
-		Session: SessionMeta{
-			ID:           h.ID,
-			Title:        sessionTitle(msgs),
-			Platform:     "jarvis",
-			MessageCount: len(msgs),
-			Model:        h.Model,
-			CreatedAt:    h.CreatedAt.Format(time.RFC3339),
-			UpdatedAt:    h.UpdatedAt.Format(time.RFC3339),
-		},
-		Messages: msgs,
+	if !sessionOwnedByAccount(h, accountID) {
+		return SessionDetailResponse{}, fmt.Errorf("session not found: %w", os.ErrNotExist)
 	}
+	msgs := entriesToRestored(entries, h.Model)
+	meta := sessionMetaFromHeader(h, len(msgs))
+	meta.Title = sessionTitle(msgs)
+	meta.Preview = meta.Title
+	resp := SessionDetailResponse{Session: meta, Messages: msgs, WorkspaceID: h.WorkspaceID}
 	if active := s.Runs.ActiveForSession(id); active != nil {
 		info := active.Info()
 		resp.ActiveRun = &info
@@ -39,22 +40,46 @@ func (s *Service) GetSession(id string) (SessionDetailResponse, error) {
 	return resp, nil
 }
 
+func sessionOwnedByAccount(h session.SessionHeader, accountID int) bool {
+	return accountID <= 0 || h.AccountID == accountID || (h.AccountID == 0 && accountID == legacyWorkspaceAccountID)
+}
+
+func sessionMetaFromHeader(h session.SessionHeader, messageCount int) SessionMeta {
+	platform := "chat"
+	if h.WorkspaceID != "" {
+		platform = "coder"
+	}
+	return SessionMeta{
+		ID:             h.ID,
+		Title:          h.ID,
+		Platform:       platform,
+		MessageCount:   messageCount,
+		Model:          h.Model,
+		CreatedAt:      h.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:      h.UpdatedAt.Format(time.RFC3339),
+		WorkspaceID:    h.WorkspaceID,
+		ParentSession:  h.ParentSession,
+		WorktreeBranch: h.WorktreeBranch,
+		BaseCommit:     h.WorktreeBaseCommit,
+	}
+}
+
 // ListSessions returns session headers newest-first.
 func (s *Service) ListSessions() (SessionListResponse, error) {
+	return s.listSessionsForAccount(0)
+}
+
+func (s *Service) listSessionsForAccount(accountID int) (SessionListResponse, error) {
 	headers, err := s.Store.List()
 	if err != nil {
 		return SessionListResponse{}, err
 	}
 	out := make([]SessionMeta, 0, len(headers))
 	for _, h := range headers {
-		meta := SessionMeta{
-			ID:        h.ID,
-			Title:     h.ID,
-			Platform:  "jarvis",
-			Model:     h.Model,
-			CreatedAt: h.CreatedAt.Format(time.RFC3339),
-			UpdatedAt: h.UpdatedAt.Format(time.RFC3339),
+		if !sessionOwnedByAccount(h, accountID) {
+			continue
 		}
+		meta := sessionMetaFromHeader(h, 0)
 		if _, entries, err := s.Store.LoadEntries(h.ID); err == nil {
 			msgs := entriesToRestored(entries, h.Model)
 			meta.MessageCount = len(msgs)

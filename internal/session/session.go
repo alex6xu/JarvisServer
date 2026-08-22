@@ -75,6 +75,14 @@ type SessionHeader struct {
 	// (US-006, #122). Empty for a session created from scratch. It records
 	// lineage only; a fork is otherwise a fully independent session file.
 	ParentSession string `json:"parentSession,omitempty"`
+	// AccountID and WorkspaceID bind web sessions to their owner and logical
+	// Coder workspace. They are optional for legacy CLI/session files.
+	AccountID   int    `json:"accountId,omitempty"`
+	WorkspaceID string `json:"workspaceId,omitempty"`
+	// WorktreeBranch and WorktreeBaseCommit identify an isolated Coder branch.
+	// Cwd points at the corresponding worktree when these fields are set.
+	WorktreeBranch     string `json:"worktreeBranch,omitempty"`
+	WorktreeBaseCommit string `json:"worktreeBaseCommit,omitempty"`
 	// Cwd is the absolute working directory the session ran in, recorded so a
 	// session can be attributed to a project (its stable project id derives from
 	// this path). Used by /dream distillation to select the current project's

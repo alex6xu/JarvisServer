@@ -175,6 +175,32 @@ func TestAgentLoopSteeringInjected(t *testing.T) {
 	}
 }
 
+func TestAgentLoopFinalMessagesContinueBeforeEnd(t *testing.T) {
+	var providerCalls int
+	cfg := newRunCfg(func(ctx context.Context, model string, llm provider.LlmContext, cfg provider.StreamConfig) (*provider.AssistantMessageEventStream, error) {
+		providerCalls++
+		stream := provider.NewAssistantMessageEventStream(0)
+		go func() {
+			_ = stream.Emit(ctx, provider.StreamDoneEvent{Message: agentcore.AssistantMessage{RoleField: agentcore.RoleAssistant, StopReason: agentcore.StopReasonEndTurn}})
+			stream.Close()
+		}()
+		return stream, nil
+	})
+	pulled := false
+	cfg.GetFinalMessages = func(context.Context, *agentcore.AgentContext) []agentcore.AgentMessage {
+		if pulled {
+			return nil
+		}
+		pulled = true
+		return []agentcore.AgentMessage{agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent("late guidance")}}}
+	}
+	agentCtx := &agentcore.AgentContext{Messages: agentcore.MessageList{agentcore.UserMessage{RoleField: agentcore.RoleUser}}}
+	collectStream(t, agentLoop(context.Background(), agentCtx, cfg))
+	if providerCalls != 2 {
+		t.Fatalf("provider calls = %d, want 2", providerCalls)
+	}
+}
+
 func TestAgentLoopPrepareNextTurnSwapsModel(t *testing.T) {
 	var seenModels []string
 	streamFn := func(ctx context.Context, model string, llm provider.LlmContext, cfg provider.StreamConfig) (*provider.AssistantMessageEventStream, error) {

@@ -33,6 +33,9 @@ func apiRoutes(svc *Service) []rest.Route {
 		{Method: http.MethodGet, Path: "/v1/agent/sessions", Handler: svc.handleListSessions},
 		{Method: http.MethodPost, Path: "/v1/agent/sessions/import/preview", Handler: svc.handleImportPreview},
 		{Method: http.MethodPost, Path: "/v1/agent/sessions/import", Handler: svc.handleImportSession},
+		{Method: http.MethodPost, Path: "/v1/agent/sessions/:sessionId/fork", Handler: svc.handleForkSession},
+		{Method: http.MethodGet, Path: "/v1/agent/sessions/:sessionId/diff", Handler: svc.handleSessionDiff},
+		{Method: http.MethodPost, Path: "/v1/agent/sessions/:sessionId/merge", Handler: svc.handleMergeSession},
 		{Method: http.MethodGet, Path: "/v1/agent/sessions/:sessionId", Handler: svc.handleGetSession},
 
 		// Tags (static before :slug)

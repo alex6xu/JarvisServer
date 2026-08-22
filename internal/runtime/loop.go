@@ -69,6 +69,11 @@ type RunConfig struct {
 	// message with no tool calls). Returning messages continues the outer loop
 	// with them as the next input; returning none ends the run (FR-9).
 	GetFollowUpMessages func(ctx context.Context, agentCtx *agentcore.AgentContext) []agentcore.AgentMessage
+	// GetFinalMessages is the last atomic inbox check immediately before a
+	// natural run end. Returning messages continues the outer loop. It differs
+	// from GetFollowUpMessages so a caller can seal an empty inbox without racing
+	// with the stop-hook path.
+	GetFinalMessages func(ctx context.Context, agentCtx *agentcore.AgentContext) []agentcore.AgentMessage
 	// GetSteeringMessages is pulled after each turn's tool execution and injected
 	// before the next turn (pi per-turn semantics, FR-8).
 	GetSteeringMessages func(ctx context.Context) []agentcore.AgentMessage
@@ -284,6 +289,12 @@ func runLoop(ctx context.Context, agentCtx *agentcore.AgentContext, cfg RunConfi
 					})
 				}
 				continue // outer loop: keep the run alive
+			}
+		}
+		if cfg.GetFinalMessages != nil {
+			if final := cfg.GetFinalMessages(ctx, agentCtx); len(final) > 0 {
+				agentCtx.Messages = append(agentCtx.Messages, final...)
+				continue
 			}
 		}
 		break

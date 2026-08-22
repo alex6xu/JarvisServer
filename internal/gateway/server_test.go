@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -96,6 +97,7 @@ func TestStubEndpoints(t *testing.T) {
 
 	t.Run("session pathvar", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/v1/agent/sessions/missing", nil)
+		req = req.WithContext(context.WithValue(req.Context(), accountContextKey{}, Account{ID: legacyWorkspaceAccountID}))
 		req = pathvar.WithVars(req, map[string]string{"sessionId": "missing"})
 		rr := httptest.NewRecorder()
 		svc.handleGetSession(rr, req)

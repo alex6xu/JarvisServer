@@ -114,6 +114,28 @@ export default function CoderPage() {
   const { consumeRunEvents, abortRunStream } = useRunEventStream()
   const { restoreSession, persistSessionId, clearPersistedSession } = useSessionRestore()
 
+  const markQueuedMessageInjected = useCallback((content: string) => {
+    setMessages((prev) => {
+      const next = [...prev]
+      for (let i = next.length - 1; i >= 0; i--) {
+        if (next[i].role === 'system' && next[i].content === `已排队：${content}`) {
+          next[i] = { ...next[i], content: `已加入当前执行：${content}` }
+          return next
+        }
+      }
+      if (prev.some((m) => m.content === content && m.role === 'user')) return prev
+      return [
+        ...prev,
+        {
+          id: `inj-${Date.now()}`,
+          role: 'system',
+          content: `已加入当前执行：${content}`,
+          timestamp: new Date(),
+        },
+      ]
+    })
+  }, [])
+
   const sessionStorageKey =
     currentAccount?.id && workspaceId ? coderSessionKey(currentAccount.id, workspaceId) : ''
 
@@ -173,20 +195,7 @@ export default function CoderPage() {
               afterSeq,
               fallbackModel: model || selectedModel,
               onSessionId: setSessionId,
-              onUserInjected: (content) => {
-                setMessages((prev) => {
-                  if (prev.some((m) => m.content === content && m.role === 'user')) return prev
-                  return [
-                    ...prev,
-                    {
-                      id: `inj-${Date.now()}`,
-                      role: 'system',
-                      content: `已加入本轮上下文：${content}`,
-                      timestamp: new Date(),
-                    },
-                  ]
-                })
-              },
+              onUserInjected: markQueuedMessageInjected,
               setMessages,
               setIsLoading,
               setRunId,
@@ -219,7 +228,7 @@ export default function CoderPage() {
       abortRunStream()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentAccount?.id, workspaceId, sessionStorageKey])
+  }, [currentAccount?.id, workspaceId, sessionStorageKey, markQueuedMessageInjected])
 
   useEffect(() => {
     if (sessionId && sessionStorageKey) persistSessionId(sessionStorageKey, sessionId)
@@ -625,13 +634,16 @@ export default function CoderPage() {
         )
         const data = await response.json().catch(() => ({}))
         if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`)
+        if (!data.queued || data.run_id !== runId) {
+          throw new Error('活动任务未接受排队消息')
+        }
         if (data.session_id) setSessionId(data.session_id)
         setMessages((prev) => [
           ...prev,
           {
-            id: `queued-${Date.now()}`,
+            id: `queued-${userMessage.id}`,
             role: 'system',
-            content: '已排队：将在当前工具轮结束后注入本轮上下文',
+            content: `已排队：${content}`,
             timestamp: new Date(),
           },
         ])
@@ -699,20 +711,7 @@ export default function CoderPage() {
           accountId: currentAccount?.id,
           fallbackModel: selectedModel,
           onSessionId: setSessionId,
-          onUserInjected: (injected) => {
-            setMessages((prev) => {
-              if (prev.some((m) => m.content === injected && m.role === 'user')) return prev
-              return [
-                ...prev,
-                {
-                  id: `inj-${Date.now()}`,
-                  role: 'system',
-                  content: `已加入本轮上下文：${injected}`,
-                  timestamp: new Date(),
-                },
-              ]
-            })
-          },
+          onUserInjected: markQueuedMessageInjected,
           setMessages,
           setIsLoading,
           setRunId,

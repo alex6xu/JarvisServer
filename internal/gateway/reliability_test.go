@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
 	"github.com/zeromicro/go-zero/rest/pathvar"
 )
 
@@ -45,6 +46,71 @@ func TestRunManagerConcurrentRegisterAllowsOneRunPerSession(t *testing.T) {
 		t.Fatalf("successful registrations = %d, want 1", len(winners))
 	}
 	winners[0].Finish(nil)
+}
+
+func TestRunStateQueueDrainsInSubmissionOrder(t *testing.T) {
+	manager := NewRunManager()
+	state, err := manager.Register("session", "m", "ws", func() {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, content := range []string{"first", "second"} {
+		message := agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: agentcore.ContentList{agentcore.NewTextContent(content)}}
+		if err := state.EnqueueMessage(content, message); err != nil {
+			t.Fatal(err)
+		}
+	}
+	messages := state.DrainMessages()
+	if len(messages) != 2 {
+		t.Fatalf("drained messages = %d, want 2", len(messages))
+	}
+	for i, want := range []string{"first", "second"} {
+		message, ok := messages[i].(agentcore.UserMessage)
+		if !ok || agentcore.ContentToText(message.Content) != want {
+			t.Fatalf("message %d = %#v, want %q", i, messages[i], want)
+		}
+	}
+	if again := state.DrainMessages(); len(again) != 0 {
+		t.Fatalf("second drain = %d messages, want 0", len(again))
+	}
+	state.Finish(nil)
+}
+
+func TestRunStateQueueRejectsTerminalAndFullRuns(t *testing.T) {
+	manager := NewRunManager()
+	state, err := manager.Register("session", "m", "", func() {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	message := agentcore.UserMessage{RoleField: agentcore.RoleUser}
+	for i := 0; i < maxQueuedMessages; i++ {
+		if err := state.EnqueueMessage(fmt.Sprintf("message-%d", i), message); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := state.EnqueueMessage("overflow", message); err == nil {
+		t.Fatal("expected full queue to reject a message")
+	}
+	state.Finish(nil)
+	if err := state.EnqueueMessage("late", message); err == nil {
+		t.Fatal("expected terminal run to reject a message")
+	}
+}
+
+func TestRunStateFinalDrainSealsEmptyQueue(t *testing.T) {
+	manager := NewRunManager()
+	state, err := manager.Register("session", "m", "", func() {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if messages := state.DrainFinalMessages(); len(messages) != 0 {
+		t.Fatalf("final drain = %d messages, want 0", len(messages))
+	}
+	message := agentcore.UserMessage{RoleField: agentcore.RoleUser}
+	if err := state.EnqueueMessage("late", message); err == nil {
+		t.Fatal("expected a sealed inbox to reject late messages")
+	}
+	state.Finish(nil)
 }
 
 func TestRunStateSubscribeReplaysBacklogLargerThanLiveBuffer(t *testing.T) {

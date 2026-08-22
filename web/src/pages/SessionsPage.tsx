@@ -22,6 +22,9 @@ interface Session {
   preview?: string
   workspace_id?: string
   active_run_status?: string
+  parent_session?: string
+  worktree_branch?: string
+  base_commit?: string
 }
 
 interface Message {
@@ -54,6 +57,9 @@ export default function SessionsPage() {
   const [preview, setPreview] = useState<{ title: string; messages: PreviewMsg[] } | null>(null)
   const [importError, setImportError] = useState('')
   const [importing, setImporting] = useState(false)
+  const [branchBusy, setBranchBusy] = useState(false)
+  const [branchError, setBranchError] = useState('')
+  const [branchDiff, setBranchDiff] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -79,6 +85,8 @@ export default function SessionsPage() {
 
   const fetchSessionDetail = async (session: Session) => {
     setLoading(true)
+    setBranchError('')
+    setBranchDiff('')
     setSelectedSession(session.id)
     setSelectedMeta(session)
     setDetailWorkspaceId(session.workspace_id || '')
@@ -88,11 +96,90 @@ export default function SessionsPage() {
         const data = await response.json()
         setMessages(data.messages || [])
         if (data.workspace_id) setDetailWorkspaceId(data.workspace_id)
+        if (data.session) {
+          setSelectedMeta({
+            ...session,
+            ...data.session,
+            active_run_status: data.session.active_run_status || '',
+          })
+        }
       }
     } catch (error) {
       console.error('Failed to fetch session detail:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const forkSession = async (entryId?: string) => {
+    if (!selectedSession || !currentAccount?.id) return
+    setBranchBusy(true)
+    setBranchError('')
+    try {
+      const response = await apiFetch(
+        `/v1/agent/sessions/${encodeURIComponent(selectedSession)}/fork`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(entryId ? { entry_id: entryId, position: 'at' } : {}),
+        },
+        currentAccount.id,
+      )
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`)
+      const session = data.session as Session | undefined
+      const workspaceId = data.workspace_id || session?.workspace_id || detailWorkspaceId
+      if (!session?.id || !workspaceId) throw new Error('分支会话缺少工作区信息')
+      writeLocal(coderWorkspaceKey(currentAccount.id), workspaceId)
+      writeLocal(coderSessionKey(currentAccount.id, workspaceId), session.id)
+      navigate(
+        `/code?workspace=${encodeURIComponent(workspaceId)}&session=${encodeURIComponent(session.id)}`,
+      )
+    } catch (error) {
+      setBranchError(error instanceof Error ? error.message : '创建分支失败')
+    } finally {
+      setBranchBusy(false)
+    }
+  }
+
+  const loadBranchDiff = async () => {
+    if (!selectedSession) return
+    setBranchBusy(true)
+    setBranchError('')
+    try {
+      const response = await apiFetch(
+        `/v1/agent/sessions/${encodeURIComponent(selectedSession)}/diff`,
+        {},
+        currentAccount?.id,
+      )
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`)
+      setBranchDiff(data.diff || 'No changes')
+    } catch (error) {
+      setBranchError(error instanceof Error ? error.message : '读取变更失败')
+    } finally {
+      setBranchBusy(false)
+    }
+  }
+
+  const mergeBranch = async () => {
+    if (!selectedSession || !confirm('将此分支的代码变更合并到主工作区？')) return
+    setBranchBusy(true)
+    setBranchError('')
+    try {
+      const response = await apiFetch(
+        `/v1/agent/sessions/${encodeURIComponent(selectedSession)}/merge`,
+        { method: 'POST' },
+        currentAccount?.id,
+      )
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`)
+      setBranchDiff(data.message || '已合并到主工作区')
+      await fetchSessions()
+    } catch (error) {
+      setBranchError(error instanceof Error ? error.message : '合并失败')
+    } finally {
+      setBranchBusy(false)
     }
   }
 
@@ -361,11 +448,40 @@ export default function SessionsPage() {
                   {selectedMeta.platform === 'coder' ? '在 Coder 继续' : '在 Chat 继续'}
                 </button>
               )}
+              {selectedMeta?.platform === 'coder' && (
+                <button
+                  onClick={() => void forkSession()}
+                  disabled={branchBusy || selectedMeta.active_run_status === 'running'}
+                  className="h-8 px-3 text-[12px] border border-border rounded-md hover:bg-accent disabled:opacity-50"
+                >
+                  创建分支
+                </button>
+              )}
+              {selectedMeta?.worktree_branch && (
+                <>
+                  <button
+                    onClick={() => void loadBranchDiff()}
+                    disabled={branchBusy}
+                    className="h-8 px-3 text-[12px] border border-border rounded-md hover:bg-accent disabled:opacity-50"
+                  >
+                    查看变更
+                  </button>
+                  <button
+                    onClick={() => void mergeBranch()}
+                    disabled={branchBusy || selectedMeta.active_run_status === 'running'}
+                    className="h-8 px-3 text-[12px] border border-border rounded-md hover:bg-accent disabled:opacity-50"
+                  >
+                    合并到工作区
+                  </button>
+                </>
+              )}
               <button
                 onClick={() => {
                   setSelectedSession(null)
                   setSelectedMeta(null)
                   setMessages([])
+                  setBranchError('')
+                  setBranchDiff('')
                 }}
                 className="text-[12px] text-muted-foreground hover:text-foreground"
               >
@@ -373,6 +489,17 @@ export default function SessionsPage() {
               </button>
             </div>
           </div>
+
+          {(branchError || branchDiff) && (
+            <div className="border-b border-border px-4 py-3 bg-card/40">
+              {branchError && <p className="text-[12px] text-red-500">{branchError}</p>}
+              {branchDiff && (
+                <pre className="text-[11px] text-muted-foreground whitespace-pre-wrap overflow-auto max-h-40">
+                  {branchDiff}
+                </pre>
+              )}
+            </div>
+          )}
 
           <div className="flex-1 overflow-auto p-4 space-y-3">
             {loading ? (
@@ -385,7 +512,7 @@ export default function SessionsPage() {
               </div>
             ) : (
               messages.map((msg) => (
-                <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div key={msg.id} className={`group flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                   <div
                     className={`max-w-[80%] rounded-xl px-4 py-2.5 ${
                       msg.role === 'user'
@@ -406,6 +533,15 @@ export default function SessionsPage() {
                     )}
                     {msg.tool_steps && msg.tool_steps.length > 0 && (
                       <ToolStepCard messageId={msg.id} steps={msg.tool_steps} defaultOpen={false} />
+                    )}
+                    {selectedMeta?.platform === 'coder' && msg.role === 'assistant' && (
+                      <button
+                        onClick={() => void forkSession(msg.id)}
+                        disabled={branchBusy || selectedMeta.active_run_status === 'running'}
+                        className="mt-2 text-[11px] opacity-60 hover:opacity-100 disabled:opacity-30"
+                      >
+                        从此处分支
+                      </button>
                     )}
                   </div>
                 </div>

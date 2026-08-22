@@ -149,8 +149,13 @@ func (s *Service) handleListRunAttempts(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Service) handleGetSession(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := s.requestAccountID(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "account context is required")
+		return
+	}
 	id := pathParam(r, "sessionId")
-	resp, err := s.GetSession(id)
+	resp, err := s.getSessionForAccount(id, accountID)
 	if err != nil {
 		if isNotFound(err) {
 			writeErr(w, http.StatusNotFound, err.Error())
@@ -162,8 +167,64 @@ func (s *Service) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-func (s *Service) handleListSessions(w http.ResponseWriter, _ *http.Request) {
-	resp, err := s.ListSessions()
+func (s *Service) handleForkSession(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := s.requestAccountID(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "account context is required")
+		return
+	}
+	var req ForkSessionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		writeErr(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	resp, err := s.ForkSession(r.Context(), pathParam(r, "sessionId"), req, accountID)
+	if err != nil {
+		if isNotFound(err) {
+			writeErr(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, resp)
+}
+
+func (s *Service) handleSessionDiff(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := s.requestAccountID(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "account context is required")
+		return
+	}
+	diff, err := s.SessionDiff(r.Context(), pathParam(r, "sessionId"), accountID)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"diff": diff})
+}
+
+func (s *Service) handleMergeSession(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := s.requestAccountID(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "account context is required")
+		return
+	}
+	resp, err := s.MergeSession(r.Context(), pathParam(r, "sessionId"), accountID)
+	if err != nil {
+		writeErr(w, http.StatusConflict, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Service) handleListSessions(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := s.requestAccountID(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "account context is required")
+		return
+	}
+	resp, err := s.listSessionsForAccount(accountID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

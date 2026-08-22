@@ -16,6 +16,7 @@ type ChatResponse struct {
 	SessionID string `json:"session_id"`
 	RunID     string `json:"run_id"`
 	Model     string `json:"model,omitempty"`
+	Queued    bool   `json:"queued,omitempty"`
 }
 
 // ToolStep matches web/src/lib/sessionPersist.ts ToolStep.
@@ -79,6 +80,24 @@ type SessionMeta struct {
 	Preview         string `json:"preview,omitempty"`
 	WorkspaceID     string `json:"workspace_id,omitempty"`
 	ActiveRunStatus string `json:"active_run_status,omitempty"`
+	ParentSession   string `json:"parent_session,omitempty"`
+	WorktreeBranch  string `json:"worktree_branch,omitempty"`
+	BaseCommit      string `json:"base_commit,omitempty"`
+}
+
+type ForkSessionRequest struct {
+	EntryID  string `json:"entry_id,omitempty"`
+	Position string `json:"position,omitempty"` // at | before
+}
+
+type ForkSessionResponse struct {
+	Session     SessionMeta `json:"session"`
+	WorkspaceID string      `json:"workspace_id"`
+}
+
+type MergeSessionResponse struct {
+	Message      string `json:"message"`
+	ChangedFiles int    `json:"changed_files"`
 }
 
 // SessionDetailResponse matches web SessionRestorePayload.

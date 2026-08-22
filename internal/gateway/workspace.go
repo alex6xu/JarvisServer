@@ -120,6 +120,10 @@ func (s *Service) workspacesRoot() string {
 	return filepath.Join(s.Opts.Cwd, "workspaces")
 }
 
+func (s *Service) sessionWorktreesRoot() string {
+	return filepath.Join(s.workspacesRoot(), ".jarvis-worktrees")
+}
+
 func (s *Service) ensureWorkspacesRoot() error {
 	return os.MkdirAll(s.workspacesRoot(), 0o755)
 }
@@ -134,7 +138,7 @@ func (s *Service) listWorkspaces(accountID int) ([]WorkspaceInfo, error) {
 	}
 	out := make([]WorkspaceInfo, 0)
 	for _, e := range entries {
-		if !e.IsDir() {
+		if !e.IsDir() || e.Name() == ".jarvis-worktrees" {
 			continue
 		}
 		info, err := s.workspaceInfoWithOwnership(e.Name())
@@ -546,6 +550,17 @@ func (s *Service) deleteWorkspace(id string, accountID int) error {
 	if _, err := os.Stat(dir); err != nil {
 		return fmt.Errorf("workspace not found")
 	}
+	if active := s.Runs.ActiveForWorkspace(id); active != nil {
+		return fmt.Errorf("workspace has an active run: %s", active.ID)
+	}
+	if headers, listErr := s.Store.List(); listErr == nil {
+		for _, header := range headers {
+			if header.WorkspaceID == id && header.WorktreeBranch != "" {
+				s.removeSessionWorktree(context.Background(), id, header.Cwd, header.WorktreeBranch)
+			}
+		}
+	}
+	_ = os.RemoveAll(filepath.Join(s.sessionWorktreesRoot(), id))
 	if err := os.RemoveAll(dir); err != nil {
 		return err
 	}

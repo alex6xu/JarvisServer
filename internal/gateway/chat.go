@@ -204,18 +204,9 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 		return ChatResponse{}, fmt.Errorf("message is required")
 	}
 	model := strings.TrimSpace(req.Model)
-	purpose := RoutePurposeChat
-	if strings.EqualFold(req.Mode, "coder") {
-		purpose = RoutePurposeCodeAnalysis
-	}
-	plan, err := s.resolveLLMPlanForPurpose(model, purpose, 0)
-	if err != nil {
-		return ChatResponse{}, err
-	}
-	route := plan.Candidates[0]
-	model = route.Model
 
 	runCwd := s.Opts.Cwd
+	var err error
 	if req.WorkspaceID != "" {
 		_, err = s.workspaceInfoForAccount(req.WorkspaceID, req.AccountID)
 		if err != nil {
@@ -235,7 +226,39 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 		return ChatResponse{}, err
 	}
 
-	prior, hs, err := s.openSession(req.SessionID, model, runCwd)
+	if req.SessionID != "" {
+		if active := s.Runs.ActiveForSession(req.SessionID); active != nil {
+			_, hs, _, err := s.openSession(req.SessionID, "", runCwd, req.WorkspaceID, req.AccountID)
+			if err != nil {
+				return ChatResponse{}, err
+			}
+			if active.WorkspaceID != req.WorkspaceID {
+				return ChatResponse{}, fmt.Errorf("active run workspace does not match requested workspace")
+			}
+			queued := agentcore.UserMessage{RoleField: agentcore.RoleUser, Content: content}
+			if err := active.EnqueueMessage(msg, queued); err != nil {
+				return ChatResponse{}, err
+			}
+			return ChatResponse{
+				SessionID: hs.header.ID,
+				RunID:     active.ID,
+				Model:     active.Model,
+				Queued:    true,
+			}, nil
+		}
+	}
+	purpose := RoutePurposeChat
+	if strings.EqualFold(req.Mode, "coder") {
+		purpose = RoutePurposeCodeAnalysis
+	}
+	plan, err := s.resolveLLMPlanForPurpose(model, purpose, 0)
+	if err != nil {
+		return ChatResponse{}, err
+	}
+	route := plan.Candidates[0]
+	model = route.Model
+
+	prior, hs, runCwd, err := s.openSession(req.SessionID, model, runCwd, req.WorkspaceID, req.AccountID)
 	if err != nil {
 		return ChatResponse{}, err
 	}
@@ -307,6 +330,15 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 		runCtx, cancel = context.WithCancel(runBaseCtx)
 	}
 	deadline, _ := runCtx.Deadline()
+	if req.SessionID == "" {
+		// Make a first-turn session resumable and queue-addressable while its run
+		// is still active. The completed turn is appended by persistSession.
+		if err := s.Store.SaveEntries(hs.header, nil); err != nil {
+			cancel()
+			closeEnv(env)
+			return ChatResponse{}, fmt.Errorf("persist new session: %w", err)
+		}
+	}
 	state, err := s.Runs.Register(hs.header.ID, model, req.WorkspaceID, cancel, deadline)
 	if err != nil {
 		cancel()
@@ -341,6 +373,25 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 	runCfg := run.NewConfig(model, env.ProviderName, thinking, routedProvider, creds, run.ToolRegistry(env.Tools), run.TodoReminders(env.Tools))
 	runCfg.SessionID = hs.header.ID
 	runCfg.MemoryRoot = run.MemoryRootFromTools(env.Tools)
+	baseSteering := runCfg.GetSteeringMessages
+	runCfg.GetSteeringMessages = func(ctx context.Context) []agentcore.AgentMessage {
+		var messages []agentcore.AgentMessage
+		if baseSteering != nil {
+			messages = append(messages, baseSteering(ctx)...)
+		}
+		return append(messages, state.DrainMessages()...)
+	}
+	baseFollowUp := runCfg.GetFollowUpMessages
+	runCfg.GetFollowUpMessages = func(ctx context.Context, agentCtx *agentcore.AgentContext) []agentcore.AgentMessage {
+		var messages []agentcore.AgentMessage
+		if baseFollowUp != nil {
+			messages = append(messages, baseFollowUp(ctx, agentCtx)...)
+		}
+		return append(messages, state.DrainMessages()...)
+	}
+	runCfg.GetFinalMessages = func(context.Context, *agentcore.AgentContext) []agentcore.AgentMessage {
+		return state.DrainFinalMessages()
+	}
 	runCfg.ContextWindow = s.adaptiveContextWindow(req.Model, req.Mode)
 	runCfg.Compaction = smartCompactionSettings(runCfg.ContextWindow)
 	baseSummaryStream := runCfg.Stream
@@ -558,15 +609,35 @@ type sessionHandle struct {
 	persisted int
 }
 
-func (s *Service) openSession(resumeID, model, cwd string) (agentcore.MessageList, sessionHandle, error) {
+func (s *Service) openSession(resumeID, model, cwd, workspaceID string, accountID int) (agentcore.MessageList, sessionHandle, string, error) {
 	now := time.Now().UTC()
 	if resumeID != "" {
 		h, entries, err := s.Store.LoadEntries(resumeID)
 		if err != nil {
-			return nil, sessionHandle{}, err
+			return nil, sessionHandle{}, "", err
 		}
-		if h.Cwd != "" && filepath.Clean(h.Cwd) != filepath.Clean(cwd) {
-			return nil, sessionHandle{}, fmt.Errorf("session workspace does not match requested workspace")
+		if !sessionOwnedByAccount(h, accountID) {
+			return nil, sessionHandle{}, "", fmt.Errorf("session does not belong to this account")
+		}
+		if h.WorkspaceID != "" && h.WorkspaceID != workspaceID {
+			return nil, sessionHandle{}, "", fmt.Errorf("session workspace does not match requested workspace")
+		}
+		executionCwd := cwd
+		if h.Cwd != "" {
+			if h.WorkspaceID == "" && filepath.Clean(h.Cwd) != filepath.Clean(cwd) {
+				return nil, sessionHandle{}, "", fmt.Errorf("session workspace does not match requested workspace")
+			}
+			if h.WorktreeBranch != "" {
+				root, rootErr := filepath.Abs(s.sessionWorktreesRoot())
+				target, targetErr := filepath.Abs(h.Cwd)
+				if rootErr != nil || targetErr != nil || ensurePathWithin(root, target) != nil {
+					return nil, sessionHandle{}, "", fmt.Errorf("invalid session worktree")
+				}
+			}
+			executionCwd = h.Cwd
+		}
+		if info, statErr := os.Stat(executionCwd); statErr != nil || !info.IsDir() {
+			return nil, sessionHandle{}, "", fmt.Errorf("session working directory not found")
 		}
 		msgs := make(agentcore.MessageList, len(entries))
 		for i, e := range entries {
@@ -581,16 +652,18 @@ func (s *Service) openSession(resumeID, model, cwd string) (agentcore.MessageLis
 			header:    h,
 			curLeaf:   curLeaf,
 			persisted: len(msgs),
-		}, nil
+		}, executionCwd, nil
 	}
 	header := session.SessionHeader{
-		ID:        session.NewID(now),
-		CreatedAt: now,
-		UpdatedAt: now,
-		Model:     model,
-		Cwd:       cwd,
+		ID:          session.NewID(now),
+		CreatedAt:   now,
+		UpdatedAt:   now,
+		Model:       model,
+		Cwd:         cwd,
+		AccountID:   accountID,
+		WorkspaceID: workspaceID,
 	}
-	return nil, sessionHandle{store: s.Store, header: header}, nil
+	return nil, sessionHandle{store: s.Store, header: header}, cwd, nil
 }
 
 func persistSession(hs sessionHandle, agentCtx *agentcore.AgentContext, model, providerName string) error {

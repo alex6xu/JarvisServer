@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/alex6xu/jarvisserver/internal/agentcore"
 	"github.com/alex6xu/jarvisserver/internal/distributedlog"
 )
 
@@ -20,7 +21,13 @@ const (
 	runStatusCancelled   = "cancelled"
 	runStatusTimedOut    = "timed_out"
 	runStatusInterrupted = "interrupted"
+	maxQueuedMessages    = 32
 )
+
+type queuedMessage struct {
+	content string
+	message agentcore.AgentMessage
+}
 
 // RunState holds one agent run's sequenced event log and live subscribers.
 type RunState struct {
@@ -34,6 +41,8 @@ type RunState struct {
 	Cancel      context.CancelFunc
 	Deadline    time.Time
 	Err         error
+	queued      []queuedMessage
+	accepting   bool
 
 	mu     sync.Mutex
 	subs   map[chan StoredEvent]struct{}
@@ -41,6 +50,54 @@ type RunState struct {
 	store  *GatewayStore
 	logger *distributedlog.Logger
 	logCtx context.Context
+}
+
+// EnqueueMessage adds user guidance to a running agent. The runtime drains the
+// queue after a tool batch or immediately before a natural run end.
+func (st *RunState) EnqueueMessage(content string, message agentcore.AgentMessage) error {
+	st.mu.Lock()
+	if st.Status != runStatusRunning || !st.accepting {
+		st.mu.Unlock()
+		return fmt.Errorf("run is finishing and no longer accepts queued messages")
+	}
+	if len(st.queued) >= maxQueuedMessages {
+		st.mu.Unlock()
+		return fmt.Errorf("run message queue is full")
+	}
+	st.queued = append(st.queued, queuedMessage{content: content, message: message})
+	st.mu.Unlock()
+	st.Publish(StreamEvent{Type: "user_queued", Content: content})
+	return nil
+}
+
+// DrainMessages atomically removes all queued guidance in submission order.
+func (st *RunState) DrainMessages() []agentcore.AgentMessage {
+	return st.drainMessages(false)
+}
+
+// DrainFinalMessages atomically seals an empty queue immediately before a
+// natural run end, preventing a late accepted message from being lost.
+func (st *RunState) DrainFinalMessages() []agentcore.AgentMessage {
+	return st.drainMessages(true)
+}
+
+func (st *RunState) drainMessages(sealWhenEmpty bool) []agentcore.AgentMessage {
+	st.mu.Lock()
+	queued := append([]queuedMessage(nil), st.queued...)
+	st.queued = nil
+	if sealWhenEmpty && len(queued) == 0 {
+		st.accepting = false
+	}
+	st.mu.Unlock()
+	if len(queued) == 0 {
+		return nil
+	}
+	messages := make([]agentcore.AgentMessage, 0, len(queued))
+	for _, item := range queued {
+		messages = append(messages, item.message)
+		st.Publish(StreamEvent{Type: "user_injected", Content: item.content})
+	}
+	return messages
 }
 
 // RunManager tracks in-process runs for SSE subscription and after_seq replay.
@@ -78,6 +135,7 @@ func (m *RunManager) Register(sessionID, model, workspaceID string, cancel conte
 		WorkspaceID: workspaceID,
 		Status:      runStatusRunning,
 		Cancel:      cancel,
+		accepting:   true,
 		subs:        make(map[chan StoredEvent]struct{}),
 		done:        make(chan struct{}),
 		store:       m.store,
@@ -167,6 +225,18 @@ func (m *RunManager) ActiveForSession(sessionID string) *RunState {
 		}
 	}
 	return best
+}
+
+func (m *RunManager) ActiveForWorkspace(workspaceID string) *RunState {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, st := range m.runs {
+		info := st.Info()
+		if st.WorkspaceID == workspaceID && info.Status == runStatusRunning {
+			return st
+		}
+	}
+	return nil
 }
 
 // Publish appends an event, assigns seq, and fans out to subscribers.

@@ -24,6 +24,11 @@ func (s *Service) handleImportPreview(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleImportSession(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := s.requestAccountID(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "account context is required")
+		return
+	}
 	var body struct {
 		Content string `json:"content"`
 		Title   string `json:"title"`
@@ -32,7 +37,7 @@ func (s *Service) handleImportSession(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid json body")
 		return
 	}
-	meta, err := s.importSession(body.Content, body.Title)
+	meta, err := s.importSession(body.Content, body.Title, accountID)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
