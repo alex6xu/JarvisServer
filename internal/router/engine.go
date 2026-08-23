@@ -111,6 +111,10 @@ func scoreEndpoint(endpoint Endpoint, health Health, policy Policy) float64 {
 	qualityTier := max(endpoint.Capabilities.QualityTier, 1)
 	quality := float64(qualityTier)
 	score := float64(endpoint.Priority*100) + healthScore*policy.HealthWeight/100
+	// Context metadata is advisory. A known-fitting route wins over unknown and
+	// undersized routes, while the latter remain available for compaction or
+	// provider-side handling when no better candidate exists.
+	score += float64(endpoint.ContextRank) * 10_000_000
 	if policy.PreferredQualityTier > 0 {
 		distance := qualityTier - policy.PreferredQualityTier
 		if distance < 0 {

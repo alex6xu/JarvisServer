@@ -45,6 +45,8 @@ type TurnUpdate struct {
 	Tools         *[]agentcore.AgentTool
 	Model         *string
 	ThinkingLevel *agentcore.ThinkingLevel
+	ContextWindow *int
+	Compaction    *compaction.CompactionSettings
 }
 
 // StopDecision is the result of the OnStop seam. Block=true prevents the run
@@ -329,7 +331,7 @@ func afterTurn(ctx context.Context, agentCtx *agentcore.AgentContext, cfg *RunCo
 	// figure. This runs even when auto-compaction is disabled so utilization is
 	// still observable whenever the context window is known.
 	if tel != nil && cfg.ContextWindow > 0 {
-		tokens := compaction.EstimateContextTokens(agentCtx.Messages).Tokens
+		tokens := compaction.EstimateContextTokensWithPrompt(agentCtx.SystemPrompt, agentCtx.Messages, agentCtx.Tools).Tokens
 		tel.recordContext(tokens, cfg.ContextWindow)
 	}
 	// Fresh user steering must receive at least one model turn. A stop hook may
@@ -350,7 +352,7 @@ func maybeAutoCompact(ctx context.Context, agentCtx *agentcore.AgentContext, cfg
 	if !cfg.Compaction.Enabled || cfg.ContextWindow <= 0 {
 		return
 	}
-	before := compaction.EstimateContextTokens(agentCtx.Messages).Tokens
+	before := compaction.EstimateContextTokensWithPrompt(agentCtx.SystemPrompt, agentCtx.Messages, agentCtx.Tools).Tokens
 	// Record pre-compaction utilization so the ratio reflects the peak that
 	// triggered (or nearly triggered) compaction even when the summary is read
 	// mid-run. afterTurn overwrites it with the post-settle figure.
@@ -388,7 +390,7 @@ func maybeAutoCompact(ctx context.Context, agentCtx *agentcore.AgentContext, cfg
 	rebuilt := res.RebuildContext(agentCtx.Messages, now)
 	summarized := len(agentCtx.Messages) - (len(rebuilt) - 1)
 	agentCtx.Messages = rebuilt
-	after := compaction.EstimateContextTokens(rebuilt).Tokens
+	after := compaction.EstimateContextTokensWithPrompt(agentCtx.SystemPrompt, rebuilt, agentCtx.Tools).Tokens
 	_ = emit(agentcore.CompactionEvent{
 		Reason:          "threshold",
 		TokensBefore:    before,
@@ -476,6 +478,12 @@ func applyTurnUpdate(agentCtx *agentcore.AgentContext, cfg *RunConfig, upd *Turn
 	}
 	if upd.ThinkingLevel != nil {
 		cfg.ThinkingLevel = *upd.ThinkingLevel
+	}
+	if upd.ContextWindow != nil {
+		cfg.ContextWindow = *upd.ContextWindow
+	}
+	if upd.Compaction != nil {
+		cfg.Compaction = *upd.Compaction
 	}
 }
 

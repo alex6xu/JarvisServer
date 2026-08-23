@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/alex6xu/jarvisserver/internal/agentcore"
@@ -24,23 +26,26 @@ import (
 
 // Service owns shared gateway state and starts agent runs.
 type Service struct {
-	Opts          Options
-	Runs          *RunManager
-	Store         SessionRepository
-	Control       ControlRepository
-	Audit         *GatewayStore
-	Router        *ProviderRouter
-	Trust         *trust.Manager
-	Mem           *MemStore
-	GitHub        *GitHubService
-	Stocks        *StockService
-	Sentiment     *StockSentimentService
-	NewsSentiment *StockNewsSentimentService
-	Crypto        *CryptoService
-	Notifications *NotificationService
-	Digest        *StockDigestService
-	Skills        *SkillRegistryService
-	Logger        *distributedlog.Logger
+	Opts           Options
+	Runs           *RunManager
+	Store          SessionRepository
+	Control        ControlRepository
+	Audit          *GatewayStore
+	Router         *ProviderRouter
+	Trust          *trust.Manager
+	Mem            *MemStore
+	GitHub         *GitHubService
+	Stocks         *StockService
+	Sentiment      *StockSentimentService
+	NewsSentiment  *StockNewsSentimentService
+	Crypto         *CryptoService
+	Notifications  *NotificationService
+	Digest         *StockDigestService
+	Skills         *SkillRegistryService
+	Logger         *distributedlog.Logger
+	metadataCancel context.CancelFunc
+	metadataDone   chan struct{}
+	closeOnce      sync.Once
 }
 
 // gatewayToolPolicy keeps conversational runs read-only and lightweight. The
@@ -246,6 +251,7 @@ func NewService(opts Options) (*Service, error) {
 			opts.Logger.Error(context.Background(), "skill registry reload failed", distributedlog.Err(reloadErr))
 		}
 	}
+	service.startProviderMetadataReconciler()
 	return service, nil
 }
 
@@ -254,7 +260,17 @@ func (s *Service) Close() error {
 	if s == nil {
 		return nil
 	}
-	return s.Audit.Close()
+	var closeErr error
+	s.closeOnce.Do(func() {
+		if s.metadataCancel != nil {
+			s.metadataCancel()
+		}
+		if s.metadataDone != nil {
+			<-s.metadataDone
+		}
+		closeErr = s.Audit.Close()
+	})
+	return closeErr
 }
 
 // StartChat begins an async agent run and returns session/run ids immediately.
@@ -503,8 +519,39 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 		liveSession.QueueMessages(messages)
 		return messages
 	}
-	runCfg.ContextWindow = s.adaptiveContextWindow(req.Model, req.Mode)
+	runCfg.ContextWindow = route.ContextWindow
+	if runCfg.ContextWindow <= 0 {
+		runCfg.ContextWindow = s.adaptiveContextWindow(req.Model, req.Mode)
+	}
 	runCfg.Compaction = smartCompactionSettings(runCfg.ContextWindow)
+	var selectedContextWindow atomic.Int64
+	selectedContextWindow.Store(int64(runCfg.ContextWindow))
+	var appliedContextWindow atomic.Int64
+	appliedContextWindow.Store(int64(runCfg.ContextWindow))
+	routedProvider.onRouteSelected = func(selected LLMRoute) {
+		if selected.ContextWindow > 0 {
+			selectedContextWindow.Store(int64(selected.ContextWindow))
+		}
+	}
+	basePrepareNextTurn := runCfg.PrepareNextTurn
+	runCfg.PrepareNextTurn = func(ctx context.Context, agentCtx *agentcore.AgentContext) *runtime.TurnUpdate {
+		var update *runtime.TurnUpdate
+		if basePrepareNextTurn != nil {
+			update = basePrepareNextTurn(ctx, agentCtx)
+		}
+		window := int(selectedContextWindow.Load())
+		if window <= 0 || window == int(appliedContextWindow.Load()) {
+			return update
+		}
+		if update == nil {
+			update = &runtime.TurnUpdate{}
+		}
+		settings := smartCompactionSettings(window)
+		update.ContextWindow = &window
+		update.Compaction = &settings
+		appliedContextWindow.Store(int64(window))
+		return update
+	}
 	baseSummaryStream := runCfg.Stream
 	runCfg.SummaryStream = func(ctx context.Context, model string, llm provider.LlmContext, cfg provider.StreamConfig) (*provider.AssistantMessageEventStream, error) {
 		extra := make(map[string]any, len(cfg.Extra)+1)
@@ -644,7 +691,8 @@ func (s *Service) buildRoutedProvider(requestedModel string, initial RoutePlan, 
 		sessionID: sessionID, workspaceID: workspaceID, mode: mode, publish: publish,
 		planner: func(ctx context.Context, purpose RoutePurpose, req provider.CompletionRequest) (RoutePlan, []routedCandidate, error) {
 			model := requestedModel
-			minContextWindow := compaction.EstimateContextTokens(req.Context.Messages).Tokens + 2048
+			minContextWindow := compaction.EstimateContextTokensWithPrompt(
+				req.Context.SystemPrompt, req.Context.Messages, req.Context.Tools).Tokens + 2048
 			if purpose == RoutePurposeCompaction {
 				model = ""
 			}
@@ -687,8 +735,16 @@ func (s *Service) adaptiveContextWindow(requestedModel, mode string) int {
 				((provider.Capabilities.Reasoning && provider.QualityTier >= 3) ||
 					(provider.Capabilities.Coding && provider.QualityTier >= 2))
 		}
-		if eligible && (minimum == 0 || provider.ContextWindow < minimum) {
-			minimum = provider.ContextWindow
+		if eligible {
+			for _, modelID := range parseProviderModels(provider.Models) {
+				if model != "" && !strings.EqualFold(modelID, model) {
+					continue
+				}
+				window := providerModelMetadataFor(provider, modelID).EffectiveContextWindow
+				if window > 0 && (minimum == 0 || window < minimum) {
+					minimum = window
+				}
+			}
 		}
 	}
 	if minimum <= 0 {

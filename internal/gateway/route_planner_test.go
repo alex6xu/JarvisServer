@@ -406,11 +406,34 @@ func TestProviderRouterPrefersProviderThatMeetsContextWindow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.Candidates) != 1 || plan.Candidates[0].ProviderID != 2 {
-		t.Fatalf("strict context-window plan = %+v", plan.Candidates)
+	if len(plan.Candidates) != 2 || plan.Candidates[0].ProviderID != 2 || plan.Candidates[1].ProviderID != 1 {
+		t.Fatalf("context-aware plan = %+v", plan.Candidates)
 	}
 	if strings.Contains(plan.Reason, "context window metadata fallback") {
 		t.Fatalf("strict route unexpectedly used fallback: %q", plan.Reason)
+	}
+}
+
+func TestProviderRouterUsesModelSpecificContextWindow(t *testing.T) {
+	router := NewProviderRouter()
+	provider := Provider{
+		ID: 1, Name: "multi", Type: 3, Key: "key", BaseURL: "https://example.test/v1",
+		Models: "small,large", Status: 1, Priority: 1, Weight: 1,
+		Capabilities: ProviderCapabilities{Chat: true}, ContextWindow: 32768, QualityTier: 3,
+		ModelMetadata: []ProviderModelMetadata{
+			{ID: "small", ContextWindow: 32768, MetadataSource: "auto:discovery"},
+			{ID: "large", ContextWindow: 128000, MetadataSource: "auto:discovery"},
+		},
+	}
+	plan, err := router.PlanForPurpose([]Provider{provider}, "", LLMRoute{}, RoutePurposeChat, 64000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Candidates) != 2 || plan.Candidates[0].Model != "large" || plan.Candidates[0].ContextWindow != 128000 {
+		t.Fatalf("plan=%+v", plan)
+	}
+	if plan.Candidates[1].Model != "small" {
+		t.Fatalf("undersized fallback was removed: %+v", plan.Candidates)
 	}
 }
 

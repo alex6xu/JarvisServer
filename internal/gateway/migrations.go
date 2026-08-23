@@ -389,6 +389,14 @@ CREATE INDEX IF NOT EXISTS idx_account_active_sessions_updated
     ON account_active_sessions(account_id, updated_at DESC);
 `
 
+const providerModelMetadataSchema = `
+ALTER TABLE provider_models ADD COLUMN max_input_tokens INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE provider_models ADD COLUMN max_output_tokens INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE provider_models ADD COLUMN metadata_source TEXT NOT NULL DEFAULT 'provider_default';
+ALTER TABLE provider_models ADD COLUMN manual_context_window INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE provider_models ADD COLUMN detected_at TEXT;
+`
+
 var gatewayMigrations = []gatewayMigration{
 	{version: 1, name: "gateway_base", schema: gatewaySchema},
 	{version: 2, name: "control_plane_repositories", schema: controlPlaneSchema},
@@ -407,6 +415,7 @@ var gatewayMigrations = []gatewayMigration{
 	{version: 15, name: "watchlist", schema: watchlistSchema},
 	{version: 16, name: "notification_deliveries", schema: notificationDeliveriesSchema},
 	{version: 17, name: "account_active_sessions", schema: activeSessionsSchema},
+	{version: 18, name: "provider_model_metadata", schema: providerModelMetadataSchema},
 }
 
 func applyGatewayMigrations(db *sql.DB) error {

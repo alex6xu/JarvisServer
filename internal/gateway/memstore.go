@@ -39,21 +39,37 @@ type APIToken struct {
 
 // Provider matches the web ChannelsPage Channel JSON shape.
 type Provider struct {
-	ID            int                  `json:"id"`
-	Name          string               `json:"name"`
-	Type          int                  `json:"type"`
-	Key           string               `json:"key"`
-	BaseURL       string               `json:"base_url"`
-	Models        string               `json:"models"`
-	Status        int                  `json:"status"`
-	Weight        int                  `json:"weight"`
-	Priority      int                  `json:"priority"`
-	IsDefault     int                  `json:"is_default"`
-	AuthMode      string               `json:"auth_mode,omitempty"`
-	Capabilities  ProviderCapabilities `json:"capabilities"`
-	ContextWindow int                  `json:"context_window"`
-	QualityTier   int                  `json:"quality_tier"`
-	CostPerMTok   float64              `json:"cost_per_mtok"`
+	ID            int                     `json:"id"`
+	Name          string                  `json:"name"`
+	Type          int                     `json:"type"`
+	Key           string                  `json:"key"`
+	BaseURL       string                  `json:"base_url"`
+	Models        string                  `json:"models"`
+	Status        int                     `json:"status"`
+	Weight        int                     `json:"weight"`
+	Priority      int                     `json:"priority"`
+	IsDefault     int                     `json:"is_default"`
+	AuthMode      string                  `json:"auth_mode,omitempty"`
+	Capabilities  ProviderCapabilities    `json:"capabilities"`
+	ContextWindow int                     `json:"context_window"`
+	QualityTier   int                     `json:"quality_tier"`
+	CostPerMTok   float64                 `json:"cost_per_mtok"`
+	ModelMetadata []ProviderModelMetadata `json:"model_metadata,omitempty"`
+}
+
+// ProviderModelMetadata is scoped to one physical provider endpoint and model.
+// ContextWindow stores auto-discovered metadata; ManualContextWindow is a user
+// override and always wins when EffectiveContextWindow is resolved.
+type ProviderModelMetadata struct {
+	ID                     string `json:"id"`
+	ContextWindow          int    `json:"context_window"`
+	MaxInputTokens         int    `json:"max_input_tokens"`
+	MaxOutputTokens        int    `json:"max_output_tokens"`
+	MetadataSource         string `json:"metadata_source"`
+	ManualContextWindow    int    `json:"manual_context_window"`
+	EffectiveContextWindow int    `json:"effective_context_window"`
+	EffectiveSource        string `json:"effective_source"`
+	DetectedAt             string `json:"detected_at,omitempty"`
 }
 
 type ProviderCapabilities struct {
@@ -270,6 +286,7 @@ func (m *MemStore) upsertProvider(id int, p Provider) Provider {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	p = normalizeProviderConfig(p)
+	creating := id <= 0
 	if id <= 0 {
 		m.nextProvID++
 		p.ID = int(m.nextProvID)
@@ -279,8 +296,11 @@ func (m *MemStore) upsertProvider(id int, p Provider) Provider {
 			m.nextProvID = int64(id)
 		}
 	}
-	if p.Status == 0 {
+	existing, exists := m.providers[p.ID]
+	if creating && p.Status == 0 {
 		p.Status = 1
+	} else if !creating && p.Status == 0 && exists {
+		p.Status = existing.Status
 	}
 	if p.AuthMode == "" {
 		p.AuthMode = "api_key"
@@ -291,12 +311,29 @@ func (m *MemStore) upsertProvider(id int, p Provider) Provider {
 		}
 	}
 	// Preserve key when update omits it (edit form may send empty key).
-	if existing, ok := m.providers[p.ID]; ok && strings.TrimSpace(p.Key) == "" {
-		p.Key = existing.Key
+	if exists {
+		if strings.TrimSpace(p.Key) == "" {
+			p.Key = existing.Key
+		}
+		if p.ModelMetadata == nil {
+			p.ModelMetadata = existing.ModelMetadata
+		}
 	}
 	cp := p
 	m.providers[p.ID] = &cp
 	return p
+}
+
+func (m *MemStore) mergeDiscoveredProviderMetadata(id int, discovered []ProviderModelMetadata) ([]ProviderModelMetadata, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	provider, ok := m.providers[id]
+	if !ok {
+		return nil, false
+	}
+	response := decorateDiscoveredProviderModelMetadata(*provider, provider.ModelMetadata, discovered)
+	provider.ModelMetadata = mergeProviderModelMetadata(*provider, provider.ModelMetadata, response)
+	return response, true
 }
 
 func (m *MemStore) deleteProvider(id int) error {

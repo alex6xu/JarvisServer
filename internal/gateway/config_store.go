@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -30,7 +31,25 @@ FROM providers ORDER BY id`)
 		_ = json.Unmarshal([]byte(capabilities), &p.Capabilities)
 		out = append(out, normalizeProviderConfig(p))
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	allMetadata, err := loadAllProviderModelMetadata(ctx, s.db)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		models := allMetadata[fmt.Sprintf("provider_%d", out[i].ID)]
+		for j := range models {
+			resolveProviderModelMetadata(&models[j], out[i].ContextWindow)
+		}
+		out[i].ModelMetadata = models
+	}
+	return out, nil
 }
 
 func (s *GatewayStore) ReplaceProviders(ctx context.Context, providers []Provider) error {
@@ -39,6 +58,10 @@ func (s *GatewayStore) ReplaceProviders(ctx context.Context, providers []Provide
 		return err
 	}
 	defer tx.Rollback()
+	existing, err := loadAllProviderModelMetadata(ctx, tx)
+	if err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM providers`); err != nil {
 		return err
 	}
@@ -68,15 +91,111 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, endpointID, p.ID, p.Name, p.BaseUR
 			p.Status, p.Priority, max(p.Weight, 1), p.IsDefault, capabilities, p.CostPerMTok, now); err != nil {
 			return err
 		}
-		for _, model := range parseProviderModels(p.Models) {
+		metadata := mergeProviderModelMetadata(p, existing[endpointID], p.ModelMetadata)
+		for _, model := range metadata {
 			if _, err := tx.ExecContext(ctx, `
-INSERT INTO provider_models(endpoint_id, model_id, capabilities_json, context_window, enabled)
-VALUES (?, ?, ?, ?, 1)`, endpointID, model, capabilities, p.ContextWindow); err != nil {
+INSERT INTO provider_models(endpoint_id, model_id, capabilities_json, context_window, enabled,
+                            max_input_tokens, max_output_tokens, metadata_source,
+                            manual_context_window, detected_at)
+VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, NULLIF(?, ''))`, endpointID, model.ID, capabilities,
+				model.ContextWindow, model.MaxInputTokens, model.MaxOutputTokens, model.MetadataSource,
+				model.ManualContextWindow, model.DetectedAt); err != nil {
 				return err
 			}
 		}
 	}
 	return tx.Commit()
+}
+
+type modelMetadataQuerier interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}
+
+func loadAllProviderModelMetadata(ctx context.Context, q modelMetadataQuerier) (map[string][]ProviderModelMetadata, error) {
+	rows, err := q.QueryContext(ctx, `
+SELECT endpoint_id, model_id, context_window, max_input_tokens, max_output_tokens,
+       metadata_source, manual_context_window, COALESCE(detected_at, '')
+FROM provider_models`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string][]ProviderModelMetadata)
+	for rows.Next() {
+		var endpointID string
+		var model ProviderModelMetadata
+		if err := rows.Scan(&endpointID, &model.ID, &model.ContextWindow, &model.MaxInputTokens,
+			&model.MaxOutputTokens, &model.MetadataSource, &model.ManualContextWindow, &model.DetectedAt); err != nil {
+			return nil, err
+		}
+		out[endpointID] = append(out[endpointID], model)
+	}
+	return out, rows.Err()
+}
+
+func mergeProviderModelMetadata(p Provider, existing, incoming []ProviderModelMetadata) []ProviderModelMetadata {
+	byID := make(map[string]ProviderModelMetadata)
+	for _, model := range existing {
+		if id := strings.TrimSpace(model.ID); id != "" {
+			byID[strings.ToLower(id)] = model
+		}
+	}
+	for _, model := range incoming {
+		id := strings.TrimSpace(model.ID)
+		if id == "" {
+			continue
+		}
+		key := strings.ToLower(id)
+		old := byID[key]
+		// A zero manual value explicitly clears a prior manual override. Auto
+		// metadata only replaces old auto metadata when it is present.
+		old.ID = id
+		old.ManualContextWindow = model.ManualContextWindow
+		if model.ContextWindow > 0 || model.MaxInputTokens > 0 || model.MaxOutputTokens > 0 {
+			old.ContextWindow = model.ContextWindow
+			old.MaxInputTokens = model.MaxInputTokens
+			old.MaxOutputTokens = model.MaxOutputTokens
+			old.MetadataSource = model.MetadataSource
+			old.DetectedAt = model.DetectedAt
+		}
+		byID[key] = old
+	}
+	configured := parseProviderModels(p.Models)
+	for _, id := range configured {
+		key := strings.ToLower(id)
+		model := byID[key]
+		model.ID = id
+		if model.MetadataSource == "" {
+			model.MetadataSource = "provider_default"
+		}
+		byID[key] = model
+	}
+	out := make([]ProviderModelMetadata, 0, len(configured))
+	for _, id := range configured {
+		model := byID[strings.ToLower(id)]
+		resolveProviderModelMetadata(&model, p.ContextWindow)
+		out = append(out, model)
+	}
+	return out
+}
+
+// mergeDiscoveredProviderModelMetadata refreshes auto metadata without
+// overwriting a user's manual model window.
+func mergeDiscoveredProviderModelMetadata(p Provider, existing, discovered []ProviderModelMetadata) []ProviderModelMetadata {
+	discovered = decorateDiscoveredProviderModelMetadata(p, existing, discovered)
+	return mergeProviderModelMetadata(p, existing, discovered)
+}
+
+func decorateDiscoveredProviderModelMetadata(p Provider, existing, discovered []ProviderModelMetadata) []ProviderModelMetadata {
+	manualByID := make(map[string]int, len(existing))
+	for _, model := range existing {
+		manualByID[strings.ToLower(strings.TrimSpace(model.ID))] = model.ManualContextWindow
+	}
+	for i := range discovered {
+		discovered[i].ManualContextWindow = manualByID[strings.ToLower(strings.TrimSpace(discovered[i].ID))]
+		resolveProviderModelMetadata(&discovered[i], p.ContextWindow)
+	}
+	return discovered
 }
 
 func (s *GatewayStore) CreateRun(ctx context.Context, st *RunState) error {

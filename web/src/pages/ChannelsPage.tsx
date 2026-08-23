@@ -18,6 +18,19 @@ interface Channel {
   context_window: number
   quality_tier: number
   cost_per_mtok: number
+  model_metadata?: ProviderModelMetadata[]
+}
+
+interface ProviderModelMetadata {
+  id: string
+  context_window: number
+  max_input_tokens: number
+  max_output_tokens: number
+  metadata_source: string
+  manual_context_window: number
+  effective_context_window: number
+  effective_source: string
+  detected_at?: string
 }
 
 interface ProviderCapabilities {
@@ -431,6 +444,7 @@ function ProvidersPage({ accountId }: { accountId?: number }) {
     context_window: 32768,
     quality_tier: 3,
     cost_per_mtok: 0,
+    model_metadata: [] as ProviderModelMetadata[],
   })
   const [fetchingModels, setFetchingModels] = useState(false)
   const [availableModels, setAvailableModels] = useState<string[]>([])
@@ -524,6 +538,7 @@ function ProvidersPage({ accountId }: { accountId?: number }) {
       context_window: 32768,
       quality_tier: 3,
       cost_per_mtok: 0,
+      model_metadata: [] as ProviderModelMetadata[],
     }, false))
   }
 
@@ -560,6 +575,7 @@ function ProvidersPage({ accountId }: { accountId?: number }) {
       context_window: channel.context_window || 32768,
       quality_tier: channel.quality_tier || 3,
       cost_per_mtok: channel.cost_per_mtok || 0,
+      model_metadata: channel.model_metadata || [],
     })
     setOauthStep('form')
     setOauthPaste('')
@@ -742,7 +758,20 @@ function ProvidersPage({ accountId }: { accountId?: number }) {
       if (res.ok) {
         const data = await res.json()
         const list: string[] = Array.isArray(data.models) ? data.models.filter(Boolean) : []
+        const metadata: ProviderModelMetadata[] = Array.isArray(data.model_metadata)
+          ? data.model_metadata.filter((item: ProviderModelMetadata) => item?.id)
+          : []
         setAvailableModels(list)
+        setForm((prev) => {
+          const manualByID = new Map(prev.model_metadata.map((item) => [item.id.toLowerCase(), item.manual_context_window]))
+          return {
+            ...prev,
+            model_metadata: metadata.map((item) => ({
+              ...item,
+              manual_context_window: manualByID.get(item.id.toLowerCase()) ?? item.manual_context_window ?? 0,
+            })),
+          }
+        })
         setModelPick('')
         if (list.length === 0) {
           alert('上游未返回可用模型')
@@ -802,8 +831,12 @@ function ProvidersPage({ accountId }: { accountId?: number }) {
   }
 
   const hasWorkloadCapability = form.capabilities.chat || form.capabilities.reasoning || form.capabilities.coding
+  const modelOverridesValid = form.model_metadata.every(
+    (item) => item.manual_context_window === 0 || item.manual_context_window >= 4096
+  )
   const canSubmit = Boolean(form.name.trim() || firstModel(form.models)) &&
     hasWorkloadCapability && form.context_window >= 4096 && form.cost_per_mtok >= 0 &&
+    modelOverridesValid &&
     (modalMode === 'oauth' || Boolean(form.key) || editingId !== null)
 
   return (
@@ -1099,6 +1132,51 @@ function ProvidersPage({ accountId }: { accountId?: number }) {
                     已获取 {availableModels.length} 个模型，可从上方下拉框选择添加
                   </p>
                 )}
+                {form.model_metadata.length > 0 && (
+                  <div className="mt-3 overflow-x-auto border border-border rounded-md">
+                    <table className="w-full min-w-[720px] text-[12px]">
+                      <thead className="bg-muted/50 text-muted-foreground">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-medium">Model</th>
+                          <th className="px-3 py-2 text-right font-medium">Detected</th>
+                          <th className="px-3 py-2 text-right font-medium">Max input</th>
+                          <th className="px-3 py-2 text-right font-medium">Max output</th>
+                          <th className="px-3 py-2 text-left font-medium">Source</th>
+                          <th className="px-3 py-2 text-right font-medium">Manual override</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {form.model_metadata.map((item, index) => (
+                          <tr key={item.id}>
+                            <td className="px-3 py-2 max-w-[220px] truncate" title={item.id}>{item.id}</td>
+                            <td className="px-3 py-2 text-right tabular-nums">{item.context_window > 0 ? item.context_window.toLocaleString() : '-'}</td>
+                            <td className="px-3 py-2 text-right tabular-nums">{item.max_input_tokens > 0 ? item.max_input_tokens.toLocaleString() : '-'}</td>
+                            <td className="px-3 py-2 text-right tabular-nums">{item.max_output_tokens > 0 ? item.max_output_tokens.toLocaleString() : '-'}</td>
+                            <td className="px-3 py-2 text-muted-foreground">{item.effective_source || item.metadata_source || 'unknown'}</td>
+                            <td className="px-3 py-2 text-right">
+                              <input
+                                type="number"
+                                min={0}
+                                step={1024}
+                                value={item.manual_context_window || ''}
+                                placeholder="Auto"
+                                onChange={(e) => {
+                                  const value = e.target.value === '' ? 0 : Number(e.target.value)
+                                  setForm((prev) => ({
+                                    ...prev,
+                                    model_metadata: prev.model_metadata.map((model, i) =>
+                                      i === index ? { ...model, manual_context_window: value } : model),
+                                  }))
+                                }}
+                                className="w-28 h-8 px-2 text-right bg-background border border-border rounded-md tabular-nums"
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center gap-2">
@@ -1159,7 +1237,7 @@ function ProvidersPage({ accountId }: { accountId?: number }) {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[13px] font-medium text-foreground mb-1.5">Context Window</label>
+                  <label className="block text-[13px] font-medium text-foreground mb-1.5">Provider fallback window</label>
                   <input
                     type="number"
                     min={4096}
