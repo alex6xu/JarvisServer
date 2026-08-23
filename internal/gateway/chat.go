@@ -447,6 +447,21 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 		closeEnv(env)
 		return ChatResponse{}, fmt.Errorf("record chat request: %w", err)
 	}
+	liveSession, err := newLiveSessionWriter(hs, model, env.ProviderName, state.ID, s.Audit)
+	if err != nil {
+		cancel()
+		state.Finish(err)
+		closeEnv(env)
+		_ = s.Audit.FinishChat(context.Background(), state.ID, "", runStatusError, err.Error(), time.Now().UTC())
+		return ChatResponse{}, fmt.Errorf("initialize realtime session persistence: %w", err)
+	}
+	if err := liveSession.PersistInitial(messages[hs.persisted]); err != nil {
+		cancel()
+		state.Finish(err)
+		closeEnv(env)
+		_ = s.Audit.FinishChat(context.Background(), state.ID, "", runStatusError, err.Error(), time.Now().UTC())
+		return ChatResponse{}, fmt.Errorf("persist user message: %w", err)
+	}
 
 	routedProvider, err := s.buildRoutedProvider(req.Model, plan, state.ID, hs.header.ID, req.WorkspaceID, req.Mode, state.Publish)
 	if err != nil {
@@ -469,7 +484,9 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 		if baseSteering != nil {
 			messages = append(messages, baseSteering(ctx)...)
 		}
-		return append(messages, state.DrainMessages()...)
+		messages = append(messages, state.DrainMessages()...)
+		liveSession.QueueMessages(messages)
+		return messages
 	}
 	baseFollowUp := runCfg.GetFollowUpMessages
 	runCfg.GetFollowUpMessages = func(ctx context.Context, agentCtx *agentcore.AgentContext) []agentcore.AgentMessage {
@@ -477,10 +494,14 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 		if baseFollowUp != nil {
 			messages = append(messages, baseFollowUp(ctx, agentCtx)...)
 		}
-		return append(messages, state.DrainMessages()...)
+		messages = append(messages, state.DrainMessages()...)
+		liveSession.QueueMessages(messages)
+		return messages
 	}
 	runCfg.GetFinalMessages = func(context.Context, *agentcore.AgentContext) []agentcore.AgentMessage {
-		return state.DrainFinalMessages()
+		messages := state.DrainFinalMessages()
+		liveSession.QueueMessages(messages)
+		return messages
 	}
 	runCfg.ContextWindow = s.adaptiveContextWindow(req.Model, req.Mode)
 	runCfg.Compaction = smartCompactionSettings(runCfg.ContextWindow)
@@ -497,7 +518,16 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 
 	_, onEvent := run.InstallDriverHooks(runCtx, &runCfg, set, hookDeps, source, baseOnEvent)
 	pub := func(ev StreamEvent) { state.Publish(ev) }
-	handler, finish := NewTranslateHandler(pub, model, hs.header.ID, onEvent)
+	persistOnEvent := func(event agentcore.AgentEvent) {
+		if err := liveSession.HandleEvent(event); err != nil {
+			s.Logger.Error(runCtx, "persist live session event failed",
+				distributedlog.F("event_type", event.EventType()), distributedlog.Err(err))
+		}
+		if onEvent != nil {
+			onEvent(event)
+		}
+	}
+	handler, finish := NewTranslateHandler(pub, model, hs.header.ID, persistOnEvent)
 	runStarted := time.Now()
 	s.Logger.Info(runCtx, "agent run started",
 		distributedlog.F("mode", req.Mode),
@@ -512,7 +542,8 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 		stream := runtime.StartRun(runCtx, agentCtx, runCfg)
 		_, drainErr := runtime.DrainStream(runCtx, stream, handler)
 		finish(drainErr)
-		if perr := persistSession(hs, agentCtx, model, env.ProviderName); perr != nil {
+		persisted := min(hs.persisted, len(agentCtx.Messages))
+		if perr := liveSession.Finalize(agentCtx.Messages[persisted:]); perr != nil {
 			s.Logger.Error(runCtx, "persist session failed", distributedlog.Err(perr))
 		}
 		status, errorText := runStatusDone, ""
@@ -778,19 +809,4 @@ func (s *Service) openSession(resumeID, model, cwd, workspaceID, requestedType s
 		Type:        requestedType,
 	}
 	return nil, sessionHandle{store: s.Store, header: header}, cwd, nil
-}
-
-func persistSession(hs sessionHandle, agentCtx *agentcore.AgentContext, model, providerName string) error {
-	if hs.persisted > len(agentCtx.Messages) {
-		hs.persisted = len(agentCtx.Messages)
-	}
-	tail := agentCtx.Messages[hs.persisted:]
-	if len(tail) == 0 {
-		return nil
-	}
-	hs.header.Model = model
-	hs.header.Provider = providerName
-	hs.header.UpdatedAt = time.Now().UTC()
-	_, err := hs.store.AppendBranch(hs.header, hs.curLeaf, tail)
-	return err
 }

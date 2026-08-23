@@ -41,6 +41,7 @@ Agent:
   AllowPrivateProviderURLs: false
   AllowPrivateNotificationURLs: false
   # Cwd: .
+  # Model: "openrouter/free" # Fallback when automatic routing has no eligible provider.
   # BaseURL: ""
   # Protocol: ""
   # ProviderName: ""

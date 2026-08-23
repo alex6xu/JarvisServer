@@ -22,6 +22,14 @@ type SessionRepository interface {
 	AppendBranch(session.SessionHeader, string, agentcore.MessageList) (string, error)
 }
 
+// RealtimeSessionRepository adds single-entry operations used while an
+// assistant response is still streaming. Keeping these separate from
+// SessionRepository preserves compatibility with the legacy JSONL importer.
+type RealtimeSessionRepository interface {
+	AppendSessionEntry(session.SessionHeader, string, agentcore.Message) (session.Entry, error)
+	UpdateSessionEntry(session.SessionHeader, session.Entry) error
+}
+
 // ControlRepository persists mutable Gateway control-plane configuration.
 type ControlRepository interface {
 	ListRouteProfiles(context.Context) ([]RouteProfile, error)
@@ -107,6 +115,90 @@ VALUES (?, ?, ?, ?, ?, ?)`, header.ID, entry.ID, entry.ParentID, seq+1, string(p
 			entry.Timestamp.UTC().Format(time.RFC3339Nano)); err != nil {
 			return err
 		}
+	}
+	return tx.Commit()
+}
+
+// AppendSessionEntry adds one message without rewriting the rest of the
+// session. It is the hot path for user messages, assistant placeholders, and
+// tool results produced by an active run.
+func (s *GatewayStore) AppendSessionEntry(header session.SessionHeader, parentID string, message agentcore.Message) (session.Entry, error) {
+	now := time.Now().UTC()
+	entry := session.Entry{ID: newID("msg"), ParentID: parentID, Timestamp: now, Message: message}
+	header.Version = session.SchemaVersion
+	header.UpdatedAt = now
+	headerJSON, err := json.Marshal(header)
+	if err != nil {
+		return session.Entry{}, err
+	}
+	payload, err := json.Marshal(entry)
+	if err != nil {
+		return session.Entry{}, err
+	}
+	tx, err := s.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		return session.Entry{}, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`
+	INSERT INTO sessions(id, header_json, model, provider, cwd, created_at, updated_at)
+	VALUES (?, ?, ?, ?, ?, ?, ?)
+	ON CONFLICT(id) DO UPDATE SET header_json=excluded.header_json, model=excluded.model,
+	provider=excluded.provider, cwd=excluded.cwd, updated_at=excluded.updated_at`,
+		header.ID, string(headerJSON), header.Model, header.Provider, header.Cwd,
+		header.CreatedAt.UTC().Format(time.RFC3339Nano), header.UpdatedAt.Format(time.RFC3339Nano)); err != nil {
+		return session.Entry{}, err
+	}
+	var seq int
+	if err := tx.QueryRow(`SELECT COALESCE(MAX(seq), 0) + 1 FROM session_entries WHERE session_id = ?`, header.ID).Scan(&seq); err != nil {
+		return session.Entry{}, err
+	}
+	if _, err := tx.Exec(`
+	INSERT INTO session_entries(session_id, entry_id, parent_id, seq, payload, created_at)
+	VALUES (?, ?, ?, ?, ?, ?)`, header.ID, entry.ID, entry.ParentID, seq, string(payload),
+		entry.Timestamp.Format(time.RFC3339Nano)); err != nil {
+		return session.Entry{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return session.Entry{}, err
+	}
+	return entry, nil
+}
+
+// UpdateSessionEntry replaces one in-progress message while retaining its entry
+// id and tree position, so session reloads do not create duplicate assistants.
+func (s *GatewayStore) UpdateSessionEntry(header session.SessionHeader, entry session.Entry) error {
+	header.Version = session.SchemaVersion
+	header.UpdatedAt = time.Now().UTC()
+	headerJSON, err := json.Marshal(header)
+	if err != nil {
+		return err
+	}
+	payload, err := json.Marshal(entry)
+	if err != nil {
+		return err
+	}
+	tx, err := s.db.BeginTx(context.Background(), nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`
+	UPDATE sessions SET header_json = ?, model = ?, provider = ?, cwd = ?, updated_at = ?
+	WHERE id = ?`, string(headerJSON), header.Model, header.Provider, header.Cwd,
+		header.UpdatedAt.Format(time.RFC3339Nano), header.ID); err != nil {
+		return err
+	}
+	res, err := tx.Exec(`
+	UPDATE session_entries SET parent_id = ?, payload = ?
+	WHERE session_id = ? AND entry_id = ?`, entry.ParentID, string(payload), header.ID, entry.ID)
+	if err != nil {
+		return err
+	}
+	if affected, err := res.RowsAffected(); err != nil {
+		return err
+	} else if affected == 0 {
+		return fmt.Errorf("session entry %s not found", entry.ID)
 	}
 	return tx.Commit()
 }

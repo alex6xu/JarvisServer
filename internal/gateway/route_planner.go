@@ -192,13 +192,29 @@ func (r *ProviderRouter) PlanForPurpose(providers []Provider, requestedModel str
 	r.mu.RLock()
 	policy := policyForPurpose(r.policy, purpose)
 	r.mu.RUnlock()
-	plan, err := r.engine.Plan(context.Background(), corerouter.RouteRequest{
+	request := corerouter.RouteRequest{
 		RequestedModel: requestedModel, Required: requirementsForPurpose(purpose, minContextWindow),
 		Policy: policy, PreferDefault: requestedModel == "" && purpose == RoutePurposeDefault,
-	}, endpoints)
+	}
+	plan, err := r.engine.Plan(context.Background(), request, endpoints)
+	if err != nil && normalizeRoutePurpose(purpose) == RoutePurposeCodeExecution {
+		// A reasoning model with tool support can continue a coding run even when
+		// it is not explicitly tagged for coding. This matches the eligibility
+		// rule used to size the run context window and prevents a route from
+		// disappearing when Coder moves from analysis to execution turns.
+		request.Required = requirementsForPurpose(RoutePurposeCodeAnalysis, minContextWindow)
+		if reasoningPlan, reasoningErr := r.engine.Plan(context.Background(), request, endpoints); reasoningErr == nil {
+			plan, err = reasoningPlan, nil
+			plan.Reason = "code execution fallback to reasoning provider: " + plan.Reason
+		}
+	}
 	if err != nil {
 		if strings.TrimSpace(fallback.Model) == "" || (minContextWindow > 0 && fallback.ContextWindow < minContextWindow) {
-			return RoutePlan{}, fmt.Errorf("no available provider route for model %q", requestedModel)
+			purpose = normalizeRoutePurpose(purpose)
+			if strings.TrimSpace(requestedModel) == "" {
+				return RoutePlan{}, fmt.Errorf("no available provider route for automatic model selection (purpose %q)", purpose)
+			}
+			return RoutePlan{}, fmt.Errorf("no available provider route for model %q (purpose %q)", requestedModel, purpose)
 		}
 		if requestedModel != "" {
 			fallback.Model = requestedModel

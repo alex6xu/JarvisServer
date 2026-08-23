@@ -66,6 +66,7 @@ type GitHubConf struct {
 // AgentConf holds jarvis agent / auth settings layered on RestConf.
 type AgentConf struct {
 	Cwd                          string `json:",optional"`
+	Model                        string `json:",optional"`
 	BaseURL                      string `json:",optional"`
 	Protocol                     string `json:",optional"`
 	ProviderName                 string `json:",optional"`
@@ -111,6 +112,7 @@ func (c Config) ToOptions() Options {
 	return Options{
 		Addr:                         addr,
 		Cwd:                          c.Agent.Cwd,
+		DefaultModel:                 c.Agent.Model,
 		BaseURL:                      c.Agent.BaseURL,
 		Protocol:                     c.Agent.Protocol,
 		ProviderName:                 c.Agent.ProviderName,

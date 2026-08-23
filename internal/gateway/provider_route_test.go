@@ -106,6 +106,29 @@ func TestResolveLLMWithoutConfiguredProviderReturnsError(t *testing.T) {
 	svc.Mem.providers = map[int]*Provider{}
 	if _, err := svc.resolveLLM(""); err == nil {
 		t.Fatal("empty provider configuration must not produce a model route")
+	} else if !strings.Contains(err.Error(), `automatic model selection (purpose "default")`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestResolveLLMAutomaticRoutingUsesConfiguredFallback(t *testing.T) {
+	svc, err := NewService(Options{
+		Approve: true, NoTools: true, Cwd: t.TempDir(), AdminPassword: "test-password",
+		DefaultModel: "openrouter/free", ProviderName: "openrouter",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = svc.Close() })
+	svc.Mem.providers = map[int]*Provider{}
+
+	plan, err := svc.resolveLLMPlanForPurpose("auto", RoutePurposeCodeExecution, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Candidates) != 1 || plan.Candidates[0].Model != "openrouter/free" ||
+		plan.Candidates[0].ProviderName != "openrouter" || plan.Candidates[0].Purpose != RoutePurposeCodeExecution {
+		t.Fatalf("fallback plan = %+v", plan)
 	}
 }
 

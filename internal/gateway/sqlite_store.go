@@ -217,6 +217,23 @@ VALUES (?, ?, ?, ?, ?, ?, ?, 'running', ?)`,
 	return err
 }
 
+// UpdateChatResponse checkpoints a running response without changing its
+// terminal status. Callers should throttle updates rather than writing per token.
+func (s *GatewayStore) UpdateChatResponse(ctx context.Context, runID, response string) error {
+	res, err := s.db.ExecContext(ctx, `
+UPDATE chat_exchanges SET response_text = ?
+WHERE run_id = ? AND status = 'running'`, response, runID)
+	if err != nil {
+		return err
+	}
+	if affected, err := res.RowsAffected(); err != nil {
+		return err
+	} else if affected == 0 {
+		return fmt.Errorf("running chat exchange for run %s not found", runID)
+	}
+	return nil
+}
+
 func (s *GatewayStore) FinishChat(ctx context.Context, runID, response, status, errorText string, finished time.Time) error {
 	res, err := s.db.ExecContext(ctx, `
 UPDATE chat_exchanges
