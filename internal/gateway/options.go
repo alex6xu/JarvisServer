@@ -14,6 +14,9 @@ type Options struct {
 	// Cwd is the working directory for tool roots and session attribution.
 	Cwd string
 	// BaseURL / Protocol / ProviderName mirror jarvis CLI provider selection.
+	// DefaultModel is used only when a request asks for automatic routing and
+	// no configured provider endpoint is eligible for that workload.
+	DefaultModel string
 	BaseURL      string
 	Protocol     string
 	ProviderName string

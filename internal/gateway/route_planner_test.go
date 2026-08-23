@@ -3,6 +3,7 @@ package gateway
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -339,6 +340,26 @@ func TestProviderRouterPlansByWorkloadPurpose(t *testing.T) {
 		if got := plan.Candidates[0].ProviderID; got != tt.wantID {
 			t.Errorf("%s selected provider %d, want %d; plan=%+v", tt.purpose, got, tt.wantID, plan.Candidates)
 		}
+	}
+}
+
+func TestProviderRouterCodeExecutionFallsBackToReasoningProvider(t *testing.T) {
+	router := NewProviderRouter()
+	providers := []Provider{{
+		ID: 1, Name: "reasoner", Type: 1, Key: "k", BaseURL: "https://reason.test/v1",
+		Models: "reason-pro", Status: 1, Capabilities: ProviderCapabilities{Reasoning: true, Tools: true},
+		ContextWindow: 128_000, QualityTier: 5,
+	}}
+
+	plan, err := router.PlanForPurpose(providers, "", LLMRoute{}, RoutePurposeCodeExecution, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Candidates) != 1 || plan.Candidates[0].ProviderID != 1 {
+		t.Fatalf("fallback candidates = %+v", plan.Candidates)
+	}
+	if !strings.Contains(plan.Reason, "fallback to reasoning provider") {
+		t.Fatalf("fallback reason = %q", plan.Reason)
 	}
 }
 

@@ -129,8 +129,9 @@ func TestConfigToOptions(t *testing.T) {
 	cfg.Port = 8080
 	cfg.Agent.Approve = true
 	cfg.Agent.AllowRegistration = true
+	cfg.Agent.Model = "openrouter/free"
 	opts := cfg.ToOptions()
-	if opts.Addr != ":8080" || !opts.AllowRegistration || opts.GitHubClientID != "github-client" ||
+	if opts.Addr != ":8080" || opts.DefaultModel != "openrouter/free" || !opts.AllowRegistration || opts.GitHubClientID != "github-client" ||
 		opts.GitHubClientSecret != "github-secret" || opts.GitHubGitTimeout != 42*time.Second ||
 		opts.BinanceMarketWSURL != "wss://binance.test/stream" || opts.OKXMarketWSURL != "wss://okx.test/public" ||
 		opts.BinanceMarketRESTURL != "https://binance.test" || opts.OKXMarketRESTURL != "https://okx.test" ||
@@ -142,7 +143,7 @@ func TestConfigToOptions(t *testing.T) {
 	}
 }
 
-func TestLegacyGatewayModelConfigIsIgnored(t *testing.T) {
+func TestGatewayModelConfigProvidesAutomaticRoutingFallback(t *testing.T) {
 	var cfg Config
 	err := conf.LoadFromYamlBytes([]byte(`
 Name: gateway
@@ -152,7 +153,10 @@ Agent:
   Model: legacy-model
 `), &cfg)
 	if err != nil {
-		t.Fatalf("legacy Model field must not break config loading: %v", err)
+		t.Fatalf("load gateway model: %v", err)
+	}
+	if got := cfg.ToOptions().DefaultModel; got != "legacy-model" {
+		t.Fatalf("default model = %q, want legacy-model", got)
 	}
 }
 
