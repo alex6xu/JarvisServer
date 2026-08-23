@@ -297,7 +297,7 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 
 	if req.SessionID != "" {
 		if active := s.Runs.ActiveForSession(req.SessionID); active != nil {
-			_, hs, _, err := s.openSession(req.SessionID, "", runCwd, req.WorkspaceID, req.AccountID)
+			_, hs, _, err := s.openSession(req.SessionID, "", runCwd, req.WorkspaceID, sessionTypeForMode(req.Mode), req.AccountID)
 			if err != nil {
 				return ChatResponse{}, err
 			}
@@ -333,7 +333,7 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 	route := plan.Candidates[0]
 	model = route.Model
 
-	prior, hs, runCwd, err := s.openSession(req.SessionID, model, runCwd, req.WorkspaceID, req.AccountID)
+	prior, hs, runCwd, err := s.openSession(req.SessionID, model, runCwd, req.WorkspaceID, sessionTypeForMode(req.Mode), req.AccountID)
 	if err != nil {
 		return ChatResponse{}, err
 	}
@@ -718,7 +718,7 @@ type sessionHandle struct {
 	persisted int
 }
 
-func (s *Service) openSession(resumeID, model, cwd, workspaceID string, accountID int) (agentcore.MessageList, sessionHandle, string, error) {
+func (s *Service) openSession(resumeID, model, cwd, workspaceID, requestedType string, accountID int) (agentcore.MessageList, sessionHandle, string, error) {
 	now := time.Now().UTC()
 	if resumeID != "" {
 		h, entries, err := s.Store.LoadEntries(resumeID)
@@ -728,6 +728,10 @@ func (s *Service) openSession(resumeID, model, cwd, workspaceID string, accountI
 		if !sessionOwnedByAccount(h, accountID) {
 			return nil, sessionHandle{}, "", fmt.Errorf("session does not belong to this account")
 		}
+		if sessionTypeFromHeader(h) != requestedType {
+			return nil, sessionHandle{}, "", fmt.Errorf("session type does not match requested page")
+		}
+		h.Type = requestedType
 		if h.WorkspaceID != "" && h.WorkspaceID != workspaceID {
 			return nil, sessionHandle{}, "", fmt.Errorf("session workspace does not match requested workspace")
 		}
@@ -771,6 +775,7 @@ func (s *Service) openSession(resumeID, model, cwd, workspaceID string, accountI
 		Cwd:         cwd,
 		AccountID:   accountID,
 		WorkspaceID: workspaceID,
+		Type:        requestedType,
 	}
 	return nil, sessionHandle{store: s.Store, header: header}, cwd, nil
 }

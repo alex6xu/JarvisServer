@@ -2,8 +2,10 @@ import { useState, useEffect, useRef, ChangeEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { Code2, MessageSquare } from 'lucide-react'
 import { apiFetch, useAccount } from '../context/AccountContext'
 import ToolStepCard from '../components/ToolStepCard'
+import StopRunButton from '../components/StopRunButton'
 import {
   chatSessionKey,
   coderSessionKey,
@@ -14,6 +16,7 @@ import {
 
 interface Session {
   id: string
+  type: 'chat' | 'code'
   title: string
   platform: string
   message_count: number
@@ -26,6 +29,8 @@ interface Session {
   worktree_branch?: string
   base_commit?: string
 }
+
+type SessionType = 'chat' | 'code'
 
 interface Message {
   id: string
@@ -46,6 +51,7 @@ export default function SessionsPage() {
   const { currentAccount } = useAccount()
   const navigate = useNavigate()
   const [sessions, setSessions] = useState<Session[]>([])
+  const [sessionType, setSessionType] = useState<SessionType>('chat')
   const [selectedSession, setSelectedSession] = useState<string | null>(null)
   const [selectedMeta, setSelectedMeta] = useState<Session | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
@@ -60,6 +66,8 @@ export default function SessionsPage() {
   const [branchBusy, setBranchBusy] = useState(false)
   const [branchError, setBranchError] = useState('')
   const [branchDiff, setBranchDiff] = useState('')
+  const [detailRunId, setDetailRunId] = useState('')
+  const [stoppingRun, setStoppingRun] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -69,11 +77,15 @@ export default function SessionsPage() {
       setMessages([])
       void fetchSessions()
     }
-  }, [currentAccount?.id])
+  }, [currentAccount?.id, sessionType])
 
   const fetchSessions = async () => {
     try {
-      const response = await apiFetch('/v1/agent/sessions', {}, currentAccount?.id)
+      const response = await apiFetch(
+        `/v1/agent/sessions?type=${encodeURIComponent(sessionType)}`,
+        {},
+        currentAccount?.id,
+      )
       if (response.ok) {
         const data = await response.json()
         setSessions(data.sessions || [])
@@ -90,12 +102,18 @@ export default function SessionsPage() {
     setSelectedSession(session.id)
     setSelectedMeta(session)
     setDetailWorkspaceId(session.workspace_id || '')
+    setDetailRunId('')
     try {
       const response = await apiFetch(`/v1/agent/sessions/${session.id}`, {}, currentAccount?.id)
       if (response.ok) {
         const data = await response.json()
         setMessages(data.messages || [])
         if (data.workspace_id) setDetailWorkspaceId(data.workspace_id)
+        setDetailRunId(
+          data.active_run && (data.active_run.status === 'running' || data.active_run.status === 'queued')
+            ? data.active_run.id || ''
+            : '',
+        )
         if (data.session) {
           setSelectedMeta({
             ...session,
@@ -186,7 +204,7 @@ export default function SessionsPage() {
   const continueSession = (session: Session) => {
     if (!currentAccount?.id) return
     const accountId = currentAccount.id
-    if (session.platform === 'coder') {
+    if (session.type === 'code') {
       const workspaceId = detailWorkspaceId || session.workspace_id || ''
       if (workspaceId) {
         writeLocal(coderWorkspaceKey(accountId), workspaceId)
@@ -199,6 +217,31 @@ export default function SessionsPage() {
     }
     writeLocal(chatSessionKey(accountId), session.id)
     navigate(`/?session=${encodeURIComponent(session.id)}`)
+  }
+
+  const stopDetailRun = async () => {
+    if (!detailRunId || stoppingRun) return
+    setStoppingRun(true)
+    try {
+      const response = await apiFetch(
+        `/v1/agent/runs/${encodeURIComponent(detailRunId)}/cancel`,
+        { method: 'POST' },
+        currentAccount?.id,
+      )
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`)
+      setDetailRunId('')
+      setSelectedMeta((prev) => (prev ? { ...prev, active_run_status: 'cancelled' } : prev))
+      setSessions((prev) =>
+        prev.map((session) =>
+          session.id === selectedSession ? { ...session, active_run_status: 'cancelled' } : session,
+        ),
+      )
+    } catch (error) {
+      setBranchError(error instanceof Error ? `停止失败: ${error.message}` : '停止失败')
+    } finally {
+      setStoppingRun(false)
+    }
   }
 
   const onPickFile = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -264,17 +307,24 @@ export default function SessionsPage() {
       setImportText('')
       setImportTitle('')
       setPreview(null)
-      await fetchSessions()
       if (data.session?.id) {
         const imported: Session = {
           id: data.session.id,
+          type: 'chat',
           title: data.session.title || 'Imported',
           platform: data.session.platform || 'import',
           message_count: data.session.message_count || 0,
           created_at: data.session.created_at || new Date().toISOString(),
           updated_at: data.session.updated_at || new Date().toISOString(),
         }
-        await fetchSessionDetail(imported)
+        if (sessionType !== 'chat') {
+          setSessionType('chat')
+        } else {
+          await fetchSessions()
+          await fetchSessionDetail(imported)
+        }
+      } else {
+        await fetchSessions()
       }
     } catch {
       setImportError('导入失败')
@@ -284,6 +334,7 @@ export default function SessionsPage() {
   }
 
   const platformIcons: Record<string, string> = {
+    chat: '💬',
     web: '🌐',
     coder: '🛠️',
     telegram: '📱',
@@ -322,6 +373,37 @@ export default function SessionsPage() {
             >
               {importOpen ? '关闭导入' : '导入 MD'}
             </button>
+          </div>
+          <div className="mt-3 inline-flex h-8 p-0.5 bg-muted border border-border rounded-md" role="tablist">
+            {([
+              { value: 'chat' as const, label: 'Chat', icon: MessageSquare },
+              { value: 'code' as const, label: 'Code', icon: Code2 },
+            ]).map((tab) => {
+              const Icon = tab.icon
+              const selected = sessionType === tab.value
+              return (
+                <button
+                  key={tab.value}
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  onClick={() => {
+                    setSessionType(tab.value)
+                    setSessions([])
+                    setSelectedSession(null)
+                    setSelectedMeta(null)
+                    setMessages([])
+                    setDetailRunId('')
+                  }}
+                  className={`h-6 px-3 inline-flex items-center gap-1.5 rounded text-[12px] transition-colors ${
+                    selected ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  <Icon size={13} aria-hidden="true" />
+                  {tab.label}
+                </button>
+              )
+            })}
           </div>
         </div>
 
@@ -417,7 +499,7 @@ export default function SessionsPage() {
                 <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
                   <span>{session.message_count} messages</span>
                   <span>·</span>
-                  <span>{session.platform}</span>
+                  <span>{session.type === 'code' ? 'Code' : 'Chat'}</span>
                   {session.active_run_status && (
                     <>
                       <span>·</span>
@@ -445,10 +527,13 @@ export default function SessionsPage() {
                   onClick={() => continueSession(selectedMeta)}
                   className="h-8 px-3 text-[12px] bg-primary text-primary-foreground rounded-md hover:bg-primary/90"
                 >
-                  {selectedMeta.platform === 'coder' ? '在 Coder 继续' : '在 Chat 继续'}
+                  {selectedMeta.type === 'code' ? '在 Code 继续' : '在 Chat 继续'}
                 </button>
               )}
-              {selectedMeta?.platform === 'coder' && (
+              {detailRunId && (
+                <StopRunButton stopping={stoppingRun} onStop={() => void stopDetailRun()} />
+              )}
+              {selectedMeta?.type === 'code' && (
                 <button
                   onClick={() => void forkSession()}
                   disabled={branchBusy || selectedMeta.active_run_status === 'running'}
@@ -482,6 +567,7 @@ export default function SessionsPage() {
                   setMessages([])
                   setBranchError('')
                   setBranchDiff('')
+                  setDetailRunId('')
                 }}
                 className="text-[12px] text-muted-foreground hover:text-foreground"
               >
@@ -534,7 +620,7 @@ export default function SessionsPage() {
                     {msg.tool_steps && msg.tool_steps.length > 0 && (
                       <ToolStepCard messageId={msg.id} steps={msg.tool_steps} defaultOpen={false} />
                     )}
-                    {selectedMeta?.platform === 'coder' && msg.role === 'assistant' && (
+                    {selectedMeta?.type === 'code' && msg.role === 'assistant' && (
                       <button
                         onClick={() => void forkSession(msg.id)}
                         disabled={branchBusy || selectedMeta.active_run_status === 'running'}

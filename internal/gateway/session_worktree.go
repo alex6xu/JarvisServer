@@ -266,6 +266,7 @@ func (s *Service) ForkSession(ctx context.Context, sourceID string, req ForkSess
 		ParentSession: sourceID,
 		AccountID:     accountID,
 		WorkspaceID:   workspaceID,
+		Type:          sessionTypeCode,
 	}
 	worktree, branch, snapshotCommit, err := s.createSessionWorktree(ctx, workspaceID, header.Cwd, newHeader.ID)
 	if err != nil {

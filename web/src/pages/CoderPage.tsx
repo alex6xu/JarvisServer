@@ -4,8 +4,10 @@ import { apiFetch, useAccount } from '../context/AccountContext'
 import VoiceInputButton from '../components/VoiceInputButton'
 import MessageBubble from '../components/MessageBubble'
 import RecentSessionSelect from '../components/RecentSessionSelect'
+import StopRunButton from '../components/StopRunButton'
 import { useVoiceInput } from '../hooks/useVoiceInput'
 import { useRunEventStream } from '../hooks/useRunEventStream'
+import { useRunStop } from '../hooks/useRunStop'
 import { useSessionRestore } from '../hooks/useSessionRestore'
 import {
   coderSessionKey,
@@ -115,6 +117,15 @@ export default function CoderPage() {
   const [runId, setRunId] = useState('')
   const [pinNextMessage, setPinNextMessage] = useState(false)
   const { consumeRunEvents, abortRunStream } = useRunEventStream()
+  const { isStopping, stopRun } = useRunStop({
+    accountId: currentAccount?.id,
+    runId,
+    abortRunStream,
+    setRunId,
+    setIsLoading,
+    setMessages,
+    onStopped: () => setPinNextMessage(false),
+  })
   const { restoreSession, persistSessionId, clearPersistedSession, clearServerActiveSession } =
     useSessionRestore()
 
@@ -882,6 +893,7 @@ export default function CoderPage() {
             workspaceId={workspaceId}
             currentSessionId={sessionId}
           />
+          {runId && <StopRunButton stopping={isStopping} onStop={() => void stopRun()} />}
           <select
             value={selectedModel}
             onChange={(e) => setSelectedModel(e.target.value)}
