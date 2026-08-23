@@ -208,8 +208,25 @@ func (r *ProviderRouter) PlanForPurpose(providers []Provider, requestedModel str
 			plan.Reason = "code execution fallback to reasoning provider: " + plan.Reason
 		}
 	}
+	if err != nil && minContextWindow > 0 {
+		// Context-window metadata is useful for preferring a route that can hold
+		// the current history, but it must not make every otherwise-capable route
+		// disappear. The runtime compactor and provider remain responsible for
+		// fitting the actual request into the selected model's window.
+		request.Required = requirementsForPurpose(purpose, 0)
+		if relaxedPlan, relaxedErr := r.engine.Plan(context.Background(), request, endpoints); relaxedErr == nil {
+			plan, err = relaxedPlan, nil
+			plan.Reason = "context window metadata fallback: " + plan.Reason
+		} else if normalizeRoutePurpose(purpose) == RoutePurposeCodeExecution {
+			request.Required = requirementsForPurpose(RoutePurposeCodeAnalysis, 0)
+			if reasoningPlan, reasoningErr := r.engine.Plan(context.Background(), request, endpoints); reasoningErr == nil {
+				plan, err = reasoningPlan, nil
+				plan.Reason = "context window metadata fallback; code execution fallback to reasoning provider: " + plan.Reason
+			}
+		}
+	}
 	if err != nil {
-		if strings.TrimSpace(fallback.Model) == "" || (minContextWindow > 0 && fallback.ContextWindow < minContextWindow) {
+		if strings.TrimSpace(fallback.Model) == "" {
 			purpose = normalizeRoutePurpose(purpose)
 			if strings.TrimSpace(requestedModel) == "" {
 				return RoutePlan{}, fmt.Errorf("no available provider route for automatic model selection (purpose %q)", purpose)
@@ -223,7 +240,11 @@ func (r *ProviderRouter) PlanForPurpose(providers []Provider, requestedModel str
 		if fallback.ContextWindow <= 0 {
 			fallback.ContextWindow = 32768
 		}
-		return RoutePlan{RequestedModel: requestedModel, Purpose: purpose, Candidates: []LLMRoute{fallback}, Reason: "startup fallback"}, nil
+		reason := "startup fallback"
+		if minContextWindow > 0 && fallback.ContextWindow < minContextWindow {
+			reason = "context window metadata fallback: " + reason
+		}
+		return RoutePlan{RequestedModel: requestedModel, Purpose: purpose, Candidates: []LLMRoute{fallback}, Reason: reason}, nil
 	}
 	out := RoutePlan{RequestedModel: requestedModel, Purpose: purpose, Reason: plan.Reason, PolicyRev: plan.PolicyRev}
 	for _, candidate := range plan.Candidates {

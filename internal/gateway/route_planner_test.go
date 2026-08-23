@@ -363,6 +363,57 @@ func TestProviderRouterCodeExecutionFallsBackToReasoningProvider(t *testing.T) {
 	}
 }
 
+func TestProviderRouterFallsBackWhenOnlyProviderWindowMetadataIsTooSmall(t *testing.T) {
+	router := NewProviderRouter()
+	tests := []struct {
+		name         string
+		purpose      RoutePurpose
+		capabilities ProviderCapabilities
+	}{
+		{name: "chat", purpose: RoutePurposeChat, capabilities: ProviderCapabilities{Chat: true}},
+		{name: "code analysis", purpose: RoutePurposeCodeAnalysis, capabilities: ProviderCapabilities{Reasoning: true, Tools: true}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			providers := []Provider{{
+				ID: 1, Name: "only", Type: 1, Key: "k", BaseURL: "https://only.test/v1",
+				Models: "model", Status: 1, Capabilities: tt.capabilities,
+				ContextWindow: 32_768, QualityTier: 5,
+			}}
+			plan, err := router.PlanForPurpose(providers, "", LLMRoute{}, tt.purpose, 64_000)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(plan.Candidates) != 1 || plan.Candidates[0].ProviderID != 1 {
+				t.Fatalf("fallback candidates = %+v", plan.Candidates)
+			}
+			if !strings.Contains(plan.Reason, "context window metadata fallback") {
+				t.Fatalf("fallback reason = %q", plan.Reason)
+			}
+		})
+	}
+}
+
+func TestProviderRouterPrefersProviderThatMeetsContextWindow(t *testing.T) {
+	router := NewProviderRouter()
+	providers := []Provider{
+		{ID: 1, Name: "small-high-priority", Type: 1, Key: "k1", BaseURL: "https://small.test/v1", Models: "model", Status: 1,
+			Priority: 10, Capabilities: ProviderCapabilities{Chat: true}, ContextWindow: 32_768, QualityTier: 3},
+		{ID: 2, Name: "large", Type: 1, Key: "k2", BaseURL: "https://large.test/v1", Models: "model", Status: 1,
+			Priority: 1, Capabilities: ProviderCapabilities{Chat: true}, ContextWindow: 128_000, QualityTier: 3},
+	}
+	plan, err := router.PlanForPurpose(providers, "", LLMRoute{}, RoutePurposeChat, 64_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Candidates) != 1 || plan.Candidates[0].ProviderID != 2 {
+		t.Fatalf("strict context-window plan = %+v", plan.Candidates)
+	}
+	if strings.Contains(plan.Reason, "context window metadata fallback") {
+		t.Fatalf("strict route unexpectedly used fallback: %q", plan.Reason)
+	}
+}
+
 func TestFailoverProviderSwitchesAfterThinkingOnlyFailure(t *testing.T) {
 	failed := &scriptedProvider{name: "failed", events: []provider.AssistantMessageEvent{
 		provider.StreamStartEvent{Partial: assistant("", "")},
