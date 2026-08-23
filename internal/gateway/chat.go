@@ -325,8 +325,15 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 					return ChatResponse{}, fmt.Errorf("set active session: %w", err)
 				}
 			}
-			queued := queuedUserMessage(content, req.Pinned)
-			if err := active.EnqueueMessage(msg, queued, req.Pinned); err != nil {
+			eventType, err := normalizeQueueEventType(req.QueueEventType, req.Pinned)
+			if err != nil {
+				return ChatResponse{}, err
+			}
+			item, _, err := active.QueueMessage(QueueMessageInput{
+				AccountID: req.AccountID, Content: msg, EventType: eventType,
+				IdempotencyKey: req.IdempotencyKey,
+			})
+			if err != nil {
 				return ChatResponse{}, err
 			}
 			return ChatResponse{
@@ -334,7 +341,8 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 				RunID:     active.ID,
 				Model:     active.Model,
 				Queued:    true,
-				Pinned:    req.Pinned,
+				Pinned:    item.EventType == queueEventPin,
+				QueueItem: &item,
 			}, nil
 		}
 	}
@@ -500,7 +508,7 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 		if baseSteering != nil {
 			messages = append(messages, baseSteering(ctx)...)
 		}
-		messages = append(messages, state.DrainMessages()...)
+		messages = append(messages, state.DrainSteeringMessages()...)
 		liveSession.QueueMessages(messages)
 		return messages
 	}
@@ -510,7 +518,7 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 		if baseFollowUp != nil {
 			messages = append(messages, baseFollowUp(ctx, agentCtx)...)
 		}
-		messages = append(messages, state.DrainMessages()...)
+		messages = append(messages, state.DrainFollowUpMessages()...)
 		liveSession.QueueMessages(messages)
 		return messages
 	}

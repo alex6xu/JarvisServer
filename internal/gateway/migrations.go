@@ -397,6 +397,36 @@ ALTER TABLE provider_models ADD COLUMN manual_context_window INTEGER NOT NULL DE
 ALTER TABLE provider_models ADD COLUMN detected_at TEXT;
 `
 
+const runMessageQueueSchema = `
+CREATE TABLE IF NOT EXISTS run_message_queues (
+    run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS run_message_queue_items (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    session_id TEXT NOT NULL,
+    account_id INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    event_type TEXT NOT NULL CHECK(event_type IN ('enqueue', 'pin', 'steer')),
+    position INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK(status IN (
+        'pending', 'injecting', 'injected', 'executing',
+        'completed', 'cancelled', 'dropped'
+    )),
+    idempotency_key TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(run_id, idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS idx_run_message_queue_items_run_position
+    ON run_message_queue_items(run_id, position);
+CREATE INDEX IF NOT EXISTS idx_run_message_queue_items_session_created
+    ON run_message_queue_items(session_id, created_at);
+`
+
 var gatewayMigrations = []gatewayMigration{
 	{version: 1, name: "gateway_base", schema: gatewaySchema},
 	{version: 2, name: "control_plane_repositories", schema: controlPlaneSchema},
@@ -416,6 +446,7 @@ var gatewayMigrations = []gatewayMigration{
 	{version: 16, name: "notification_deliveries", schema: notificationDeliveriesSchema},
 	{version: 17, name: "account_active_sessions", schema: activeSessionsSchema},
 	{version: 18, name: "provider_model_metadata", schema: providerModelMetadataSchema},
+	{version: 19, name: "run_message_queues", schema: runMessageQueueSchema},
 }
 
 func applyGatewayMigrations(db *sql.DB) error {

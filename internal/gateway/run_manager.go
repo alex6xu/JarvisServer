@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/alex6xu/jarvisserver/internal/agentcore"
 	"github.com/alex6xu/jarvisserver/internal/distributedlog"
 )
 
@@ -24,12 +23,6 @@ const (
 	maxQueuedMessages    = 32
 )
 
-type queuedMessage struct {
-	content string
-	message agentcore.AgentMessage
-	pinned  bool
-}
-
 // RunState holds one agent run's sequenced event log and live subscribers.
 type RunState struct {
 	ID              string
@@ -42,7 +35,7 @@ type RunState struct {
 	Cancel          context.CancelFunc
 	Deadline        time.Time
 	Err             error
-	queued          []queuedMessage
+	queue           RunMessageQueueSnapshot
 	accepting       bool
 	cancelRequested bool
 
@@ -52,67 +45,6 @@ type RunState struct {
 	store  *GatewayStore
 	logger *distributedlog.Logger
 	logCtx context.Context
-}
-
-// EnqueueMessage adds user guidance to a running agent. The runtime drains the
-// queue after a tool batch or immediately before a natural run end.
-func (st *RunState) EnqueueMessage(content string, message agentcore.AgentMessage, pinned bool) error {
-	st.mu.Lock()
-	if st.Status != runStatusRunning || !st.accepting {
-		st.mu.Unlock()
-		return fmt.Errorf("run is finishing and no longer accepts queued messages")
-	}
-	if len(st.queued) >= maxQueuedMessages {
-		st.mu.Unlock()
-		return fmt.Errorf("run message queue is full")
-	}
-	st.queued = append(st.queued, queuedMessage{content: content, message: message, pinned: pinned})
-	st.mu.Unlock()
-	st.Publish(StreamEvent{Type: "user_queued", Content: content, Pinned: pinned})
-	return nil
-}
-
-// DrainMessages atomically removes queued guidance, with pinned messages first
-// and stable submission order within each priority.
-func (st *RunState) DrainMessages() []agentcore.AgentMessage {
-	return st.drainMessages(false)
-}
-
-// DrainFinalMessages atomically seals an empty queue immediately before a
-// natural run end, preventing a late accepted message from being lost.
-func (st *RunState) DrainFinalMessages() []agentcore.AgentMessage {
-	return st.drainMessages(true)
-}
-
-func (st *RunState) drainMessages(sealWhenEmpty bool) []agentcore.AgentMessage {
-	st.mu.Lock()
-	queued := make([]queuedMessage, 0, len(st.queued))
-	// Keep submission order within each priority while ensuring pinned guidance
-	// reaches the next model turn before ordinary follow-ups.
-	for _, item := range st.queued {
-		if item.pinned {
-			queued = append(queued, item)
-		}
-	}
-	for _, item := range st.queued {
-		if !item.pinned {
-			queued = append(queued, item)
-		}
-	}
-	st.queued = nil
-	if sealWhenEmpty && len(queued) == 0 {
-		st.accepting = false
-	}
-	st.mu.Unlock()
-	if len(queued) == 0 {
-		return nil
-	}
-	messages := make([]agentcore.AgentMessage, 0, len(queued))
-	for _, item := range queued {
-		messages = append(messages, item.message)
-		st.Publish(StreamEvent{Type: "user_injected", Content: item.content, Pinned: item.pinned})
-	}
-	return messages
 }
 
 // RunManager tracks in-process runs for SSE subscription and after_seq replay.
@@ -155,7 +87,9 @@ func (m *RunManager) Register(sessionID, model, workspaceID string, cancel conte
 		done:        make(chan struct{}),
 		store:       m.store,
 		logger:      m.logger,
+		queue:       RunMessageQueueSnapshot{RunID: ""},
 	}
+	st.queue.RunID = st.ID
 	st.logCtx = distributedlog.WithRun(context.Background(), st.ID, st.SessionID)
 	if len(deadline) > 0 {
 		st.Deadline = deadline[0]
@@ -194,9 +128,9 @@ func (m *RunManager) Cancel(id string) bool {
 	}
 	st.cancelRequested = true
 	st.accepting = false
-	st.queued = nil
 	cancel := st.Cancel
 	st.mu.Unlock()
+	st.dropPendingQueueItems("queue.dropped")
 	if cancel != nil {
 		cancel()
 	}
@@ -296,6 +230,10 @@ func (st *RunState) Publish(ev StreamEvent) {
 
 // Finish marks the run terminal and closes subscribers.
 func (st *RunState) Finish(err error) {
+	st.mu.Lock()
+	st.accepting = false
+	st.mu.Unlock()
+	st.finishQueue()
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	select {

@@ -46,6 +46,11 @@ func apiRoutes(svc *Service) []rest.Route {
 		// Agent sessions / chat / import (static paths before :param)
 		{Method: http.MethodPost, Path: "/v1/agent/chat", Handler: svc.handleChat},
 		{Method: http.MethodPost, Path: "/v1/agent/runs/:runId/cancel", Handler: svc.handleCancelRun},
+		{Method: http.MethodGet, Path: "/v1/agent/runs/:runId/messages/queue", Handler: svc.handleGetRunMessageQueue},
+		{Method: http.MethodPost, Path: "/v1/agent/runs/:runId/messages/queue", Handler: svc.handlePostRunMessageQueue},
+		{Method: http.MethodPost, Path: "/v1/agent/runs/:runId/messages/:messageId/pin", Handler: svc.handlePinRunMessage},
+		{Method: http.MethodPut, Path: "/v1/agent/runs/:runId/messages/queue/order", Handler: svc.handleReorderRunMessageQueue},
+		{Method: http.MethodDelete, Path: "/v1/agent/runs/:runId/messages/:messageId", Handler: svc.handleDeleteRunMessage},
 		{Method: http.MethodGet, Path: "/v1/agent/sessions", Handler: svc.handleListSessions},
 		{Method: http.MethodGet, Path: "/v1/agent/sessions/active", Handler: svc.handleGetActiveSession},
 		{Method: http.MethodPut, Path: "/v1/agent/sessions/active", Handler: svc.handleSetActiveSession},

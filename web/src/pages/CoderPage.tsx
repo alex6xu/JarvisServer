@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef, ChangeEvent, useCallback } from 'react'
-import { Pin } from 'lucide-react'
 import { apiFetch, useAccount } from '../context/AccountContext'
 import VoiceInputButton from '../components/VoiceInputButton'
 import MessageBubble from '../components/MessageBubble'
 import RecentSessionSelect from '../components/RecentSessionSelect'
 import StopRunButton from '../components/StopRunButton'
+import RunMessageQueue, { QueueModeControl } from '../components/RunMessageQueue'
 import { useVoiceInput } from '../hooks/useVoiceInput'
 import { useRunEventStream } from '../hooks/useRunEventStream'
 import { useRunStop } from '../hooks/useRunStop'
+import { useRunMessageQueue } from '../hooks/useRunMessageQueue'
 import { useSessionRestore } from '../hooks/useSessionRestore'
 import {
   coderSessionKey,
@@ -115,7 +116,7 @@ export default function CoderPage() {
   const activeWorkspace = workspaces.find((w) => w.id === workspaceId) || null
 
   const [runId, setRunId] = useState('')
-  const [pinNextMessage, setPinNextMessage] = useState(false)
+  const queue = useRunMessageQueue(currentAccount?.id, runId)
   const { consumeRunEvents, abortRunStream } = useRunEventStream()
   const { isStopping, stopRun } = useRunStop({
     accountId: currentAccount?.id,
@@ -124,33 +125,9 @@ export default function CoderPage() {
     setRunId,
     setIsLoading,
     setMessages,
-    onStopped: () => setPinNextMessage(false),
   })
   const { restoreSession, persistSessionId, clearPersistedSession, clearServerActiveSession } =
     useSessionRestore()
-
-  const markQueuedMessageInjected = useCallback((content: string, pinned: boolean) => {
-    setMessages((prev) => {
-      const next = [...prev]
-      for (let i = next.length - 1; i >= 0; i--) {
-        const queuedLabel = pinned ? `已置顶：${content}` : `已排队：${content}`
-        if (next[i].role === 'system' && next[i].content === queuedLabel) {
-          next[i] = { ...next[i], content: `${pinned ? '置顶指令' : '排队消息'}已加入当前执行：${content}` }
-          return next
-        }
-      }
-      if (prev.some((m) => m.content === content && m.role === 'user')) return prev
-      return [
-        ...prev,
-        {
-          id: `inj-${Date.now()}`,
-          role: 'system',
-          content: `${pinned ? '置顶指令' : '排队消息'}已加入当前执行：${content}`,
-          timestamp: new Date(),
-        },
-      ]
-    })
-  }, [])
 
   const sessionStorageKey =
     currentAccount?.id && workspaceId ? coderSessionKey(currentAccount.id, workspaceId) : ''
@@ -223,7 +200,7 @@ export default function CoderPage() {
             afterSeq: result.afterSeq,
             fallbackModel: result.activeModel || selectedModel,
             onSessionId: setSessionId,
-            onUserInjected: markQueuedMessageInjected,
+            onQueueChanged: () => void queue.refresh(result.activeRunId),
             setMessages,
             setIsLoading,
             setRunId,
@@ -241,15 +218,11 @@ export default function CoderPage() {
       abortRunStream()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentAccount?.id, workspaceId, sessionStorageKey, markQueuedMessageInjected])
+  }, [currentAccount?.id, workspaceId, sessionStorageKey])
 
   useEffect(() => {
     if (sessionId && sessionStorageKey) persistSessionId(sessionStorageKey, sessionId)
   }, [sessionId, sessionStorageKey, persistSessionId])
-
-  useEffect(() => {
-    if (!runId) setPinNextMessage(false)
-  }, [runId])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -640,7 +613,6 @@ export default function CoderPage() {
     }
 
     const content = input
-    const pinned = isLoading && !!runId && pinNextMessage
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
@@ -654,39 +626,7 @@ export default function CoderPage() {
     // While a run is active, enqueue into inbox (no new assistant bubble / stream).
     if (isLoading && runId) {
       try {
-        const response = await apiFetch(
-          '/v1/agent/chat',
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              message: content,
-              session_id: sessionId,
-              mode: 'coder',
-              model: selectedModel || undefined,
-              workspace_id: workspaceId || undefined,
-              stream: false,
-              pinned,
-            }),
-          },
-          currentAccount?.id,
-        )
-        const data = await response.json().catch(() => ({}))
-        if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`)
-        if (!data.queued || data.run_id !== runId) {
-          throw new Error('活动任务未接受排队消息')
-        }
-        if (data.session_id) setSessionId(data.session_id)
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `queued-${userMessage.id}`,
-            role: 'system',
-            content: `${data.pinned ? '已置顶' : '已排队'}：${content}`,
-            timestamp: new Date(),
-          },
-        ])
-        setPinNextMessage(false)
+        await queue.submit(content)
       } catch (err) {
         setMessages((prev) => [
           ...prev,
@@ -751,7 +691,7 @@ export default function CoderPage() {
           accountId: currentAccount?.id,
           fallbackModel: selectedModel,
           onSessionId: setSessionId,
-          onUserInjected: markQueuedMessageInjected,
+          onQueueChanged: () => void queue.refresh(data.run_id),
           setMessages,
           setIsLoading,
           setRunId,
@@ -1164,12 +1104,27 @@ export default function CoderPage() {
       )}
 
       <div className="p-4 border-t border-border">
+        {runId && (
+          <RunMessageQueue
+            snapshot={queue.snapshot}
+            busy={queue.busy}
+            error={queue.error}
+            onPin={(id) => void queue.pin(id)}
+            onMove={(id, direction) => void queue.move(id, direction)}
+            onCancel={(id) => void queue.cancel(id)}
+          />
+        )}
         {(voice.interim || voice.error) && (
           <div className="mb-2 text-[11px]">
             {voice.listening && voice.interim && (
               <span className="text-muted-foreground">识别中：{voice.interim}</span>
             )}
             {voice.error && <span className="text-red-500">{voice.error}</span>}
+          </div>
+        )}
+        {isLoading && runId && (
+          <div className="mb-2">
+            <QueueModeControl value={queue.mode} onChange={queue.setMode} disabled={queue.busy} />
           </div>
         )}
         <div className="flex gap-2 items-end">
@@ -1199,27 +1154,18 @@ export default function CoderPage() {
             }
             onClick={() => void voice.toggle()}
           />
-          {isLoading && runId && (
-            <button
-              type="button"
-              onClick={() => setPinNextMessage((value) => !value)}
-              aria-pressed={pinNextMessage}
-              title={pinNextMessage ? '取消置顶发送' : '置顶到当前任务'}
-              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border transition-colors ${
-                pinNextMessage
-                  ? 'border-primary bg-primary/10 text-primary'
-                  : 'border-border text-muted-foreground hover:bg-accent hover:text-foreground'
-              }`}
-            >
-              <Pin className="h-4 w-4" />
-            </button>
-          )}
           <button
             onClick={sendMessage}
-            disabled={!input.trim()}
+            disabled={!input.trim() || queue.busy}
             className="h-10 px-4 bg-primary text-primary-foreground rounded-lg text-[13px] font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
           >
-            {isLoading ? (pinNextMessage ? 'Pin' : 'Queue') : 'Run'}
+            {isLoading && runId
+              ? queue.mode === 'pin'
+                ? '置顶'
+                : queue.mode === 'steer'
+                  ? '立即加入'
+                  : '排队'
+              : 'Run'}
           </button>
         </div>
       </div>

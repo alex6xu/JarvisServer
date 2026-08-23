@@ -100,7 +100,8 @@ func TestRunStateQueueDrainsPinnedMessagesFirst(t *testing.T) {
 	messages := state.DrainMessages()
 	for i, want := range []string{"pinned-1", "pinned-2", "normal-1", "normal-2"} {
 		message, ok := messages[i].(agentcore.UserMessage)
-		if !ok || agentcore.ContentToText(message.Content) != want {
+		got := agentcore.ContentToText(message.Content)
+		if !ok || (i < 2 && !strings.Contains(got, want)) || (i >= 2 && got != want) {
 			t.Fatalf("message %d = %#v, want %q", i, messages[i], want)
 		}
 	}
@@ -228,6 +229,7 @@ func TestRunEventsHandlerRespectsAfterSeqAndTerminates(t *testing.T) {
 
 	service := &Service{Runs: manager}
 	req := httptest.NewRequest(http.MethodGet, "/v1/agent/runs/"+state.ID+"/events?after_seq=1", nil)
+	req = req.WithContext(context.WithValue(req.Context(), accountContextKey{}, Account{ID: legacyWorkspaceAccountID}))
 	req = pathvar.WithVars(req, map[string]string{"runId": state.ID})
 	res := httptest.NewRecorder()
 	service.handleRunEvents(res, req)

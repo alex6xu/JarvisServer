@@ -4,9 +4,11 @@ import VoiceInputButton from '../components/VoiceInputButton'
 import MessageList from '../components/MessageList'
 import RecentSessionSelect from '../components/RecentSessionSelect'
 import StopRunButton from '../components/StopRunButton'
+import RunMessageQueue, { QueueModeControl } from '../components/RunMessageQueue'
 import { useVoiceInput } from '../hooks/useVoiceInput'
 import { useRunEventStream } from '../hooks/useRunEventStream'
 import { useRunStop } from '../hooks/useRunStop'
+import { useRunMessageQueue } from '../hooks/useRunMessageQueue'
 import { useSessionRestore } from '../hooks/useSessionRestore'
 import { chatSessionKey, type UiMessage } from '../lib/sessionPersist'
 
@@ -18,6 +20,7 @@ export default function ChatPage() {
   const [connected, setConnected] = useState(false)
   const [sessionId, setSessionId] = useState('')
   const [runId, setRunId] = useState('')
+  const queue = useRunMessageQueue(currentAccount?.id, runId)
 
   const storageKey = currentAccount?.id ? chatSessionKey(currentAccount.id) : ''
   const { consumeRunEvents, abortRunStream } = useRunEventStream()
@@ -68,6 +71,7 @@ export default function ChatPage() {
             afterSeq: result.afterSeq,
             fallbackModel: result.activeModel,
             onSessionId: setSessionId,
+            onQueueChanged: () => void queue.refresh(result.activeRunId),
             setMessages,
             setIsLoading,
             setRunId,
@@ -110,7 +114,7 @@ export default function ChatPage() {
   })
 
   const sendMessage = async () => {
-    if (!input.trim() || isLoading) return
+    if (!input.trim()) return
     if (voice.listening) {
       await voice.stop()
     }
@@ -125,6 +129,23 @@ export default function ChatPage() {
 
     setMessages((prev) => [...prev, userMessage])
     setInput('')
+
+    if (isLoading && runId) {
+      try {
+        await queue.submit(text)
+      } catch (err) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `queue-error-${Date.now()}`,
+            role: 'system',
+            content: err instanceof Error ? `排队失败: ${err.message}` : '排队失败',
+            timestamp: new Date(),
+          },
+        ])
+      }
+      return
+    }
     setIsLoading(true)
 
     try {
@@ -179,6 +200,7 @@ export default function ChatPage() {
         await consumeRunEvents(data.run_id, assistantId, {
           accountId: currentAccount?.id,
           onSessionId: setSessionId,
+          onQueueChanged: () => void queue.refresh(data.run_id),
           setMessages,
           setIsLoading,
           setRunId,
@@ -296,38 +318,61 @@ export default function ChatPage() {
       />
 
       <div className="p-4 border-t border-border">
-        <div className="flex gap-2 max-w-3xl mx-auto">
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                void sendMessage()
+        <div className="max-w-3xl mx-auto">
+          {runId && (
+            <RunMessageQueue
+              snapshot={queue.snapshot}
+              busy={queue.busy}
+              error={queue.error}
+              onPin={(id) => void queue.pin(id)}
+              onMove={(id, direction) => void queue.move(id, direction)}
+              onCancel={(id) => void queue.cancel(id)}
+            />
+          )}
+          {isLoading && runId && (
+            <div className="mb-2">
+              <QueueModeControl value={queue.mode} onChange={queue.setMode} disabled={queue.busy} />
+            </div>
+          )}
+          <div className="flex gap-2">
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  void sendMessage()
+                }
+              }}
+              placeholder="Type a message..."
+              rows={1}
+              className="flex-1 px-4 py-2.5 bg-card border border-border rounded-xl text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+            />
+            <VoiceInputButton
+              listening={voice.listening}
+              supported={voice.supported}
+              disabled={false}
+              title={
+                voice.engine === 'server'
+                  ? '语音输入（服务端 ASR）'
+                  : '语音输入（浏览器 Web Speech）'
               }
-            }}
-            placeholder="Type a message..."
-            rows={1}
-            className="flex-1 px-4 py-2.5 bg-card border border-border rounded-xl text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
-          />
-          <VoiceInputButton
-            listening={voice.listening}
-            supported={voice.supported}
-            disabled={isLoading}
-            title={
-              voice.engine === 'server'
-                ? '语音输入（服务端 ASR）'
-                : '语音输入（浏览器 Web Speech）'
-            }
-            onClick={() => void voice.toggle()}
-          />
-          <button
-            onClick={() => void sendMessage()}
-            disabled={!input.trim() || isLoading}
-            className="h-10 px-4 bg-primary text-primary-foreground rounded-xl text-[13px] font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
-          >
-            Send
-          </button>
+              onClick={() => void voice.toggle()}
+            />
+            <button
+              onClick={() => void sendMessage()}
+              disabled={!input.trim() || queue.busy}
+              className="h-10 px-4 bg-primary text-primary-foreground rounded-xl text-[13px] font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
+            >
+              {isLoading && runId
+                ? queue.mode === 'pin'
+                  ? '置顶'
+                  : queue.mode === 'steer'
+                    ? '立即加入'
+                    : '排队'
+                : 'Send'}
+            </button>
+          </div>
         </div>
       </div>
     </div>

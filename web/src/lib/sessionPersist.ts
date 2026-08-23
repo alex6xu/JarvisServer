@@ -256,4 +256,10 @@ export type AgentStreamEvent = {
   step?: ToolStep
   tool_steps?: ToolStep[]
   pinned?: boolean
+  queue_version?: number
+  queue_item?: {
+    id: string
+    event_type: 'enqueue' | 'pin' | 'steer'
+    status: string
+  }
 }

@@ -252,6 +252,16 @@ SELECT session_id, model, workspace_id, status, error, deadline_at FROM runs WHE
 		st.Events = append(st.Events, event)
 		st.LastSeq = event.Seq
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	st.queue, err = s.LoadRunMessageQueue(ctx, id)
+	if err != nil {
+		return nil, err
+	}
 	if deadline.Valid {
 		st.Deadline, _ = time.Parse(time.RFC3339Nano, deadline.String)
 	}
@@ -263,5 +273,5 @@ SELECT session_id, model, workspace_id, status, error, deadline_at FROM runs WHE
 	if errorText != "" {
 		st.Err = errors.New(errorText)
 	}
-	return st, rows.Err()
+	return st, nil
 }

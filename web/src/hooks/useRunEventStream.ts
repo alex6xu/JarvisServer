@@ -17,6 +17,7 @@ type ConsumeOpts = {
   fallbackModel?: string
   onSessionId?: (sessionId: string) => void
   onUserInjected?: (content: string, pinned: boolean) => void
+  onQueueChanged?: () => void
   setMessages: Dispatch<SetStateAction<UiMessage[]>>
   setIsLoading?: (v: boolean) => void
   setRunId?: (v: string) => void
@@ -89,6 +90,7 @@ export function useRunEventStream() {
               continue
             }
             if (ev.session_id) opts.onSessionId?.(ev.session_id)
+            if (ev.type?.startsWith('queue.')) opts.onQueueChanged?.()
             if (ev.type === 'delta' && ev.content) {
               fullText += ev.content
               segments = appendTextSegment(segments, ev.content)
