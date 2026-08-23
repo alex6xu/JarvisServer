@@ -24,6 +24,8 @@ type RestoreResult = {
 type RestoreOpts = {
   accountId: number
   storageKey: string
+  mode: 'chat' | 'coder'
+  workspaceId?: string
   /** Prefer URL ?session= / ?resume= over localStorage when true (default). */
   preferUrl?: boolean
   /** Explicit session override (e.g. from navigation). */
@@ -70,25 +72,106 @@ export function useSessionRestore() {
     }
   }, [])
 
+  const scopeQuery = useCallback((mode: 'chat' | 'coder', workspaceId?: string) => {
+    const params = new URLSearchParams({ mode })
+    if (workspaceId) params.set('workspace_id', workspaceId)
+    return params.toString()
+  }, [])
+
+  const getServerActiveSession = useCallback(
+    async (opts: RestoreOpts): Promise<string> => {
+      const res = await apiFetch(
+        `/v1/agent/sessions/active?${scopeQuery(opts.mode, opts.workspaceId)}`,
+        {},
+        opts.accountId,
+      )
+      if (!res.ok) return ''
+      const data = (await res.json()) as { session?: { session_id?: string } | null }
+      return data.session?.session_id || ''
+    },
+    [scopeQuery],
+  )
+
+  const setServerActiveSession = useCallback(async (opts: RestoreOpts, sessionId: string) => {
+    if (!sessionId) return
+    await apiFetch(
+      '/v1/agent/sessions/active',
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: sessionId,
+          mode: opts.mode,
+          workspace_id: opts.workspaceId || undefined,
+        }),
+      },
+      opts.accountId,
+    )
+  }, [])
+
+  const clearServerActiveSession = useCallback(
+    async (opts: RestoreOpts, sessionId?: string) => {
+      const query = new URLSearchParams(scopeQuery(opts.mode, opts.workspaceId))
+      if (sessionId) query.set('session_id', sessionId)
+      await apiFetch(
+        `/v1/agent/sessions/active?${query}`,
+        { method: 'DELETE' },
+        opts.accountId,
+      )
+    },
+    [scopeQuery],
+  )
+
   const restoreSession = useCallback(
     async (opts: RestoreOpts): Promise<RestoreResult | null> => {
       const gen = ++genRef.current
-      const saved = resolveSessionId(opts)
+      let saved = resolveSessionId(opts)
+      const hadBrowserSession = !!saved
+      if (!saved) saved = await getServerActiveSession(opts)
+      if (gen !== genRef.current) return null
       if (!saved) return null
 
-      const res = await apiFetch(`/v1/agent/sessions/${encodeURIComponent(saved)}`, {}, opts.accountId)
+      let res = await apiFetch(`/v1/agent/sessions/${encodeURIComponent(saved)}`, {}, opts.accountId)
       if (gen !== genRef.current) return null
       if (!res.ok) {
         // Stale localStorage / ?session= ids produce noisy 404s on every Chat mount.
         if (res.status === 404 || res.status === 403) {
           clearPersistedSession(opts.storageKey)
+          if (hadBrowserSession) {
+            const serverSession = await getServerActiveSession(opts)
+            if (gen !== genRef.current) return null
+            if (serverSession && serverSession !== saved) {
+              saved = serverSession
+              res = await apiFetch(
+                `/v1/agent/sessions/${encodeURIComponent(saved)}`,
+                {},
+                opts.accountId,
+              )
+              if (gen !== genRef.current) return null
+              if (!res.ok) return null
+            } else {
+              return null
+            }
+          } else {
+            return null
+          }
+        } else {
+          return null
         }
-        return null
       }
       const data = (await res.json()) as SessionRestorePayload
       if (gen !== genRef.current) return null
 
+      const restoredWorkspace = data.workspace_id || data.session?.workspace_id || ''
+      const restoredMode = data.session?.platform || (restoredWorkspace ? 'coder' : 'chat')
+      if (restoredMode !== opts.mode || (opts.mode === 'coder' && restoredWorkspace !== opts.workspaceId)) {
+        clearPersistedSession(opts.storageKey)
+        return null
+      }
+
       persistSessionId(opts.storageKey, saved)
+      await setServerActiveSession(opts, saved)
+      if (gen !== genRef.current) return null
 
       let messages = mapRestoredMessages(data.messages)
       const active = data.active_run
@@ -131,7 +214,7 @@ export function useSessionRestore() {
         workspaceId,
       }
     },
-    [clearPersistedSession, persistSessionId, resolveSessionId],
+    [clearPersistedSession, getServerActiveSession, persistSessionId, resolveSessionId, setServerActiveSession],
   )
 
   const isCurrentGeneration = useCallback((gen: number) => gen === genRef.current, [])
@@ -141,6 +224,8 @@ export function useSessionRestore() {
     restoreSession,
     persistSessionId,
     clearPersistedSession,
+    clearServerActiveSession,
+    setServerActiveSession,
     resolveSessionId,
     genRef,
     isCurrentGeneration,

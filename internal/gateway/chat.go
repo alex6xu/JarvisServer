@@ -304,6 +304,11 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 			if active.WorkspaceID != req.WorkspaceID {
 				return ChatResponse{}, fmt.Errorf("active run workspace does not match requested workspace")
 			}
+			if req.WorkspaceID != "" || sessionScopeMode(req.Mode) == "chat" {
+				if err := s.setActiveSession(ctx, req.AccountID, sessionScopeMode(req.Mode), req.WorkspaceID, hs.header.ID); err != nil {
+					return ChatResponse{}, fmt.Errorf("set active session: %w", err)
+				}
+			}
 			queued := queuedUserMessage(content, req.Pinned)
 			if err := active.EnqueueMessage(msg, queued, req.Pinned); err != nil {
 				return ChatResponse{}, err
@@ -415,6 +420,13 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 			cancel()
 			closeEnv(env)
 			return ChatResponse{}, fmt.Errorf("persist new session: %w", err)
+		}
+	}
+	if req.WorkspaceID != "" || sessionScopeMode(req.Mode) == "chat" {
+		if err := s.setActiveSession(ctx, req.AccountID, sessionScopeMode(req.Mode), req.WorkspaceID, hs.header.ID); err != nil {
+			cancel()
+			closeEnv(env)
+			return ChatResponse{}, fmt.Errorf("set active session: %w", err)
 		}
 	}
 	state, err := s.Runs.Register(hs.header.ID, model, req.WorkspaceID, cancel, deadline)

@@ -194,6 +194,7 @@ export type SessionRestorePayload = {
     title?: string
     platform?: string
     message_count?: number
+    workspace_id?: string
   }
   messages: RestoredSessionMessage[]
   workspace_id?: string

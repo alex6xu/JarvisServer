@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -227,6 +228,79 @@ func (s *Service) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	resp, err := s.listSessionsForAccount(accountID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (s *Service) handleGetActiveSession(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := s.requestAccountID(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "account context is required")
+		return
+	}
+	resp, found, err := s.getActiveSession(r.Context(), accountID,
+		r.URL.Query().Get("mode"), r.URL.Query().Get("workspace_id"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !found {
+		writeJSON(w, http.StatusOK, map[string]any{"session": nil})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"session": resp})
+}
+
+func (s *Service) handleSetActiveSession(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := s.requestAccountID(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "account context is required")
+		return
+	}
+	var req SetActiveSessionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	if err := s.setActiveSession(r.Context(), accountID, req.Mode, req.WorkspaceID, req.SessionID); err != nil {
+		if isNotFound(err) {
+			writeErr(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, ActiveSessionResponse{
+		SessionID: strings.TrimSpace(req.SessionID), Mode: strings.ToLower(strings.TrimSpace(req.Mode)), WorkspaceID: strings.TrimSpace(req.WorkspaceID),
+	})
+}
+
+func (s *Service) handleClearActiveSession(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := s.requestAccountID(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "account context is required")
+		return
+	}
+	if err := s.clearActiveSession(r.Context(), accountID,
+		r.URL.Query().Get("mode"), r.URL.Query().Get("workspace_id"), r.URL.Query().Get("session_id")); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Service) handleRecentSessions(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := s.requestAccountID(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "account context is required")
+		return
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	resp, err := s.recentSessionsForAccount(accountID,
+		r.URL.Query().Get("mode"), r.URL.Query().Get("workspace_id"), limit)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)

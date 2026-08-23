@@ -1,6 +1,8 @@
 package gateway
 
 import (
+	"context"
+	"database/sql"
 	"fmt"
 	"os"
 	"strconv"
@@ -79,19 +81,199 @@ func (s *Service) listSessionsForAccount(accountID int) (SessionListResponse, er
 		if !sessionOwnedByAccount(h, accountID) {
 			continue
 		}
-		meta := sessionMetaFromHeader(h, 0)
-		if _, entries, err := s.Store.LoadEntries(h.ID); err == nil {
-			msgs := entriesToRestored(entries, h.Model)
-			meta.MessageCount = len(msgs)
-			meta.Title = sessionTitle(msgs)
-			meta.Preview = meta.Title
+		out = append(out, s.sessionMeta(h))
+	}
+	return SessionListResponse{Sessions: out}, nil
+}
+
+func (s *Service) sessionMeta(h session.SessionHeader) SessionMeta {
+	meta := sessionMetaFromHeader(h, 0)
+	if _, entries, err := s.Store.LoadEntries(h.ID); err == nil {
+		msgs := entriesToRestored(entries, h.Model)
+		meta.MessageCount = len(msgs)
+		meta.Title = sessionTitle(msgs)
+		meta.Preview = meta.Title
+	}
+	if active := s.Runs.ActiveForSession(h.ID); active != nil {
+		info := active.Info()
+		meta.ActiveRunStatus = info.Status
+		meta.WorkspaceID = info.WorkspaceID
+	}
+	return meta
+}
+
+func normalizeSessionScope(mode, workspaceID string) (string, string, error) {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	workspaceID = strings.TrimSpace(workspaceID)
+	switch mode {
+	case "chat":
+		if workspaceID != "" {
+			return "", "", fmt.Errorf("chat sessions cannot have a workspace")
 		}
-		if active := s.Runs.ActiveForSession(h.ID); active != nil {
-			info := active.Info()
-			meta.ActiveRunStatus = info.Status
-			meta.WorkspaceID = info.WorkspaceID
+	case "coder":
+		if workspaceID == "" {
+			return "", "", fmt.Errorf("workspace_id is required for coder sessions")
 		}
-		out = append(out, meta)
+	default:
+		return "", "", fmt.Errorf("mode must be chat or coder")
+	}
+	return mode, workspaceID, nil
+}
+
+func sessionMatchesScope(h session.SessionHeader, mode, workspaceID string) bool {
+	if mode == "chat" {
+		return h.WorkspaceID == ""
+	}
+	return h.WorkspaceID == workspaceID
+}
+
+func sessionScopeMode(mode string) string {
+	if strings.EqualFold(strings.TrimSpace(mode), "coder") {
+		return "coder"
+	}
+	return "chat"
+}
+
+func (s *Service) setActiveSession(ctx context.Context, accountID int, mode, workspaceID, sessionID string) error {
+	mode, workspaceID, err := normalizeSessionScope(mode, workspaceID)
+	if err != nil {
+		return err
+	}
+	if accountID <= 0 {
+		return fmt.Errorf("account context is required")
+	}
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return fmt.Errorf("session_id is required")
+	}
+	h, _, err := s.Store.LoadEntries(sessionID)
+	if err != nil {
+		return err
+	}
+	if !sessionOwnedByAccount(h, accountID) || !sessionMatchesScope(h, mode, workspaceID) {
+		return fmt.Errorf("session not found: %w", os.ErrNotExist)
+	}
+	_, err = s.Audit.db.ExecContext(ctx, `
+INSERT INTO account_active_sessions(account_id, mode, workspace_id, session_id, updated_at)
+VALUES (?, ?, ?, ?, ?)
+ON CONFLICT(account_id, mode, workspace_id) DO UPDATE SET
+    session_id = excluded.session_id,
+    updated_at = excluded.updated_at`,
+		accountID, mode, workspaceID, sessionID, time.Now().UTC().Format(time.RFC3339Nano))
+	return err
+}
+
+func (s *Service) clearActiveSession(ctx context.Context, accountID int, mode, workspaceID, sessionID string) error {
+	mode, workspaceID, err := normalizeSessionScope(mode, workspaceID)
+	if err != nil {
+		return err
+	}
+	if sessionID != "" {
+		_, err = s.Audit.db.ExecContext(ctx, `
+DELETE FROM account_active_sessions
+WHERE account_id = ? AND mode = ? AND workspace_id = ? AND session_id = ?`,
+			accountID, mode, workspaceID, strings.TrimSpace(sessionID))
+		return err
+	}
+	_, err = s.Audit.db.ExecContext(ctx,
+		`DELETE FROM account_active_sessions WHERE account_id = ? AND mode = ? AND workspace_id = ?`,
+		accountID, mode, workspaceID)
+	return err
+}
+
+func (s *Service) getActiveSession(ctx context.Context, accountID int, mode, workspaceID string) (ActiveSessionResponse, bool, error) {
+	if strings.EqualFold(strings.TrimSpace(mode), "coder") && strings.TrimSpace(workspaceID) == "" {
+		return s.getLatestActiveCoderSession(ctx, accountID)
+	}
+	mode, workspaceID, err := normalizeSessionScope(mode, workspaceID)
+	if err != nil {
+		return ActiveSessionResponse{}, false, err
+	}
+	var sessionID string
+	err = s.Audit.db.QueryRowContext(ctx, `
+SELECT session_id FROM account_active_sessions
+WHERE account_id = ? AND mode = ? AND workspace_id = ?`, accountID, mode, workspaceID).Scan(&sessionID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return ActiveSessionResponse{}, false, nil
+		}
+		return ActiveSessionResponse{}, false, err
+	}
+	h, _, loadErr := s.Store.LoadEntries(sessionID)
+	if loadErr != nil && !isNotFound(loadErr) {
+		return ActiveSessionResponse{}, false, loadErr
+	}
+	if loadErr != nil || !sessionOwnedByAccount(h, accountID) || !sessionMatchesScope(h, mode, workspaceID) {
+		_, _ = s.Audit.db.ExecContext(ctx,
+			`DELETE FROM account_active_sessions WHERE account_id = ? AND mode = ? AND workspace_id = ?`,
+			accountID, mode, workspaceID)
+		return ActiveSessionResponse{}, false, nil
+	}
+	return ActiveSessionResponse{SessionID: sessionID, Mode: mode, WorkspaceID: workspaceID}, true, nil
+}
+
+func (s *Service) getLatestActiveCoderSession(ctx context.Context, accountID int) (ActiveSessionResponse, bool, error) {
+	rows, err := s.Audit.db.QueryContext(ctx, `
+SELECT workspace_id, session_id FROM account_active_sessions
+WHERE account_id = ? AND mode = 'coder'
+ORDER BY updated_at DESC`, accountID)
+	if err != nil {
+		return ActiveSessionResponse{}, false, err
+	}
+	defer rows.Close()
+	type candidate struct{ workspaceID, sessionID string }
+	var candidates []candidate
+	for rows.Next() {
+		var item candidate
+		if err := rows.Scan(&item.workspaceID, &item.sessionID); err != nil {
+			return ActiveSessionResponse{}, false, err
+		}
+		candidates = append(candidates, item)
+	}
+	if err := rows.Err(); err != nil {
+		return ActiveSessionResponse{}, false, err
+	}
+	if err := rows.Close(); err != nil {
+		return ActiveSessionResponse{}, false, err
+	}
+	for _, item := range candidates {
+		h, _, loadErr := s.Store.LoadEntries(item.sessionID)
+		if loadErr != nil && !isNotFound(loadErr) {
+			return ActiveSessionResponse{}, false, loadErr
+		}
+		if loadErr == nil && sessionOwnedByAccount(h, accountID) && sessionMatchesScope(h, "coder", item.workspaceID) {
+			return ActiveSessionResponse{
+				SessionID: item.sessionID, Mode: "coder", WorkspaceID: item.workspaceID,
+			}, true, nil
+		}
+		_, _ = s.Audit.db.ExecContext(ctx, `
+DELETE FROM account_active_sessions
+WHERE account_id = ? AND mode = 'coder' AND workspace_id = ?`, accountID, item.workspaceID)
+	}
+	return ActiveSessionResponse{}, false, nil
+}
+
+func (s *Service) recentSessionsForAccount(accountID int, mode, workspaceID string, limit int) (SessionListResponse, error) {
+	mode, workspaceID, err := normalizeSessionScope(mode, workspaceID)
+	if err != nil {
+		return SessionListResponse{}, err
+	}
+	if limit <= 0 || limit > 10 {
+		limit = 10
+	}
+	headers, err := s.Store.List()
+	if err != nil {
+		return SessionListResponse{}, err
+	}
+	out := make([]SessionMeta, 0, min(limit, len(headers)))
+	for _, h := range headers {
+		if !sessionOwnedByAccount(h, accountID) || !sessionMatchesScope(h, mode, workspaceID) {
+			continue
+		}
+		out = append(out, s.sessionMeta(h))
+		if len(out) == limit {
+			break
+		}
 	}
 	return SessionListResponse{Sessions: out}, nil
 }

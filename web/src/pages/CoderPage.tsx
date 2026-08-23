@@ -3,6 +3,7 @@ import { Pin } from 'lucide-react'
 import { apiFetch, useAccount } from '../context/AccountContext'
 import VoiceInputButton from '../components/VoiceInputButton'
 import MessageBubble from '../components/MessageBubble'
+import RecentSessionSelect from '../components/RecentSessionSelect'
 import { useVoiceInput } from '../hooks/useVoiceInput'
 import { useRunEventStream } from '../hooks/useRunEventStream'
 import { useSessionRestore } from '../hooks/useSessionRestore'
@@ -114,7 +115,8 @@ export default function CoderPage() {
   const [runId, setRunId] = useState('')
   const [pinNextMessage, setPinNextMessage] = useState(false)
   const { consumeRunEvents, abortRunStream } = useRunEventStream()
-  const { restoreSession, persistSessionId, clearPersistedSession } = useSessionRestore()
+  const { restoreSession, persistSessionId, clearPersistedSession, clearServerActiveSession } =
+    useSessionRestore()
 
   const markQueuedMessageInjected = useCallback((content: string, pinned: boolean) => {
     setMessages((prev) => {
@@ -189,6 +191,8 @@ export default function CoderPage() {
         const result = await restoreSession({
           accountId: currentAccount.id,
           storageKey: sessionStorageKey,
+          mode: 'coder',
+          workspaceId,
         })
         if (cancelled) return
         if (!result) {
@@ -296,6 +300,23 @@ export default function CoderPage() {
           }
         }
         const savedWorkspaceID = currentAccount?.id ? readLocal(coderWorkspaceKey(currentAccount.id)) : ''
+        let serverWorkspaceID = ''
+        if (
+          currentAccount?.id &&
+          !requestedWorkspaceID &&
+          !workspaceFromSession &&
+          !list.some((workspace) => workspace.id === savedWorkspaceID)
+        ) {
+          try {
+            const activeRes = await apiFetch('/v1/agent/sessions/active?mode=coder', {}, currentAccount.id)
+            if (activeRes.ok) {
+              const activeData = await activeRes.json()
+              serverWorkspaceID = activeData.session?.workspace_id || ''
+            }
+          } catch {
+            /* use the first available workspace */
+          }
+        }
         setWorkspaceId((prev) => {
           if (requestedWorkspaceID && list.some((workspace) => workspace.id === requestedWorkspaceID)) {
             return requestedWorkspaceID
@@ -306,6 +327,9 @@ export default function CoderPage() {
           if (prev && list.some((workspace) => workspace.id === prev)) return prev
           if (savedWorkspaceID && list.some((workspace) => workspace.id === savedWorkspaceID)) {
             return savedWorkspaceID
+          }
+          if (serverWorkspaceID && list.some((workspace) => workspace.id === serverWorkspaceID)) {
+            return serverWorkspaceID
           }
           return list[0].id
         })
@@ -748,12 +772,24 @@ export default function CoderPage() {
   }
 
   const clearChat = () => {
+    const clearedSessionId = sessionId
     abortRunStream()
     setMessages([])
     setSessionId('')
     setRunId('')
     setIsLoading(false)
     if (sessionStorageKey) clearPersistedSession(sessionStorageKey)
+    if (currentAccount?.id && sessionStorageKey) {
+      void clearServerActiveSession(
+        {
+          accountId: currentAccount.id,
+          storageKey: sessionStorageKey,
+          mode: 'coder',
+          workspaceId,
+        },
+        clearedSessionId,
+      )
+    }
   }
 
   const downloadWorkspace = () => {
@@ -793,6 +829,17 @@ export default function CoderPage() {
         return
       }
       if (sessionStorageKey) clearPersistedSession(sessionStorageKey)
+      if (currentAccount?.id && sessionStorageKey) {
+        void clearServerActiveSession(
+          {
+            accountId: currentAccount.id,
+            storageKey: sessionStorageKey,
+            mode: 'coder',
+            workspaceId,
+          },
+          sessionId,
+        )
+      }
       setSessionId('')
       setRunId('')
       setIsLoading(false)
@@ -829,6 +876,12 @@ export default function CoderPage() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
+          <RecentSessionSelect
+            accountId={currentAccount?.id}
+            mode="coder"
+            workspaceId={workspaceId}
+            currentSessionId={sessionId}
+          />
           <select
             value={selectedModel}
             onChange={(e) => setSelectedModel(e.target.value)}

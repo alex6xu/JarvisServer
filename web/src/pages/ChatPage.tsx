@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { apiFetch, useAccount } from '../context/AccountContext'
 import VoiceInputButton from '../components/VoiceInputButton'
 import MessageList from '../components/MessageList'
+import RecentSessionSelect from '../components/RecentSessionSelect'
 import { useVoiceInput } from '../hooks/useVoiceInput'
 import { useRunEventStream } from '../hooks/useRunEventStream'
 import { useSessionRestore } from '../hooks/useSessionRestore'
@@ -18,7 +19,8 @@ export default function ChatPage() {
 
   const storageKey = currentAccount?.id ? chatSessionKey(currentAccount.id) : ''
   const { consumeRunEvents, abortRunStream } = useRunEventStream()
-  const { restoreSession, persistSessionId, clearPersistedSession } = useSessionRestore()
+  const { restoreSession, persistSessionId, clearPersistedSession, clearServerActiveSession } =
+    useSessionRestore()
 
   useEffect(() => {
     if (!currentAccount?.id || !storageKey) return
@@ -36,6 +38,7 @@ export default function ChatPage() {
         const result = await restoreSession({
           accountId: currentAccount.id,
           storageKey,
+          mode: 'chat',
         })
         if (cancelled) return
         if (!result) {
@@ -193,12 +196,19 @@ export default function ChatPage() {
   }
 
   const clearChat = () => {
+    const clearedSessionId = sessionId
     abortRunStream()
     setMessages([])
     setSessionId('')
     setRunId('')
     setIsLoading(false)
     if (storageKey) clearPersistedSession(storageKey)
+    if (currentAccount?.id && storageKey) {
+      void clearServerActiveSession(
+        { accountId: currentAccount.id, storageKey, mode: 'chat' },
+        clearedSessionId,
+      )
+    }
   }
 
   return (
@@ -222,12 +232,19 @@ export default function ChatPage() {
             )}
           </p>
         </div>
-        <button
-          onClick={clearChat}
-          className="h-8 px-3 text-[12px] text-muted-foreground hover:text-foreground border border-border rounded-md hover:bg-accent transition-colors"
-        >
-          Clear
-        </button>
+        <div className="flex items-center gap-2">
+          <RecentSessionSelect
+            accountId={currentAccount?.id}
+            mode="chat"
+            currentSessionId={sessionId}
+          />
+          <button
+            onClick={clearChat}
+            className="h-8 px-3 text-[12px] text-muted-foreground hover:text-foreground border border-border rounded-md hover:bg-accent transition-colors"
+          >
+            Clear
+          </button>
+        </div>
       </header>
 
       <MessageList

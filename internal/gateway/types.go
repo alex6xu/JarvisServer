@@ -117,6 +117,20 @@ type SessionListResponse struct {
 	Sessions []SessionMeta `json:"sessions"`
 }
 
+// ActiveSessionResponse identifies the server-side session selected for a scope.
+type ActiveSessionResponse struct {
+	SessionID   string `json:"session_id"`
+	Mode        string `json:"mode"`
+	WorkspaceID string `json:"workspace_id,omitempty"`
+}
+
+// SetActiveSessionRequest is PUT /v1/agent/sessions/active.
+type SetActiveSessionRequest struct {
+	SessionID   string `json:"session_id"`
+	Mode        string `json:"mode"`
+	WorkspaceID string `json:"workspace_id,omitempty"`
+}
+
 // Account is the stub auth user shape expected by web AuthContext.
 type Account struct {
 	ID        int    `json:"id"`

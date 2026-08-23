@@ -376,6 +376,19 @@ CREATE INDEX IF NOT EXISTS idx_notification_deliveries_account_created
     ON notification_deliveries(account_id, created_at DESC);
 `
 
+const activeSessionsSchema = `
+CREATE TABLE IF NOT EXISTS account_active_sessions (
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    mode TEXT NOT NULL CHECK(mode IN ('chat', 'coder')),
+    workspace_id TEXT NOT NULL DEFAULT '',
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(account_id, mode, workspace_id)
+);
+CREATE INDEX IF NOT EXISTS idx_account_active_sessions_updated
+    ON account_active_sessions(account_id, updated_at DESC);
+`
+
 var gatewayMigrations = []gatewayMigration{
 	{version: 1, name: "gateway_base", schema: gatewaySchema},
 	{version: 2, name: "control_plane_repositories", schema: controlPlaneSchema},
@@ -393,6 +406,7 @@ var gatewayMigrations = []gatewayMigration{
 	{version: 14, name: "skill_registry", schema: skillRegistrySchema},
 	{version: 15, name: "watchlist", schema: watchlistSchema},
 	{version: 16, name: "notification_deliveries", schema: notificationDeliveriesSchema},
+	{version: 17, name: "account_active_sessions", schema: activeSessionsSchema},
 }
 
 func applyGatewayMigrations(db *sql.DB) error {
