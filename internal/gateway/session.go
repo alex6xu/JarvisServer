@@ -46,14 +46,54 @@ func sessionOwnedByAccount(h session.SessionHeader, accountID int) bool {
 	return accountID <= 0 || h.AccountID == accountID || (h.AccountID == 0 && accountID == legacyWorkspaceAccountID)
 }
 
-func sessionMetaFromHeader(h session.SessionHeader, messageCount int) SessionMeta {
-	platform := "chat"
+const (
+	sessionTypeChat = "chat"
+	sessionTypeCode = "code"
+)
+
+func sessionTypeFromHeader(h session.SessionHeader) string {
+	switch strings.ToLower(strings.TrimSpace(h.Type)) {
+	case sessionTypeChat:
+		return sessionTypeChat
+	case sessionTypeCode, "coder":
+		return sessionTypeCode
+	}
 	if h.WorkspaceID != "" {
+		return sessionTypeCode
+	}
+	return sessionTypeChat
+}
+
+func sessionTypeForMode(mode string) string {
+	if strings.EqualFold(strings.TrimSpace(mode), "coder") || strings.EqualFold(strings.TrimSpace(mode), sessionTypeCode) {
+		return sessionTypeCode
+	}
+	return sessionTypeChat
+}
+
+func normalizeSessionTypeFilter(raw string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "":
+		return "", nil
+	case sessionTypeChat:
+		return sessionTypeChat, nil
+	case sessionTypeCode:
+		return sessionTypeCode, nil
+	default:
+		return "", fmt.Errorf("type must be chat or code")
+	}
+}
+
+func sessionMetaFromHeader(h session.SessionHeader, messageCount int) SessionMeta {
+	sessionType := sessionTypeFromHeader(h)
+	platform := "chat"
+	if sessionType == sessionTypeCode {
 		platform = "coder"
 	}
 	return SessionMeta{
 		ID:             h.ID,
 		Title:          h.ID,
+		Type:           sessionType,
 		Platform:       platform,
 		MessageCount:   messageCount,
 		Model:          h.Model,
@@ -71,14 +111,22 @@ func (s *Service) ListSessions() (SessionListResponse, error) {
 	return s.listSessionsForAccount(0)
 }
 
-func (s *Service) listSessionsForAccount(accountID int) (SessionListResponse, error) {
+func (s *Service) listSessionsForAccount(accountID int, requestedTypes ...string) (SessionListResponse, error) {
+	requestedType := ""
+	if len(requestedTypes) > 0 {
+		var err error
+		requestedType, err = normalizeSessionTypeFilter(requestedTypes[0])
+		if err != nil {
+			return SessionListResponse{}, err
+		}
+	}
 	headers, err := s.Store.List()
 	if err != nil {
 		return SessionListResponse{}, err
 	}
 	out := make([]SessionMeta, 0, len(headers))
 	for _, h := range headers {
-		if !sessionOwnedByAccount(h, accountID) {
+		if !sessionOwnedByAccount(h, accountID) || (requestedType != "" && sessionTypeFromHeader(h) != requestedType) {
 			continue
 		}
 		out = append(out, s.sessionMeta(h))
@@ -122,9 +170,9 @@ func normalizeSessionScope(mode, workspaceID string) (string, string, error) {
 
 func sessionMatchesScope(h session.SessionHeader, mode, workspaceID string) bool {
 	if mode == "chat" {
-		return h.WorkspaceID == ""
+		return sessionTypeFromHeader(h) == sessionTypeChat
 	}
-	return h.WorkspaceID == workspaceID
+	return sessionTypeFromHeader(h) == sessionTypeCode && h.WorkspaceID == workspaceID
 }
 
 func sessionScopeMode(mode string) string {
@@ -209,7 +257,7 @@ WHERE account_id = ? AND mode = ? AND workspace_id = ?`, accountID, mode, worksp
 			accountID, mode, workspaceID)
 		return ActiveSessionResponse{}, false, nil
 	}
-	return ActiveSessionResponse{SessionID: sessionID, Mode: mode, WorkspaceID: workspaceID}, true, nil
+	return ActiveSessionResponse{SessionID: sessionID, Type: sessionTypeForMode(mode), Mode: mode, WorkspaceID: workspaceID}, true, nil
 }
 
 func (s *Service) getLatestActiveCoderSession(ctx context.Context, accountID int) (ActiveSessionResponse, bool, error) {
@@ -243,7 +291,7 @@ ORDER BY updated_at DESC`, accountID)
 		}
 		if loadErr == nil && sessionOwnedByAccount(h, accountID) && sessionMatchesScope(h, "coder", item.workspaceID) {
 			return ActiveSessionResponse{
-				SessionID: item.sessionID, Mode: "coder", WorkspaceID: item.workspaceID,
+				SessionID: item.sessionID, Type: sessionTypeCode, Mode: "coder", WorkspaceID: item.workspaceID,
 			}, true, nil
 		}
 		_, _ = s.Audit.db.ExecContext(ctx, `

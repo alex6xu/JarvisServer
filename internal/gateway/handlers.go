@@ -126,13 +126,33 @@ func (s *Service) handleRunEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleCancelRun(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := s.requestAccountID(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "account context is required")
+		return
+	}
 	runID := pathParam(r, "runId")
+	st, ok := s.Runs.Get(runID)
+	if !ok || !s.runOwnedByAccount(st, accountID) {
+		writeErr(w, http.StatusNotFound, "run not found")
+		return
+	}
 	if !s.Runs.Cancel(runID) {
 		writeErr(w, http.StatusNotFound, "run not found")
 		return
 	}
-	st, _ := s.Runs.Get(runID)
 	writeJSON(w, http.StatusAccepted, map[string]any{"run": st.Info()})
+}
+
+func (s *Service) runOwnedByAccount(st *RunState, accountID int) bool {
+	if st == nil || accountID <= 0 {
+		return false
+	}
+	if s.Store == nil {
+		return true
+	}
+	header, _, err := s.Store.LoadEntries(st.SessionID)
+	return err == nil && sessionOwnedByAccount(header, accountID)
 }
 
 func (s *Service) handleListRunAttempts(w http.ResponseWriter, r *http.Request) {
@@ -225,7 +245,12 @@ func (s *Service) handleListSessions(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "account context is required")
 		return
 	}
-	resp, err := s.listSessionsForAccount(accountID)
+	requestedType := r.URL.Query().Get("type")
+	if _, err := normalizeSessionTypeFilter(requestedType); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	resp, err := s.listSessionsForAccount(accountID, requestedType)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -272,7 +297,8 @@ func (s *Service) handleSetActiveSession(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	writeJSON(w, http.StatusOK, ActiveSessionResponse{
-		SessionID: strings.TrimSpace(req.SessionID), Mode: strings.ToLower(strings.TrimSpace(req.Mode)), WorkspaceID: strings.TrimSpace(req.WorkspaceID),
+		SessionID: strings.TrimSpace(req.SessionID), Type: sessionTypeForMode(req.Mode),
+		Mode: strings.ToLower(strings.TrimSpace(req.Mode)), WorkspaceID: strings.TrimSpace(req.WorkspaceID),
 	})
 }
 

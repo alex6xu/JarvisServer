@@ -92,6 +92,7 @@ func (s *Service) importSession(content, title string, accountID int) (SessionMe
 		Model:     "auto",
 		Cwd:       s.Opts.Cwd,
 		AccountID: accountID,
+		Type:      sessionTypeChat,
 	}
 	msgs := make(agentcore.MessageList, 0, len(pairs))
 	for _, p := range pairs {
@@ -115,7 +116,8 @@ func (s *Service) importSession(content, title string, accountID int) (SessionMe
 	return SessionMeta{
 		ID:           header.ID,
 		Title:        title,
-		Platform:     "import",
+		Type:         sessionTypeChat,
+		Platform:     "chat",
 		MessageCount: len(msgs),
 		Model:        header.Model,
 		CreatedAt:    header.CreatedAt.Format(time.RFC3339),

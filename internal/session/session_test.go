@@ -65,6 +65,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 		Model:        "anthropic/claude-opus-4",
 		Provider:     "anthropic",
 		SystemPrompt: "You are jarvis.",
+		Type:         "code",
 	}
 	msgs := sampleMessages()
 	if err := s.Save(header, msgs); err != nil {
@@ -78,7 +79,7 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	if gotHeader.Version != SchemaVersion {
 		t.Errorf("version = %d, want %d", gotHeader.Version, SchemaVersion)
 	}
-	if gotHeader.Model != header.Model || gotHeader.SystemPrompt != header.SystemPrompt {
+	if gotHeader.Model != header.Model || gotHeader.SystemPrompt != header.SystemPrompt || gotHeader.Type != header.Type {
 		t.Errorf("header mismatch: %+v", gotHeader)
 	}
 	if len(gotMsgs) != len(msgs) {
@@ -390,7 +391,7 @@ func TestAppendPreservesChain(t *testing.T) {
 func TestForkClonesFullConversation(t *testing.T) {
 	s := newStore(t)
 	now := time.Date(2026, 7, 17, 0, 0, 0, 0, time.UTC)
-	src := SessionHeader{ID: NewID(now), CreatedAt: now, UpdatedAt: now, Model: "m", Provider: "p", SystemPrompt: "sp"}
+	src := SessionHeader{ID: NewID(now), CreatedAt: now, UpdatedAt: now, Model: "m", Provider: "p", SystemPrompt: "sp", Type: "code"}
 	if err := s.Save(src, sampleMessages()); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -411,7 +412,7 @@ func TestForkClonesFullConversation(t *testing.T) {
 		t.Errorf("ParentSession = %q, want %q", forkHeader.ParentSession, src.ID)
 	}
 	// Header metadata is inherited from the source.
-	if forkHeader.Model != "m" || forkHeader.Provider != "p" || forkHeader.SystemPrompt != "sp" {
+	if forkHeader.Model != "m" || forkHeader.Provider != "p" || forkHeader.SystemPrompt != "sp" || forkHeader.Type != "code" {
 		t.Errorf("fork header did not inherit source metadata: %+v", forkHeader)
 	}
 	if len(forkEntries) != len(srcEntries) {

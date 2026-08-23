@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/alex6xu/jarvisserver/internal/agentcore"
+	"github.com/alex6xu/jarvisserver/internal/session"
 	"github.com/zeromicro/go-zero/rest/pathvar"
 )
 
@@ -250,6 +251,7 @@ func TestCancelRunHandlerIsIdempotent(t *testing.T) {
 	service := &Service{Runs: manager}
 	for attempt := 0; attempt < 2; attempt++ {
 		req := httptest.NewRequest(http.MethodPost, "/v1/agent/runs/"+state.ID+"/cancel", nil)
+		req = req.WithContext(context.WithValue(req.Context(), accountContextKey{}, Account{ID: legacyWorkspaceAccountID}))
 		req = pathvar.WithVars(req, map[string]string{"runId": state.ID})
 		res := httptest.NewRecorder()
 		service.handleCancelRun(res, req)
@@ -263,6 +265,54 @@ func TestCancelRunHandlerIsIdempotent(t *testing.T) {
 		t.Fatal("cancel handler did not cancel run context")
 	}
 	state.Finish(ctx.Err())
+}
+
+func TestCancelRunHandlerEnforcesSessionOwnership(t *testing.T) {
+	store := newTestGatewayStore(t)
+	now := time.Now().UTC()
+	header := session.SessionHeader{
+		ID: "owned-session", AccountID: 11, Type: sessionTypeChat,
+		CreatedAt: now, UpdatedAt: now,
+	}
+	if err := store.SaveEntries(header, nil); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewRunManager()
+	runCtx, cancel := context.WithCancel(context.Background())
+	state, err := manager.Register(header.ID, "m", "", cancel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &Service{Runs: manager, Store: store}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/agent/runs/"+state.ID+"/cancel", nil)
+	req = req.WithContext(context.WithValue(req.Context(), accountContextKey{}, Account{ID: 12}))
+	req = pathvar.WithVars(req, map[string]string{"runId": state.ID})
+	res := httptest.NewRecorder()
+	service.handleCancelRun(res, req)
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("other account cancel status = %d, body = %s", res.Code, res.Body.String())
+	}
+	select {
+	case <-runCtx.Done():
+		t.Fatal("another account cancelled the run")
+	default:
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/v1/agent/runs/"+state.ID+"/cancel", nil)
+	req = req.WithContext(context.WithValue(req.Context(), accountContextKey{}, Account{ID: 11}))
+	req = pathvar.WithVars(req, map[string]string{"runId": state.ID})
+	res = httptest.NewRecorder()
+	service.handleCancelRun(res, req)
+	if res.Code != http.StatusAccepted {
+		t.Fatalf("owner cancel status = %d, body = %s", res.Code, res.Body.String())
+	}
+	select {
+	case <-runCtx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("owner cancellation did not reach the run")
+	}
+	state.Finish(runCtx.Err())
 }
 
 func TestGatewayMigrationsUpgradeVersionOneAndRemainIdempotent(t *testing.T) {

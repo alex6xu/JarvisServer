@@ -166,3 +166,45 @@ func TestActiveAndRecentRoutesPrecedeSessionParameter(t *testing.T) {
 		}
 	}
 }
+
+func TestSessionTypeFilteringSupportsExplicitAndLegacySessions(t *testing.T) {
+	root := t.TempDir()
+	svc, err := NewService(Options{Cwd: root, DatabasePath: root + "/gateway.db", AdminPassword: "test-password", NoTools: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = svc.Close() })
+	now := time.Now().UTC()
+	saveScopedSession(t, svc, "legacy-chat", legacyWorkspaceAccountID, "", now)
+	saveScopedSession(t, svc, "legacy-code", legacyWorkspaceAccountID, "workspace-one", now.Add(time.Minute))
+	typedCode := session.SessionHeader{
+		ID: "typed-code-no-workspace", AccountID: legacyWorkspaceAccountID, Type: sessionTypeCode,
+		Cwd: root, CreatedAt: now, UpdatedAt: now.Add(2 * time.Minute),
+	}
+	if err := svc.Store.SaveEntries(typedCode, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	chat, err := svc.listSessionsForAccount(legacyWorkspaceAccountID, sessionTypeChat)
+	if err != nil || len(chat.Sessions) != 1 || chat.Sessions[0].ID != "legacy-chat" {
+		t.Fatalf("chat sessions = %+v, err=%v", chat.Sessions, err)
+	}
+	code, err := svc.listSessionsForAccount(legacyWorkspaceAccountID, sessionTypeCode)
+	if err != nil || len(code.Sessions) != 2 {
+		t.Fatalf("code sessions = %+v, err=%v", code.Sessions, err)
+	}
+	for _, item := range code.Sessions {
+		if item.Type != sessionTypeCode || item.Platform != "coder" {
+			t.Fatalf("code metadata = %+v", item)
+		}
+	}
+	if _, err := svc.listSessionsForAccount(legacyWorkspaceAccountID, "invalid"); err == nil {
+		t.Fatal("invalid session type filter was accepted")
+	}
+	if _, _, _, err := svc.openSession(typedCode.ID, "", root, "", sessionTypeChat, legacyWorkspaceAccountID); err == nil {
+		t.Fatal("chat page resumed an explicit code session")
+	}
+	if _, handle, _, err := svc.openSession(typedCode.ID, "", root, "", sessionTypeCode, legacyWorkspaceAccountID); err != nil || handle.header.Type != sessionTypeCode {
+		t.Fatalf("code page resume = %+v, err=%v", handle.header, err)
+	}
+}

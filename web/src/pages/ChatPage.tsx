@@ -3,8 +3,10 @@ import { apiFetch, useAccount } from '../context/AccountContext'
 import VoiceInputButton from '../components/VoiceInputButton'
 import MessageList from '../components/MessageList'
 import RecentSessionSelect from '../components/RecentSessionSelect'
+import StopRunButton from '../components/StopRunButton'
 import { useVoiceInput } from '../hooks/useVoiceInput'
 import { useRunEventStream } from '../hooks/useRunEventStream'
+import { useRunStop } from '../hooks/useRunStop'
 import { useSessionRestore } from '../hooks/useSessionRestore'
 import { chatSessionKey, type UiMessage } from '../lib/sessionPersist'
 
@@ -19,6 +21,14 @@ export default function ChatPage() {
 
   const storageKey = currentAccount?.id ? chatSessionKey(currentAccount.id) : ''
   const { consumeRunEvents, abortRunStream } = useRunEventStream()
+  const { isStopping, stopRun } = useRunStop({
+    accountId: currentAccount?.id,
+    runId,
+    abortRunStream,
+    setRunId,
+    setIsLoading,
+    setMessages,
+  })
   const { restoreSession, persistSessionId, clearPersistedSession, clearServerActiveSession } =
     useSessionRestore()
 
@@ -238,6 +248,7 @@ export default function ChatPage() {
             mode="chat"
             currentSessionId={sessionId}
           />
+          {runId && <StopRunButton stopping={isStopping} onStop={() => void stopRun()} />}
           <button
             onClick={clearChat}
             className="h-8 px-3 text-[12px] text-muted-foreground hover:text-foreground border border-border rounded-md hover:bg-accent transition-colors"

@@ -32,18 +32,19 @@ type queuedMessage struct {
 
 // RunState holds one agent run's sequenced event log and live subscribers.
 type RunState struct {
-	ID          string
-	SessionID   string
-	Model       string
-	WorkspaceID string
-	Status      string
-	Events      []StoredEvent
-	LastSeq     int64
-	Cancel      context.CancelFunc
-	Deadline    time.Time
-	Err         error
-	queued      []queuedMessage
-	accepting   bool
+	ID              string
+	SessionID       string
+	Model           string
+	WorkspaceID     string
+	Status          string
+	Events          []StoredEvent
+	LastSeq         int64
+	Cancel          context.CancelFunc
+	Deadline        time.Time
+	Err             error
+	queued          []queuedMessage
+	accepting       bool
+	cancelRequested bool
 
 	mu     sync.Mutex
 	subs   map[chan StoredEvent]struct{}
@@ -187,6 +188,13 @@ func (m *RunManager) Cancel(id string) bool {
 		st.mu.Unlock()
 		return true
 	}
+	if st.cancelRequested {
+		st.mu.Unlock()
+		return true
+	}
+	st.cancelRequested = true
+	st.accepting = false
+	st.queued = nil
 	cancel := st.Cancel
 	st.mu.Unlock()
 	if cancel != nil {

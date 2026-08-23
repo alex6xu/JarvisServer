@@ -268,8 +268,17 @@ func TestRunManagerCancelAndTimeoutStates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := st.EnqueueMessage("queued", agentcore.UserMessage{}, false); err != nil {
+		t.Fatal(err)
+	}
 	if !m.Cancel(st.ID) || !m.Cancel(st.ID) {
 		t.Fatal("cancel must be idempotent")
+	}
+	if err := st.EnqueueMessage("late", agentcore.UserMessage{}, false); err == nil {
+		t.Fatal("cancelled run accepted a queued message")
+	}
+	if queued := st.DrainMessages(); len(queued) != 0 {
+		t.Fatalf("cancelled run retained %d queued messages", len(queued))
 	}
 	<-ctx.Done()
 	st.Finish(ctx.Err())

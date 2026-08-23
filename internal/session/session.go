@@ -79,6 +79,9 @@ type SessionHeader struct {
 	// Coder workspace. They are optional for legacy CLI/session files.
 	AccountID   int    `json:"accountId,omitempty"`
 	WorkspaceID string `json:"workspaceId,omitempty"`
+	// Type distinguishes server-side Chat and Code sessions. Legacy sessions
+	// omit it and are classified by the Gateway when loaded.
+	Type string `json:"type,omitempty"`
 	// WorktreeBranch and WorktreeBaseCommit identify an isolated Coder branch.
 	// Cwd points at the corresponding worktree when these fields are set.
 	WorktreeBranch     string `json:"worktreeBranch,omitempty"`
@@ -700,6 +703,7 @@ func (s *Store) Fork(sourceID, leafID string, now time.Time) (SessionHeader, []E
 		Provider:      srcHeader.Provider,
 		SystemPrompt:  srcHeader.SystemPrompt,
 		ParentSession: sourceID,
+		Type:          srcHeader.Type,
 	}
 	if err := s.SaveEntries(newHeader, path); err != nil {
 		return SessionHeader{}, nil, err

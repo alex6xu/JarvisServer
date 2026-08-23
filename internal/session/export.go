@@ -88,6 +88,7 @@ func (s *Store) Import(inPath string, now time.Time) (SessionHeader, []Entry, er
 		Provider:      srcHeader.Provider,
 		SystemPrompt:  srcHeader.SystemPrompt,
 		ParentSession: srcHeader.ID,
+		Type:          srcHeader.Type,
 	}
 	if err := s.SaveEntries(newHeader, entries); err != nil {
 		return SessionHeader{}, nil, err

@@ -75,6 +75,7 @@ type RestoredMessage struct {
 type SessionMeta struct {
 	ID              string `json:"id"`
 	Title           string `json:"title,omitempty"`
+	Type            string `json:"type"`
 	Platform        string `json:"platform,omitempty"`
 	MessageCount    int    `json:"message_count,omitempty"`
 	Model           string `json:"model,omitempty"`
@@ -120,6 +121,7 @@ type SessionListResponse struct {
 // ActiveSessionResponse identifies the server-side session selected for a scope.
 type ActiveSessionResponse struct {
 	SessionID   string `json:"session_id"`
+	Type        string `json:"type"`
 	Mode        string `json:"mode"`
 	WorkspaceID string `json:"workspace_id,omitempty"`
 }

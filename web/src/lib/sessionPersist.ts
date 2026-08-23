@@ -192,6 +192,7 @@ export type SessionRestorePayload = {
   session?: {
     id?: string
     title?: string
+    type?: 'chat' | 'code'
     platform?: string
     message_count?: number
     workspace_id?: string
