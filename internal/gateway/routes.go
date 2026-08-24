@@ -48,6 +48,7 @@ func apiRoutes(svc *Service) []rest.Route {
 		{Method: http.MethodPost, Path: "/v1/agent/runs/:runId/cancel", Handler: svc.handleCancelRun},
 		{Method: http.MethodGet, Path: "/v1/agent/runs/:runId/messages/queue", Handler: svc.handleGetRunMessageQueue},
 		{Method: http.MethodPost, Path: "/v1/agent/runs/:runId/messages/queue", Handler: svc.handlePostRunMessageQueue},
+		{Method: http.MethodPost, Path: "/v1/agent/sessions/:sessionId/messages/queue", Handler: svc.handlePostSessionMessageQueue},
 		{Method: http.MethodPost, Path: "/v1/agent/runs/:runId/messages/:messageId/pin", Handler: svc.handlePinRunMessage},
 		{Method: http.MethodPut, Path: "/v1/agent/runs/:runId/messages/queue/order", Handler: svc.handleReorderRunMessageQueue},
 		{Method: http.MethodDelete, Path: "/v1/agent/runs/:runId/messages/:messageId", Handler: svc.handleDeleteRunMessage},

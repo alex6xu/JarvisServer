@@ -574,6 +574,13 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 	_, onEvent := run.InstallDriverHooks(runCtx, &runCfg, set, hookDeps, source, baseOnEvent)
 	pub := func(ev StreamEvent) { state.Publish(ev) }
 	persistOnEvent := func(event agentcore.AgentEvent) {
+		if turn, ok := event.(agentcore.TurnEndEvent); ok && len(turn.Message.ToolCalls()) == 0 {
+			var turnErr error
+			if turn.Message.StopReason == agentcore.StopReasonError || turn.Message.StopReason == agentcore.StopReasonAborted {
+				turnErr = errors.New(strings.TrimSpace(turn.Message.ErrorMessage + " " + turn.Message.StopReason))
+			}
+			state.FinishExecutingQueue(turnErr)
+		}
 		if err := liveSession.HandleEvent(event); err != nil {
 			s.Logger.Error(runCtx, "persist live session event failed",
 				distributedlog.F("event_type", event.EventType()), distributedlog.Err(err))

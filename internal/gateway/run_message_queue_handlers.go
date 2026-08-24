@@ -45,6 +45,34 @@ func (s *Service) handlePostRunMessageQueue(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
+	s.queueMessageFromRequest(w, r, state, accountID)
+}
+
+// handlePostSessionMessageQueue resolves the live run on the server instead of
+// trusting a browser-held run id. This closes the race where an SSE completion
+// clears/replaces the active run while the user is pressing Send, which used to
+// turn an otherwise valid follow-up into a misleading HTTP 404.
+func (s *Service) handlePostSessionMessageQueue(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := s.requestAccountID(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "account context is required")
+		return
+	}
+	sessionID := pathParam(r, "sessionId")
+	header, _, err := s.Store.LoadEntries(sessionID)
+	if err != nil || !sessionOwnedByAccount(header, accountID) {
+		writeErr(w, http.StatusNotFound, "session not found")
+		return
+	}
+	state := s.Runs.ActiveForSession(sessionID)
+	if state == nil {
+		writeErr(w, http.StatusConflict, ErrRunQueueClosed.Error())
+		return
+	}
+	s.queueMessageFromRequest(w, r, state, accountID)
+}
+
+func (s *Service) queueMessageFromRequest(w http.ResponseWriter, r *http.Request, state *RunState, accountID int) {
 	var body queueMessageRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid json body")

@@ -54,12 +54,34 @@ export function useRunEventStream() {
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
+      let activeAssistantId = assistantId
       let fullText = ''
-      const steps: ToolStep[] = []
+      let steps: ToolStep[] = []
       let segments: MessageSegment[] = []
 
       const applyAssistant = (patch: Partial<UiMessage>) => {
-        opts.setMessages((prev) => prev.map((m) => (m.id === assistantId ? { ...m, ...patch } : m)))
+        opts.setMessages((prev) => prev.map((m) => (m.id === activeAssistantId ? { ...m, ...patch } : m)))
+      }
+
+      const beginQueuedResponse = (ev: AgentStreamEvent) => {
+        const ids = (ev.queue_items || []).map((item) => item.id)
+        if (!ids.length) return
+        activeAssistantId = `queue-response-${ids.join('-')}`
+        fullText = ''
+        steps = []
+        segments = []
+        opts.setMessages((prev) => {
+          if (prev.some((message) => message.id === activeAssistantId)) return prev
+          return [...prev, {
+            id: activeAssistantId,
+            role: 'assistant',
+            content: '',
+            timestamp: new Date(),
+            model: ev.model || opts.fallbackModel,
+            toolSteps: [],
+            segments: [],
+          }]
+        })
       }
 
       const publish = (model?: string) => {
@@ -91,7 +113,9 @@ export function useRunEventStream() {
             }
             if (ev.session_id) opts.onSessionId?.(ev.session_id)
             if (ev.type?.startsWith('queue.')) opts.onQueueChanged?.()
-            if (ev.type === 'delta' && ev.content) {
+            if (ev.type === 'queue.batch_injected') {
+              beginQueuedResponse(ev)
+            } else if (ev.type === 'delta' && ev.content) {
               fullText += ev.content
               segments = appendTextSegment(segments, ev.content)
               publish(ev.model)
@@ -103,15 +127,19 @@ export function useRunEventStream() {
             } else if (ev.type === 'user_injected' && ev.content) {
               opts.onUserInjected?.(ev.content, !!ev.pinned)
             } else if (ev.type === 'done') {
-              if (ev.content && !fullText) {
+              // done.content aggregates the whole run, so only use it for the
+              // original bubble. Queued bubbles are scoped by streamed deltas.
+              if (activeAssistantId === assistantId && ev.content && !fullText) {
                 fullText = ev.content
                 if (!segments.some((s) => s.type === 'text')) {
                   segments = appendTextSegment(segments, ev.content)
                 }
-              } else if (ev.content) {
+              } else if (activeAssistantId === assistantId && ev.content) {
                 fullText = ev.content
               }
-              if (ev.tool_steps?.length) {
+              if (ev.tool_steps?.length && activeAssistantId === assistantId) {
+                // Final tool_steps aggregate the whole run. Queued bubbles
+                // already received their scoped tool_step events.
                 steps.splice(0, steps.length, ...ev.tool_steps)
                 if (segments.some((s) => s.type === 'tool')) {
                   segments = syncToolResultsInSegments(segments, steps)

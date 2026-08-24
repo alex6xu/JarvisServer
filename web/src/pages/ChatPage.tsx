@@ -8,7 +8,7 @@ import RunMessageQueue, { QueueModeControl } from '../components/RunMessageQueue
 import { useVoiceInput } from '../hooks/useVoiceInput'
 import { useRunEventStream } from '../hooks/useRunEventStream'
 import { useRunStop } from '../hooks/useRunStop'
-import { useRunMessageQueue } from '../hooks/useRunMessageQueue'
+import { isQueueUnavailableError, useRunMessageQueue } from '../hooks/useRunMessageQueue'
 import { useSessionRestore } from '../hooks/useSessionRestore'
 import { chatSessionKey, type UiMessage } from '../lib/sessionPersist'
 
@@ -20,7 +20,7 @@ export default function ChatPage() {
   const [connected, setConnected] = useState(false)
   const [sessionId, setSessionId] = useState('')
   const [runId, setRunId] = useState('')
-  const queue = useRunMessageQueue(currentAccount?.id, runId)
+  const queue = useRunMessageQueue(currentAccount?.id, runId, sessionId)
 
   const storageKey = currentAccount?.id ? chatSessionKey(currentAccount.id) : ''
   const { consumeRunEvents, abortRunStream } = useRunEventStream()
@@ -133,18 +133,26 @@ export default function ChatPage() {
     if (isLoading && runId) {
       try {
         await queue.submit(text)
+        return
       } catch (err) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `queue-error-${Date.now()}`,
-            role: 'system',
-            content: err instanceof Error ? `排队失败: ${err.message}` : '排队失败',
-            timestamp: new Date(),
-          },
-        ])
+        if (isQueueUnavailableError(err)) {
+          // The previous run ended while Send was being pressed. Continue below
+          // as a normal follow-up instead of surfacing a misleading queue 404.
+          setRunId('')
+          setIsLoading(false)
+        } else {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `queue-error-${Date.now()}`,
+              role: 'system',
+              content: err instanceof Error ? `排队失败: ${err.message}` : '排队失败',
+              timestamp: new Date(),
+            },
+          ])
+          return
+        }
       }
-      return
     }
     setIsLoading(true)
 

@@ -74,6 +74,57 @@ func TestRunMessageQueueSteerAndFollowUpUseSeparateBoundaries(t *testing.T) {
 	}
 }
 
+func TestRunMessageQueuePublishesBatchAndAnsweredState(t *testing.T) {
+	state, err := NewRunManager().Register("queue-session", "m", "", func() {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, content := range []string{"A", "B"} {
+		if _, _, err := state.QueueMessage(QueueMessageInput{Content: content}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	assertAgentMessageTexts(t, state.DrainFollowUpMessages(), []string{"A", "B"})
+	var batch *StreamEvent
+	for _, event := range state.Events {
+		if event.Payload.Type == "queue.batch_injected" {
+			copy := event.Payload
+			batch = &copy
+		}
+	}
+	if batch == nil || len(batch.QueueItems) != 2 {
+		t.Fatalf("batch event = %#v, want two queue items", batch)
+	}
+	if batch.QueueItems[0].Content != "A" || batch.QueueItems[1].Content != "B" {
+		t.Fatalf("batch order = %#v", batch.QueueItems)
+	}
+
+	state.FinishExecutingQueue(nil)
+	for _, item := range state.QueueSnapshot().Items {
+		if item.Status != queueStatusAnswered {
+			t.Fatalf("item %q status = %q, want answered", item.Content, item.Status)
+		}
+	}
+	state.Finish(nil)
+}
+
+func TestRunMessageQueueMarksExecutingBatchFailed(t *testing.T) {
+	state, err := NewRunManager().Register("queue-session", "m", "", func() {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := state.QueueMessage(QueueMessageInput{Content: "A"}); err != nil {
+		t.Fatal(err)
+	}
+	state.DrainFollowUpMessages()
+	state.FinishExecutingQueue(errors.New("upstream failed"))
+	if got := state.QueueSnapshot().Items[0].Status; got != queueStatusFailed {
+		t.Fatalf("failed queue status = %q", got)
+	}
+	state.Finish(errors.New("upstream failed"))
+}
+
 func TestRunMessageQueueIdempotencyAndVersionedReorder(t *testing.T) {
 	state, err := NewRunManager().Register("queue-session", "m", "", func() {})
 	if err != nil {
@@ -162,6 +213,40 @@ func TestRunMessageQueueHandlersEnforceOwnershipAndConflicts(t *testing.T) {
 		t.Fatalf("owner enqueue status = %d, body = %s", ownerRes.Code, ownerRes.Body.String())
 	}
 
+	sessionBody, _ := json.Marshal(queueMessageRequest{Content: "session queued", EventType: queueEventEnqueue, IdempotencyKey: "session-api-request"})
+	sessionRequest := queueSessionHandlerRequest(http.MethodPost, header.ID, sessionBody, 21)
+	sessionRes := httptest.NewRecorder()
+	service.handlePostSessionMessageQueue(sessionRes, sessionRequest)
+	if sessionRes.Code != http.StatusCreated {
+		t.Fatalf("session enqueue status = %d, body = %s", sessionRes.Code, sessionRes.Body.String())
+	}
+	if got := state.QueueSnapshot().Items[1].Content; got != "session queued" {
+		t.Fatalf("session queued content = %q", got)
+	}
+
+	foreignSession := queueSessionHandlerRequest(http.MethodPost, header.ID, sessionBody, 22)
+	foreignSessionRes := httptest.NewRecorder()
+	service.handlePostSessionMessageQueue(foreignSessionRes, foreignSession)
+	if foreignSessionRes.Code != http.StatusNotFound {
+		t.Fatalf("foreign session enqueue status = %d", foreignSessionRes.Code)
+	}
+
+	state.Finish(nil)
+	closedSession := queueSessionHandlerRequest(http.MethodPost, header.ID, sessionBody, 21)
+	closedSessionRes := httptest.NewRecorder()
+	service.handlePostSessionMessageQueue(closedSessionRes, closedSession)
+	if closedSessionRes.Code != http.StatusConflict {
+		t.Fatalf("closed session enqueue status = %d, body = %s", closedSessionRes.Code, closedSessionRes.Body.String())
+	}
+
+	// Use another active run for the stale-version assertion below.
+	state, err = manager.Register(header.ID, "m", "", func() {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := state.QueueMessage(QueueMessageInput{Content: "queued"}); err != nil {
+		t.Fatal(err)
+	}
 	staleBody, _ := json.Marshal(reorderQueueRequest{Version: 0, Order: []string{state.QueueSnapshot().Items[0].ID}})
 	stale := queueHandlerRequest(http.MethodPut, state.ID, "", staleBody, 21)
 	staleRes := httptest.NewRecorder()
@@ -183,6 +268,12 @@ func assertAgentMessageTexts(t *testing.T, messages []agentcore.AgentMessage, wa
 			t.Fatalf("message %d = %#v, want %q", index, messages[index], want)
 		}
 	}
+}
+
+func queueSessionHandlerRequest(method, sessionID string, body []byte, accountID int) *http.Request {
+	request := httptest.NewRequest(method, "/v1/agent/sessions/"+sessionID+"/messages/queue", bytes.NewReader(body))
+	request = request.WithContext(context.WithValue(request.Context(), accountContextKey{}, Account{ID: accountID}))
+	return pathvar.WithVars(request, map[string]string{"sessionId": sessionID})
 }
 
 func queueHandlerRequest(method, runID, messageID string, body []byte, accountID int) *http.Request {

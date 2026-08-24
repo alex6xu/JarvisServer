@@ -8,7 +8,7 @@ import RunMessageQueue, { QueueModeControl } from '../components/RunMessageQueue
 import { useVoiceInput } from '../hooks/useVoiceInput'
 import { useRunEventStream } from '../hooks/useRunEventStream'
 import { useRunStop } from '../hooks/useRunStop'
-import { useRunMessageQueue } from '../hooks/useRunMessageQueue'
+import { isQueueUnavailableError, useRunMessageQueue } from '../hooks/useRunMessageQueue'
 import { useSessionRestore } from '../hooks/useSessionRestore'
 import {
   coderSessionKey,
@@ -116,7 +116,7 @@ export default function CoderPage() {
   const activeWorkspace = workspaces.find((w) => w.id === workspaceId) || null
 
   const [runId, setRunId] = useState('')
-  const queue = useRunMessageQueue(currentAccount?.id, runId)
+  const queue = useRunMessageQueue(currentAccount?.id, runId, sessionId)
   const { consumeRunEvents, abortRunStream } = useRunEventStream()
   const { isStopping, stopRun } = useRunStop({
     accountId: currentAccount?.id,
@@ -627,18 +627,26 @@ export default function CoderPage() {
     if (isLoading && runId) {
       try {
         await queue.submit(content)
+        return
       } catch (err) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: Date.now().toString(),
-            role: 'system',
-            content: err instanceof Error ? `排队失败: ${err.message}` : '排队失败',
-            timestamp: new Date(),
-          },
-        ])
+        if (isQueueUnavailableError(err)) {
+          // The previous run ended while Send was being pressed. Continue below
+          // as a normal follow-up instead of surfacing a misleading queue 404.
+          setRunId('')
+          setIsLoading(false)
+        } else {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: Date.now().toString(),
+              role: 'system',
+              content: err instanceof Error ? `排队失败: ${err.message}` : '排队失败',
+              timestamp: new Date(),
+            },
+          ])
+          return
+        }
       }
-      return
     }
 
     setIsLoading(true)

@@ -22,6 +22,8 @@ const (
 	queueStatusInjected  = "injected"
 	queueStatusExecuting = "executing"
 	queueStatusCompleted = "completed"
+	queueStatusAnswered  = "answered"
+	queueStatusFailed    = "failed"
 	queueStatusCancelled = "cancelled"
 	queueStatusDropped   = "dropped"
 )
@@ -362,6 +364,10 @@ func (st *RunState) drainQueueMessages(selectItem func(RunMessageQueueItem) bool
 		st.Publish(StreamEvent{Type: "user_injected", Content: item.Content,
 			Pinned: item.EventType == queueEventPin, QueueItem: &item, QueueVersion: injectedVersion})
 	}
+	// One batch maps all messages drained at this boundary to the assistant turn
+	// that follows. Clients use it to open exactly one response bubble even when
+	// several queued messages are injected together.
+	st.Publish(StreamEvent{Type: "queue.batch_injected", QueueItems: selected, QueueVersion: injectedVersion})
 	st.transitionQueueItems(queueStatusExecuting, "queue.executing", func(item RunMessageQueueItem) bool {
 		return selectedIDs[item.ID] && item.Status == queueStatusInjected
 	})
@@ -379,8 +385,26 @@ func (st *RunState) dropPendingQueueItems(eventType string) {
 	})
 }
 
-func (st *RunState) finishQueue() {
-	st.transitionQueueItems(queueStatusCompleted, "queue.completed", func(item RunMessageQueueItem) bool {
+// FinishExecutingQueue marks the currently injected batch after its assistant
+// turn settles. A natural response is answered; a terminal model response is
+// failed. Tool-use turns are deliberately ignored because the batch is still
+// being processed by the following turn.
+func (st *RunState) FinishExecutingQueue(runErr error) {
+	status, eventType := queueStatusAnswered, "queue.answered"
+	if runErr != nil {
+		status, eventType = queueStatusFailed, "queue.failed"
+	}
+	st.transitionQueueItems(status, eventType, func(item RunMessageQueueItem) bool {
+		return item.Status == queueStatusExecuting
+	})
+}
+
+func (st *RunState) finishQueue(runErr error) {
+	status, eventType := queueStatusCompleted, "queue.completed"
+	if runErr != nil {
+		status, eventType = queueStatusFailed, "queue.failed"
+	}
+	st.transitionQueueItems(status, eventType, func(item RunMessageQueueItem) bool {
 		return item.Status == queueStatusInjected || item.Status == queueStatusExecuting
 	})
 	st.dropPendingQueueItems("queue.dropped")

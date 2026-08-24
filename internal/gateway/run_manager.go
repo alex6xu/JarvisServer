@@ -233,7 +233,7 @@ func (st *RunState) Finish(err error) {
 	st.mu.Lock()
 	st.accepting = false
 	st.mu.Unlock()
-	st.finishQueue()
+	st.finishQueue(err)
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	select {

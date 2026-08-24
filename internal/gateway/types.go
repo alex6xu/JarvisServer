@@ -56,19 +56,20 @@ type ToolStep struct {
 
 // StreamEvent matches web AgentStreamEvent (SSE payload).
 type StreamEvent struct {
-	Type         string               `json:"type,omitempty"`
-	Content      string               `json:"content,omitempty"`
-	SessionID    string               `json:"session_id,omitempty"`
-	Model        string               `json:"model,omitempty"`
-	Step         *ToolStep            `json:"step,omitempty"`
-	ToolSteps    []ToolStep           `json:"tool_steps,omitempty"`
-	Seq          int64                `json:"seq,omitempty"`
-	AttemptID    string               `json:"attempt_id,omitempty"`
-	Purpose      string               `json:"purpose,omitempty"`
-	Pinned       bool                 `json:"pinned,omitempty"`
-	QueueItem    *RunMessageQueueItem `json:"queue_item,omitempty"`
-	QueueVersion int64                `json:"queue_version,omitempty"`
-	Timestamp    string               `json:"timestamp,omitempty"`
+	Type         string                `json:"type,omitempty"`
+	Content      string                `json:"content,omitempty"`
+	SessionID    string                `json:"session_id,omitempty"`
+	Model        string                `json:"model,omitempty"`
+	Step         *ToolStep             `json:"step,omitempty"`
+	ToolSteps    []ToolStep            `json:"tool_steps,omitempty"`
+	Seq          int64                 `json:"seq,omitempty"`
+	AttemptID    string                `json:"attempt_id,omitempty"`
+	Purpose      string                `json:"purpose,omitempty"`
+	Pinned       bool                  `json:"pinned,omitempty"`
+	QueueItem    *RunMessageQueueItem  `json:"queue_item,omitempty"`
+	QueueItems   []RunMessageQueueItem `json:"queue_items,omitempty"`
+	QueueVersion int64                 `json:"queue_version,omitempty"`
+	Timestamp    string                `json:"timestamp,omitempty"`
 }
 
 // StoredEvent is one sequenced SSE payload kept for after_seq replay.

@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  isQueueUnavailableError,
   movePendingMessage,
   pendingQueueOrder,
+  QueueUnavailableError,
   type RunMessageQueueSnapshot,
 } from './useRunMessageQueue'
 
@@ -15,6 +17,15 @@ const snapshot: RunMessageQueueSnapshot = {
     { id: 'injected', run_id: 'run-1', session_id: 's', content: 'read', event_type: 'steer', position: 3, status: 'injected', created_at: '', updated_at: '' },
   ],
 }
+
+describe('queue availability errors', () => {
+  it('recognizes stale-run responses that should fall back to a normal send', () => {
+    expect(isQueueUnavailableError(new QueueUnavailableError(404, 'run not found'))).toBe(true)
+    expect(isQueueUnavailableError(new QueueUnavailableError(409, 'run closed'))).toBe(true)
+    expect(isQueueUnavailableError(new QueueUnavailableError(500, 'failed'))).toBe(false)
+    expect(isQueueUnavailableError(new Error('HTTP 404'))).toBe(false)
+  })
+})
 
 describe('run message queue ordering', () => {
   it('includes pending messages only', () => {

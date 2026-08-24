@@ -22,6 +22,8 @@ const statusLabels: Record<string, string> = {
   injected: '已进入上下文',
   executing: '执行中',
   completed: '已完成',
+  answered: '已回复',
+  failed: '处理失败',
   cancelled: '已取消',
   dropped: '已丢弃',
 }
@@ -77,16 +79,20 @@ export default function RunMessageQueue({
   onMove: (id: string, direction: -1 | 1) => void
   onCancel: (id: string) => void
 }) {
-  const visibleItems = snapshot.items.filter((item) =>
+  const activeItems = snapshot.items.filter((item) =>
     ['pending', 'injecting', 'injected', 'executing'].includes(item.status),
   )
+  const recentTerminalItems = snapshot.items
+    .filter((item) => ['answered', 'failed', 'dropped', 'cancelled'].includes(item.status))
+    .slice(-3)
+  const visibleItems = [...activeItems, ...recentTerminalItems]
   if (!visibleItems.length && !error) return null
 
   const pendingIds = visibleItems.filter((item) => item.status === 'pending').map((item) => item.id)
   return (
     <div className="mb-3 border-b border-border pb-3">
       <div className="mb-2 flex items-center justify-between">
-        <span className="text-[11px] font-medium text-foreground">待处理消息</span>
+        <span className="text-[11px] font-medium text-foreground">排队消息状态</span>
         <span className="text-[10px] text-muted-foreground">v{snapshot.version}</span>
       </div>
       <div className="max-h-40 space-y-1 overflow-y-auto">

@@ -8,6 +8,8 @@ export type QueueItemStatus =
   | 'injected'
   | 'executing'
   | 'completed'
+  | 'answered'
+  | 'failed'
   | 'cancelled'
   | 'dropped'
 
@@ -56,13 +58,24 @@ export function movePendingMessage(
 
 type QueueResponse = RunMessageQueueSnapshot | { queue?: RunMessageQueueSnapshot }
 
+export class QueueUnavailableError extends Error {
+  constructor(public status: number, message: string) {
+    super(message)
+    this.name = 'QueueUnavailableError'
+  }
+}
+
+export function isQueueUnavailableError(error: unknown): error is QueueUnavailableError {
+  return error instanceof QueueUnavailableError && (error.status === 404 || error.status === 409)
+}
+
 function normalizedSnapshot(body: QueueResponse): RunMessageQueueSnapshot | null {
   if ('queue' in body) return body.queue || null
   const snapshot = body as RunMessageQueueSnapshot
   return typeof snapshot.version === 'number' && Array.isArray(snapshot.items) ? snapshot : null
 }
 
-export function useRunMessageQueue(accountId: number | undefined, runId: string) {
+export function useRunMessageQueue(accountId: number | undefined, runId: string, sessionId = '') {
   const [snapshot, setSnapshot] = useState<RunMessageQueueSnapshot>({
     run_id: '',
     version: 0,
@@ -77,7 +90,7 @@ export function useRunMessageQueue(accountId: number | undefined, runId: string)
       const response = await apiFetch(path, init || {}, accountId)
       const body = (await response.json().catch(() => ({}))) as QueueResponse & { error?: string }
       if (!response.ok) {
-        throw new Error(body.error || `HTTP ${response.status}`)
+        throw new QueueUnavailableError(response.status, body.error || `HTTP ${response.status}`)
       }
       const next = normalizedSnapshot(body)
       if (next) setSnapshot(next)
@@ -109,10 +122,10 @@ export function useRunMessageQueue(accountId: number | undefined, runId: string)
 
   const submit = useCallback(
     async (content: string, eventType = mode) => {
-      if (!runId) throw new Error('当前没有运行中的任务')
+      if (!sessionId) throw new Error('当前会话尚未准备好')
       setBusy(true)
       try {
-        return await request(`/v1/agent/runs/${encodeURIComponent(runId)}/messages/queue`, {
+        return await request(`/v1/agent/sessions/${encodeURIComponent(sessionId)}/messages/queue`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -129,7 +142,7 @@ export function useRunMessageQueue(accountId: number | undefined, runId: string)
         setBusy(false)
       }
     },
-    [mode, request, runId],
+    [mode, request, sessionId],
   )
 
   const pin = useCallback(

@@ -262,4 +262,9 @@ export type AgentStreamEvent = {
     event_type: 'enqueue' | 'pin' | 'steer'
     status: string
   }
+  queue_items?: Array<{
+    id: string
+    event_type: 'enqueue' | 'pin' | 'steer'
+    status: string
+  }>
 }
