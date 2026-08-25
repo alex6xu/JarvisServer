@@ -818,9 +818,9 @@ export default function CoderPage() {
   }
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault()
-      sendMessage()
+      void sendMessage()
     }
   }
 
@@ -1143,10 +1143,10 @@ export default function CoderPage() {
             onKeyDown={onKeyDown}
             placeholder={
               isLoading
-                ? '生成中也可继续输入，将排队注入本轮…'
+                ? '生成中也可继续输入，将排队注入本轮…（Enter 换行，Shift+Enter 发送）'
                 : workspaceId
-                  ? '描述要改的功能，或点麦克风口述…（Enter 发送）'
-                  : '先上传/导入项目，或直接粘贴代码提问…'
+                  ? '描述要改的功能，或点麦克风口述…（Enter 换行，Shift+Enter 发送）'
+                  : '先上传/导入项目，或直接粘贴代码提问…（Enter 换行，Shift+Enter 发送）'
             }
             rows={3}
             className="flex-1 px-4 py-2.5 bg-card border border-border rounded-lg text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-colors resize-none font-mono"

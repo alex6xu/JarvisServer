@@ -271,6 +271,40 @@ func TestValidateWorkspaceDirectorySymlinks(t *testing.T) {
 	}
 }
 
+func TestValidateWorkspaceDirectoryAllowsDanglingInternalSymlink(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "workspace")
+	linkDir := filepath.Join(root, "crates", "gpui")
+	if err := os.MkdirAll(linkDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(linkDir, "LICENSE-APACHE")
+	if err := os.Symlink(filepath.Join("..", "..", "LICENSE-APACHE"), link); err != nil {
+		t.Skipf("symbolic links are unavailable: %v", err)
+	}
+	limits := workspaceUploadLimits{uncompressedBytes: 1 << 20, fileBytes: 1 << 20}
+	if err := validateWorkspaceDirectory(root, limits); err != nil {
+		t.Fatalf("dangling internal symbolic link rejected: %v", err)
+	}
+}
+
+func TestValidateWorkspaceDirectoryRejectsSymlinkLoop(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "workspace")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	first, second := filepath.Join(root, "first"), filepath.Join(root, "second")
+	if err := os.Symlink("second", first); err != nil {
+		t.Skipf("symbolic links are unavailable: %v", err)
+	}
+	if err := os.Symlink("first", second); err != nil {
+		t.Fatal(err)
+	}
+	limits := workspaceUploadLimits{uncompressedBytes: 1 << 20, fileBytes: 1 << 20}
+	if err := validateWorkspaceDirectory(root, limits); err == nil || !strings.Contains(err.Error(), "cannot be resolved") {
+		t.Fatalf("symlink loop error = %v", err)
+	}
+}
+
 func TestWorkspaceSymlinkTarget(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "workspace")
 	current := filepath.Join(root, "creates", "gpui", "license-apache")

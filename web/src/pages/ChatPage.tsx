@@ -347,12 +347,12 @@ export default function ChatPage() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
+                if (e.key === 'Enter' && e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault()
                   void sendMessage()
                 }
               }}
-              placeholder="Type a message..."
+              placeholder="Type a message...（Enter 换行，Shift+Enter 发送）"
               rows={1}
               className="flex-1 px-4 py-2.5 bg-card border border-border rounded-xl text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
             />

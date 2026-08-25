@@ -279,6 +279,13 @@ func validateWorkspaceSymlink(root, current string) error {
 	}
 	resolved, err := filepath.EvalSymlinks(current)
 	if err != nil {
+		// Git repositories may intentionally contain dangling relative links (for
+		// example, a crate reusing an optional root license file). Walking the
+		// workspace never follows links, so a missing in-workspace target is safe
+		// to retain. Other failures such as a symlink loop remain invalid.
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
 		return fmt.Errorf("symbolic link target cannot be resolved: %s: %w", rel, err)
 	}
 	if err := ensurePathWithin(root, resolved); err != nil {
