@@ -5,6 +5,11 @@ import (
 	"net/http"
 )
 
+type wechatQRStartBody struct {
+	BridgeURL   string `json:"bridge_url"`
+	AccessToken string `json:"access_token"`
+}
+
 type notificationUpsertBody struct {
 	Name    string             `json:"name"`
 	Enabled bool               `json:"enabled"`
@@ -24,6 +29,39 @@ func (s *Service) handleListNotificationChannels(w http.ResponseWriter, r *http.
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"channels": channels})
+}
+
+func (s *Service) handleStartWeChatQR(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := s.requestAccountID(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "account context is required")
+		return
+	}
+	var body wechatQRStartBody
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid json body")
+		return
+	}
+	result, err := s.Notifications.StartWeChatQR(r.Context(), accountID, body.BridgeURL, body.AccessToken)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Service) handleWeChatQRStatus(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := s.requestAccountID(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "account context is required")
+		return
+	}
+	result, err := s.Notifications.WeChatQRStatus(r.Context(), accountID, pathParam(r, "sessionId"))
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
 }
 
 func (s *Service) handleUpsertNotificationChannel(w http.ResponseWriter, r *http.Request) {

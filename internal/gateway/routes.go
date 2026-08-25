@@ -29,6 +29,8 @@ func apiRoutes(svc *Service) []rest.Route {
 		{Method: http.MethodDelete, Path: "/v1/stocks/watchlist/:symbol", Handler: svc.handleDeleteWatchlist},
 		{Method: http.MethodGet, Path: "/v1/crypto/candles", Handler: svc.handleCryptoCandles},
 		{Method: http.MethodGet, Path: "/v1/notifications/channels", Handler: svc.handleListNotificationChannels},
+		{Method: http.MethodPost, Path: "/v1/notifications/channels/wechat/qr/start", Handler: svc.handleStartWeChatQR},
+		{Method: http.MethodGet, Path: "/v1/notifications/channels/wechat/qr/:sessionId", Handler: svc.handleWeChatQRStatus},
 		{Method: http.MethodPut, Path: "/v1/notifications/channels/:kind", Handler: svc.handleUpsertNotificationChannel},
 		{Method: http.MethodDelete, Path: "/v1/notifications/channels/:kind", Handler: svc.handleDeleteNotificationChannel},
 		{Method: http.MethodPost, Path: "/v1/notifications/channels/:kind/test", Handler: svc.handleTestNotificationChannel},
@@ -153,5 +155,6 @@ func sseRoutes(svc *Service) []rest.Route {
 	return []rest.Route{
 		{Method: http.MethodGet, Path: "/v1/agent/runs/:runId/events", Handler: svc.handleRunEvents},
 		{Method: http.MethodGet, Path: "/v1/crypto/stream", Handler: svc.handleCryptoStream},
+		{Method: http.MethodGet, Path: "/v1/crypto/liquidations/stream", Handler: svc.handleCryptoLiquidationStream},
 	}
 }
