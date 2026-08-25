@@ -233,8 +233,9 @@ func validateWorkspaceDirectory(root string, limits workspaceUploadLimits) error
 			return err
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
-			rel, _ := filepath.Rel(root, current)
-			return fmt.Errorf("symbolic links are not allowed in workspace: %s", rel)
+			if err := validateWorkspaceSymlink(root, current); err != nil {
+				return err
+			}
 		}
 		if info.IsDir() {
 			return nil
@@ -259,6 +260,43 @@ func validateWorkspaceDirectory(root string, limits workspaceUploadLimits) error
 		}
 		return nil
 	})
+}
+
+func validateWorkspaceSymlink(root, current string) error {
+	rel, relErr := filepath.Rel(root, current)
+	if relErr != nil {
+		return relErr
+	}
+	target, err := os.Readlink(current)
+	if err != nil {
+		return fmt.Errorf("read symbolic link %s: %w", rel, err)
+	}
+
+	// Check the direct target before resolving it so an escaping or dangling
+	// link is rejected without ever treating an out-of-workspace path as valid.
+	if _, err := workspaceSymlinkTarget(root, current, target); err != nil {
+		return fmt.Errorf("%w: %s", err, rel)
+	}
+	resolved, err := filepath.EvalSymlinks(current)
+	if err != nil {
+		return fmt.Errorf("symbolic link target cannot be resolved: %s: %w", rel, err)
+	}
+	if err := ensurePathWithin(root, resolved); err != nil {
+		return fmt.Errorf("symbolic link points outside workspace: %s", rel)
+	}
+	return nil
+}
+
+func workspaceSymlinkTarget(root, current, target string) (string, error) {
+	if filepath.IsAbs(target) || filepath.VolumeName(target) != "" ||
+		strings.HasPrefix(target, "/") || strings.HasPrefix(target, `\`) {
+		return "", errors.New("absolute symbolic links are not allowed in workspace")
+	}
+	directTarget := filepath.Join(filepath.Dir(current), target)
+	if err := ensurePathWithin(root, directTarget); err != nil {
+		return "", errors.New("symbolic link points outside workspace")
+	}
+	return directTarget, nil
 }
 
 func (s *Service) pullGitHubWorkspace(ctx context.Context, accountID int, workspaceID string) (GitHubSyncResult, error) {
