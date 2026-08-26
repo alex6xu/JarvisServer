@@ -45,6 +45,11 @@ func apiRoutes(svc *Service) []rest.Route {
 		{Method: http.MethodPost, Path: "/v1/auth/logout", Handler: svc.handleAuthLogout},
 		{Method: http.MethodPost, Path: "/v1/auth/change-password", Handler: svc.handleChangePassword},
 
+		// Projects and conversation organization.
+		{Method: http.MethodGet, Path: "/v1/projects", Handler: svc.handleListProjects},
+		{Method: http.MethodPost, Path: "/v1/projects", Handler: svc.handleCreateProject},
+		{Method: http.MethodGet, Path: "/v1/projects/:id", Handler: svc.handleGetProject},
+
 		// Agent sessions / chat / import (static paths before :param)
 		{Method: http.MethodPost, Path: "/v1/agent/chat", Handler: svc.handleChat},
 		{Method: http.MethodPost, Path: "/v1/agent/runs/:runId/cancel", Handler: svc.handleCancelRun},
@@ -64,6 +69,9 @@ func apiRoutes(svc *Service) []rest.Route {
 		{Method: http.MethodPost, Path: "/v1/agent/sessions/:sessionId/fork", Handler: svc.handleForkSession},
 		{Method: http.MethodGet, Path: "/v1/agent/sessions/:sessionId/diff", Handler: svc.handleSessionDiff},
 		{Method: http.MethodPost, Path: "/v1/agent/sessions/:sessionId/merge", Handler: svc.handleMergeSession},
+		{Method: http.MethodGet, Path: "/v1/agent/sessions/:sessionId/project", Handler: svc.handleGetSessionProject},
+		{Method: http.MethodPut, Path: "/v1/agent/sessions/:sessionId/project", Handler: svc.handleSetSessionProject},
+		{Method: http.MethodDelete, Path: "/v1/agent/sessions/:sessionId/project", Handler: svc.handleDeleteSessionProject},
 		{Method: http.MethodGet, Path: "/v1/agent/sessions/:sessionId", Handler: svc.handleGetSession},
 
 		// Tags (static before :slug)

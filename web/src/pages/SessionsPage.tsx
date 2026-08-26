@@ -47,6 +47,19 @@ interface PreviewMsg {
   content: string
 }
 
+interface ProjectOption {
+  id: string
+  name: string
+  source: 'user' | 'workspace'
+  linked_workspace_id?: string
+}
+
+interface SessionProjectAssignment {
+  project: ProjectOption
+  source: string
+  pinned: boolean
+}
+
 export default function SessionsPage() {
   const { currentAccount } = useAccount()
   const navigate = useNavigate()
@@ -68,6 +81,9 @@ export default function SessionsPage() {
   const [branchDiff, setBranchDiff] = useState('')
   const [detailRunId, setDetailRunId] = useState('')
   const [stoppingRun, setStoppingRun] = useState(false)
+  const [projects, setProjects] = useState<ProjectOption[]>([])
+  const [projectAssignment, setProjectAssignment] = useState<SessionProjectAssignment | null>(null)
+  const [projectBusy, setProjectBusy] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -103,8 +119,21 @@ export default function SessionsPage() {
     setSelectedMeta(session)
     setDetailWorkspaceId(session.workspace_id || '')
     setDetailRunId('')
+    setProjectAssignment(null)
     try {
-      const response = await apiFetch(`/v1/agent/sessions/${session.id}`, {}, currentAccount?.id)
+      const [response, projectsResponse, assignmentResponse] = await Promise.all([
+        apiFetch(`/v1/agent/sessions/${session.id}`, {}, currentAccount?.id),
+        apiFetch('/v1/projects', {}, currentAccount?.id),
+        apiFetch(`/v1/agent/sessions/${encodeURIComponent(session.id)}/project`, {}, currentAccount?.id),
+      ])
+      if (projectsResponse.ok) {
+        const projectData = await projectsResponse.json()
+        setProjects(projectData.projects || [])
+      }
+      if (assignmentResponse.ok) {
+        const assignmentData = await assignmentResponse.json()
+        setProjectAssignment(assignmentData.assignment || null)
+      }
       if (response.ok) {
         const data = await response.json()
         setMessages(data.messages || [])
@@ -217,6 +246,42 @@ export default function SessionsPage() {
     }
     writeLocal(chatSessionKey(accountId), session.id)
     navigate(`/?session=${encodeURIComponent(session.id)}`)
+  }
+
+  const setSessionProject = async (projectId: string) => {
+    if (!selectedSession || !currentAccount?.id) return
+    setProjectBusy(true)
+    setBranchError('')
+    try {
+      if (!projectId) {
+        const response = await apiFetch(
+          `/v1/agent/sessions/${encodeURIComponent(selectedSession)}/project`,
+          { method: 'DELETE' },
+          currentAccount.id,
+        )
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}))
+          throw new Error(data.error || '移出项目失败')
+        }
+        setProjectAssignment(null)
+        return
+      }
+      const response = await apiFetch(
+        `/v1/agent/sessions/${encodeURIComponent(selectedSession)}/project`,
+        {
+          method: 'PUT',
+          body: JSON.stringify({ project_id: projectId, pinned: true }),
+        },
+        currentAccount.id,
+      )
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.error || '项目归属更新失败')
+      setProjectAssignment(data.assignment || null)
+    } catch (projectError) {
+      setBranchError(projectError instanceof Error ? projectError.message : '项目归属更新失败')
+    } finally {
+      setProjectBusy(false)
+    }
   }
 
   const stopDetailRun = async () => {
@@ -574,6 +639,38 @@ export default function SessionsPage() {
                 Close
               </button>
             </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 border-b border-border bg-card/40 px-4 py-3">
+            <span className="text-[11px] text-muted-foreground">所属项目</span>
+            <select
+              value={projectAssignment?.project.id || ''}
+              disabled={projectBusy}
+              onChange={(event) => void setSessionProject(event.target.value)}
+              className="h-8 min-w-48 rounded-md border border-border bg-background px-2 text-[12px] text-foreground disabled:opacity-50"
+            >
+              <option value="">未归档</option>
+              {projects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.name}{project.source === 'workspace' ? '（Workspace）' : ''}
+                </option>
+              ))}
+            </select>
+            {projectAssignment && (
+              <>
+                <span className="text-[10px] text-muted-foreground">
+                  {projectAssignment.source === 'workspace' ? '自动归档' : '手动归档'}
+                  {projectAssignment.pinned ? ' · 已锁定' : ''}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => navigate('/projects')}
+                  className="h-8 rounded-md border border-border px-3 text-[11px] text-primary hover:bg-accent"
+                >
+                  查看项目
+                </button>
+              </>
+            )}
           </div>
 
           {(branchError || branchDiff) && (

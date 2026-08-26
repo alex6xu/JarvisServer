@@ -117,20 +117,22 @@ type Tag struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
+type TagHit struct {
+	Slug       string  `json:"slug"`
+	Name       string  `json:"name"`
+	Kind       string  `json:"kind"`
+	Confidence float64 `json:"confidence"`
+}
+
 type TaggedMessage struct {
-	MessageID    string `json:"message_id"`
-	SessionID    string `json:"session_id"`
-	Content      string `json:"content"`
-	Preview      string `json:"preview"`
-	Platform     string `json:"platform"`
-	SessionTitle string `json:"session_title"`
-	CreatedAt    string `json:"created_at"`
-	Tags         []struct {
-		Slug       string  `json:"slug"`
-		Name       string  `json:"name"`
-		Kind       string  `json:"kind"`
-		Confidence float64 `json:"confidence"`
-	} `json:"tags"`
+	MessageID    string   `json:"message_id"`
+	SessionID    string   `json:"session_id"`
+	Content      string   `json:"content"`
+	Preview      string   `json:"preview"`
+	Platform     string   `json:"platform"`
+	SessionTitle string   `json:"session_title"`
+	CreatedAt    string   `json:"created_at"`
+	Tags         []TagHit `json:"tags"`
 }
 
 func newMemStore() *MemStore {

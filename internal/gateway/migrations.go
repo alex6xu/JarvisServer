@@ -397,6 +397,77 @@ ALTER TABLE provider_models ADD COLUMN manual_context_window INTEGER NOT NULL DE
 ALTER TABLE provider_models ADD COLUMN detected_at TEXT;
 `
 
+const projectOrganizationSchema = `
+CREATE TABLE IF NOT EXISTS projects (
+    id TEXT PRIMARY KEY,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    slug TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT 'user',
+    status TEXT NOT NULL DEFAULT 'active',
+    linked_workspace_id TEXT NOT NULL DEFAULT '',
+    session_count INTEGER NOT NULL DEFAULT 0,
+    message_count INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(account_id, slug)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_account_workspace
+    ON projects(account_id, linked_workspace_id) WHERE linked_workspace_id <> '';
+CREATE INDEX IF NOT EXISTS idx_projects_account_updated
+    ON projects(account_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS session_projects (
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    confidence REAL NOT NULL DEFAULT 1,
+    source TEXT NOT NULL DEFAULT 'user',
+    pinned INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_session_projects_project_updated
+    ON session_projects(account_id, project_id, updated_at DESC);
+`
+
+const localClassificationSchema = `
+CREATE TABLE IF NOT EXISTS account_tags (
+    id TEXT PRIMARY KEY,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    slug TEXT NOT NULL,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT 'system',
+    use_count INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(account_id, slug)
+);
+CREATE INDEX IF NOT EXISTS idx_account_tags_usage
+    ON account_tags(account_id, use_count DESC, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS message_tags (
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    entry_id TEXT NOT NULL,
+    tag_id TEXT NOT NULL REFERENCES account_tags(id) ON DELETE CASCADE,
+    confidence REAL NOT NULL,
+    source TEXT NOT NULL,
+    evidence_json TEXT NOT NULL DEFAULT '{}',
+    classifier_version INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(session_id, entry_id, tag_id)
+);
+CREATE INDEX IF NOT EXISTS idx_message_tags_account_tag_created
+    ON message_tags(account_id, tag_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_message_tags_session_entry
+    ON message_tags(session_id, entry_id);
+`
+
 const runMessageQueueSchema = `
 CREATE TABLE IF NOT EXISTS run_message_queues (
     run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
@@ -447,6 +518,8 @@ var gatewayMigrations = []gatewayMigration{
 	{version: 17, name: "account_active_sessions", schema: activeSessionsSchema},
 	{version: 18, name: "provider_model_metadata", schema: providerModelMetadataSchema},
 	{version: 19, name: "run_message_queues", schema: runMessageQueueSchema},
+	{version: 20, name: "local_conversation_classification", schema: localClassificationSchema},
+	{version: 21, name: "project_organization", schema: projectOrganizationSchema},
 }
 
 func applyGatewayMigrations(db *sql.DB) error {
