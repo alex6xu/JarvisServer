@@ -8,6 +8,7 @@ import {
   type UiMessage,
 } from '../lib/sessionPersist'
 import ToolStepCard from './ToolStepCard'
+import DocumentChips from './DocumentChips'
 
 type Props = {
   message: UiMessage
@@ -143,6 +144,8 @@ export default function MessageBubble({ message, markdownAssistant = true, colla
             })}
           </div>
         )}
+
+        {message.documents?.length ? <div className="mt-2"><DocumentChips documents={message.documents} compact /></div> : null}
 
         <p className={`text-[11px] mt-1.5 ${isUser ? 'text-primary-foreground/60' : 'text-muted-foreground'}`}>
           {message.timestamp.toLocaleTimeString()}

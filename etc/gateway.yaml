@@ -38,6 +38,10 @@ Agent:
   WorkspaceUploadMaxBytes: 104857600
   WorkspaceMaxBytes: 104857600
   WorkspaceMaxFileBytes: 10485760
+  DocumentUploadMaxBytes: 10485760
+  DocumentProjectMaxBytes: 524288000
+  DocumentExtractedTextMaxBytes: 2097152
+  DocumentParserTimeoutSeconds: 30
   AllowPrivateProviderURLs: false
   AllowPrivateNotificationURLs: false
   # Cwd: .

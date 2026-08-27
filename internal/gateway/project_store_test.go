@@ -66,6 +66,25 @@ func TestManualPinnedProjectOverridesWorkspaceReconciliation(t *testing.T) {
 	}
 }
 
+func TestProjectTagsReturnsEmptySliceWhenProjectHasNoTags(t *testing.T) {
+	store := newTestGatewayStore(t)
+	account, err := store.CreateAccount(context.Background(), "empty-project-tags", "", "user", "project-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := store.CreateProject(context.Background(), account.ID, "No Tags", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tags, err := store.ProjectTags(context.Background(), account.ID, project.ID, 12)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tags == nil || len(tags) != 0 {
+		t.Fatalf("expected a non-nil empty tag slice, got %#v", tags)
+	}
+}
+
 func TestProjectsAreAccountIsolatedAndAggregateTags(t *testing.T) {
 	store := newTestGatewayStore(t)
 	first, _ := store.CreateAccount(context.Background(), "project-first", "", "user", "password-one")

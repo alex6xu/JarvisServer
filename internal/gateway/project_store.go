@@ -163,6 +163,33 @@ func (s *GatewayStore) SessionProject(ctx context.Context, accountID int, sessio
 	return result, err
 }
 
+func (s *GatewayStore) EnsureWorkspaceProject(ctx context.Context, accountID int, workspaceID string) (Project, error) {
+	if accountID <= 0 || strings.TrimSpace(workspaceID) == "" {
+		return Project{}, errors.New("workspace project requires account and workspace")
+	}
+	var workspaceName, githubName string
+	if err := s.db.QueryRowContext(ctx, `SELECT name,github_full_name FROM workspace_metadata WHERE id=? AND account_id=?`, workspaceID, accountID).Scan(&workspaceName, &githubName); err != nil {
+		return Project{}, err
+	}
+	if githubName != "" {
+		workspaceName = githubName
+	}
+	var projectID string
+	err := s.db.QueryRowContext(ctx, `SELECT id FROM projects WHERE account_id=? AND linked_workspace_id=?`, accountID, workspaceID).Scan(&projectID)
+	if errors.Is(err, sql.ErrNoRows) {
+		now := time.Now().UTC().Format(time.RFC3339Nano)
+		projectID = newID("project")
+		slug := "workspace-" + strings.ToLower(workspaceID)
+		if _, err := s.db.ExecContext(ctx, `INSERT INTO projects(id,account_id,name,slug,description,source,status,linked_workspace_id,created_at,updated_at) VALUES(?,?,?,?,?,'workspace','active',?,?,?)`,
+			projectID, accountID, workspaceName, slug, "由代码工作区自动创建", workspaceID, now, now); err != nil {
+			return Project{}, err
+		}
+	} else if err != nil {
+		return Project{}, err
+	}
+	return s.ProjectByID(ctx, accountID, projectID)
+}
+
 func (s *GatewayStore) EnsureWorkspaceProjectForSession(ctx context.Context, header session.SessionHeader) error {
 	if header.AccountID <= 0 || header.WorkspaceID == "" || header.ID == "" {
 		return nil
@@ -175,27 +202,11 @@ func (s *GatewayStore) EnsureWorkspaceProjectForSession(ctx context.Context, hea
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	var workspaceName, githubName string
-	if err := s.db.QueryRowContext(ctx, `SELECT name,github_full_name FROM workspace_metadata WHERE id=? AND account_id=?`, header.WorkspaceID, header.AccountID).Scan(&workspaceName, &githubName); err != nil {
-		workspaceName = header.WorkspaceID
-	}
-	if githubName != "" {
-		workspaceName = githubName
-	}
-	var projectID string
-	err = s.db.QueryRowContext(ctx, `SELECT id FROM projects WHERE account_id=? AND linked_workspace_id=?`, header.AccountID, header.WorkspaceID).Scan(&projectID)
-	if errors.Is(err, sql.ErrNoRows) {
-		now := time.Now().UTC().Format(time.RFC3339Nano)
-		projectID = newID("project")
-		slug := "workspace-" + strings.ToLower(header.WorkspaceID)
-		if _, err := s.db.ExecContext(ctx, `INSERT INTO projects(id,account_id,name,slug,description,source,status,linked_workspace_id,created_at,updated_at) VALUES(?,?,?,?,?,'workspace','active',?,?,?)`,
-			projectID, header.AccountID, workspaceName, slug, "由代码工作区自动创建", header.WorkspaceID, now, now); err != nil {
-			return err
-		}
-	} else if err != nil {
+	project, err := s.EnsureWorkspaceProject(ctx, header.AccountID, header.WorkspaceID)
+	if err != nil {
 		return err
 	}
-	return s.AssignSessionProject(ctx, header.AccountID, header.ID, projectID, "workspace", 1, false)
+	return s.AssignSessionProject(ctx, header.AccountID, header.ID, project.ID, "workspace", 1, false)
 }
 
 func (s *GatewayStore) ReconcileWorkspaceProjects(ctx context.Context, accountID int) (int, error) {
@@ -246,7 +257,7 @@ func (s *GatewayStore) ProjectTags(ctx context.Context, accountID int, projectID
 		return nil, err
 	}
 	defer rows.Close()
-	var tags []Tag
+	tags := []Tag{}
 	for rows.Next() {
 		var tag Tag
 		if err := rows.Scan(&tag.ID, &tag.Slug, &tag.Name, &tag.Kind, &tag.UseCount, &tag.UpdatedAt); err != nil {

@@ -111,6 +111,12 @@ func NewService(opts Options) (*Service, error) {
 		opts.Cwd = cwd
 	}
 	stateRoot := filepath.Join(opts.Cwd, ".jarvis")
+	if opts.DocumentsRoot == "" {
+		opts.DocumentsRoot = filepath.Join(stateRoot, "documents")
+	}
+	if err := os.MkdirAll(opts.DocumentsRoot, 0o700); err != nil {
+		return nil, fmt.Errorf("documents root: %w", err)
+	}
 	legacyStore, err := session.NewStore(filepath.Join(stateRoot, "sessions"))
 	if err != nil {
 		return nil, fmt.Errorf("session store: %w", err)
@@ -310,9 +316,16 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 	if err != nil {
 		return ChatResponse{}, err
 	}
+	messageDocuments, documentContext, err := s.prepareMessageDocuments(ctx, req)
+	if err != nil {
+		return ChatResponse{}, err
+	}
 
 	if req.SessionID != "" {
 		if active := s.Runs.ActiveForSession(req.SessionID); active != nil {
+			if len(messageDocuments.Documents) > 0 {
+				return ChatResponse{}, errors.New("messages with documents cannot be queued while a run is active")
+			}
 			_, hs, _, err := s.openSession(req.SessionID, "", runCwd, req.WorkspaceID, sessionTypeForMode(req.Mode), req.AccountID)
 			if err != nil {
 				return ChatResponse{}, err
@@ -479,7 +492,7 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 		_ = s.Audit.FinishChat(context.Background(), state.ID, "", runStatusError, err.Error(), time.Now().UTC())
 		return ChatResponse{}, fmt.Errorf("initialize realtime session persistence: %w", err)
 	}
-	if err := liveSession.PersistInitial(messages[hs.persisted]); err != nil {
+	if err := liveSession.PersistInitialWithDocuments(messages[hs.persisted], messageDocuments); err != nil {
 		cancel()
 		state.Finish(err)
 		closeEnv(env)
@@ -502,6 +515,24 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 	runCfg := run.NewConfig(model, env.ProviderName, thinking, routedProvider, creds, run.ToolRegistry(env.Tools), run.TodoReminders(env.Tools))
 	runCfg.SessionID = hs.header.ID
 	runCfg.MemoryRoot = run.MemoryRootFromTools(env.Tools)
+	if documentContext != "" {
+		targetIndex := hs.persisted
+		runCfg.TransformContext = func(_ context.Context, input agentcore.MessageList) agentcore.MessageList {
+			if targetIndex < 0 || targetIndex >= len(input) {
+				return input
+			}
+			user, ok := input[targetIndex].(agentcore.UserMessage)
+			if !ok {
+				return input
+			}
+			// Transform only a copy used for the provider request. The durable Agent
+			// context and chat audit retain the user's original question.
+			output := append(agentcore.MessageList(nil), input...)
+			user.Content = append(append(agentcore.ContentList(nil), user.Content...), agentcore.NewTextContent(documentContext))
+			output[targetIndex] = user
+			return output
+		}
+	}
 	baseSteering := runCfg.GetSteeringMessages
 	runCfg.GetSteeringMessages = func(ctx context.Context) []agentcore.AgentMessage {
 		var messages []agentcore.AgentMessage

@@ -10,6 +10,9 @@ import { useRunEventStream } from '../hooks/useRunEventStream'
 import { useRunStop } from '../hooks/useRunStop'
 import { isQueueUnavailableError, useRunMessageQueue } from '../hooks/useRunMessageQueue'
 import { useSessionRestore } from '../hooks/useSessionRestore'
+import DocumentPicker from '../components/DocumentPicker'
+import DocumentChips from '../components/DocumentChips'
+import type { ProjectDocument, ProjectSummary } from '../types/documents'
 import {
   coderSessionKey,
   coderWorkspaceKey,
@@ -98,6 +101,8 @@ export default function CoderPage() {
   const [selectedModel, setSelectedModel] = useState('')
   const [workspaces, setWorkspaces] = useState<WorkspaceInfo[]>([])
   const [workspaceId, setWorkspaceId] = useState('')
+  const [projects, setProjects] = useState<ProjectSummary[]>([])
+  const [selectedDocuments, setSelectedDocuments] = useState<ProjectDocument[]>([])
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
   const [ghConfigured, setGhConfigured] = useState(false)
@@ -114,6 +119,7 @@ export default function CoderPage() {
   const dirInputRef = useRef<HTMLInputElement>(null)
 
   const activeWorkspace = workspaces.find((w) => w.id === workspaceId) || null
+  const activeProject = projects.find((project) => project.linked_workspace_id === workspaceId) || null
 
   const [runId, setRunId] = useState('')
   const queue = useRunMessageQueue(currentAccount?.id, runId, sessionId)
@@ -135,6 +141,7 @@ export default function CoderPage() {
   useEffect(() => {
     void fetchModels()
     void fetchWorkspaces()
+    void fetchProjects()
     void fetchGitHubStatus()
 
     const params = new URLSearchParams(window.location.search)
@@ -225,6 +232,10 @@ export default function CoderPage() {
   }, [sessionId, sessionStorageKey, persistSessionId])
 
   useEffect(() => {
+    setSelectedDocuments([])
+  }, [workspaceId])
+
+  useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isLoading])
 
@@ -246,6 +257,17 @@ export default function CoderPage() {
     }
   }
 
+  const fetchProjects = async () => {
+    try {
+      const response = await apiFetch('/v1/projects', {}, currentAccount?.id)
+      if (!response.ok) return
+      const data = await response.json().catch(() => ({}))
+      setProjects(Array.isArray(data.projects) ? data.projects : [])
+    } catch (error) {
+      console.error('Failed to fetch projects:', error)
+    }
+  }
+
   const fetchWorkspaces = async () => {
     try {
       const response = await apiFetch('/v1/workspaces', {}, currentAccount?.id)
@@ -253,6 +275,9 @@ export default function CoderPage() {
       const data = await response.json()
       const list: WorkspaceInfo[] = data.workspaces || []
       setWorkspaces(list)
+      // Workspace creation also creates its project. Refresh the mapping here so
+      // the document picker is available immediately after upload/import.
+      await fetchProjects()
       if (list.length > 0) {
         const params = new URLSearchParams(window.location.search)
         const requestedWorkspaceID = params.get('workspace')
@@ -608,6 +633,7 @@ export default function CoderPage() {
 
   const sendMessage = async () => {
     if (!input.trim()) return
+    if (isLoading && runId && selectedDocuments.length > 0) return
     if (voice.listening) {
       await voice.stop()
     }
@@ -618,6 +644,7 @@ export default function CoderPage() {
       role: 'user',
       content,
       timestamp: new Date(),
+      documents: selectedDocuments,
     }
 
     setMessages((prev) => [...prev, userMessage])
@@ -676,6 +703,8 @@ export default function CoderPage() {
             mode: 'coder',
             model: selectedModel || undefined,
             workspace_id: workspaceId || undefined,
+            project_id: activeProject?.id || undefined,
+            document_ids: selectedDocuments.map((document) => document.id),
             stream: false,
           }),
         },
@@ -683,6 +712,7 @@ export default function CoderPage() {
       )
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`)
+      setSelectedDocuments([])
       if (data.session_id) {
         setSessionId(data.session_id)
         if (sessionStorageKey) persistSessionId(sessionStorageKey, data.session_id)
@@ -1135,6 +1165,13 @@ export default function CoderPage() {
             <QueueModeControl value={queue.mode} onChange={queue.setMode} disabled={queue.busy} />
           </div>
         )}
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          {activeProject ? (
+            <><span className="text-[11px] text-muted-foreground">项目：{activeProject.name}</span><DocumentPicker accountId={currentAccount?.id} projectId={activeProject.id} selected={selectedDocuments} onChange={setSelectedDocuments} /></>
+          ) : workspaceId ? <span className="text-[11px] text-muted-foreground">当前 Workspace 尚未匹配到项目，暂不能附加文档。</span> : null}
+        </div>
+        {selectedDocuments.length > 0 && <div className="mb-2"><DocumentChips documents={selectedDocuments} onRemove={(id) => setSelectedDocuments((current) => current.filter((document) => document.id !== id))} /></div>}
+        {isLoading && runId && selectedDocuments.length > 0 && <p className="mb-2 text-[11px] text-amber-600">运行中不能发送附件。</p>}
         <div className="flex gap-2 items-end">
           <textarea
             ref={textareaRef}
@@ -1164,7 +1201,7 @@ export default function CoderPage() {
           />
           <button
             onClick={sendMessage}
-            disabled={!input.trim() || queue.busy}
+            disabled={!input.trim() || queue.busy || Boolean(isLoading && runId && selectedDocuments.length)}
             className="h-10 px-4 bg-primary text-primary-foreground rounded-lg text-[13px] font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
           >
             {isLoading && runId

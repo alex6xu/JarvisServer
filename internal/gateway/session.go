@@ -27,6 +27,18 @@ func (s *Service) getSessionForAccount(id string, accountID int) (SessionDetailR
 		return SessionDetailResponse{}, fmt.Errorf("session not found: %w", os.ErrNotExist)
 	}
 	msgs := entriesToRestored(entries, h.Model)
+	documentsByEntry, err := s.Audit.MessageDocuments(context.Background(), accountID, id)
+	if err != nil {
+		return SessionDetailResponse{}, err
+	}
+	for i := range msgs {
+		for _, document := range documentsByEntry[msgs[i].ID] {
+			msgs[i].Documents = append(msgs[i].Documents, MessageDocument{
+				ID: document.ID, ProjectID: document.ProjectID, Filename: document.Filename,
+				MIMEType: document.MIMEType, SizeBytes: document.SizeBytes, Status: document.Status,
+			})
+		}
+	}
 	meta := sessionMetaFromHeader(h, len(msgs))
 	meta.Title = sessionTitle(msgs)
 	meta.Preview = meta.Title

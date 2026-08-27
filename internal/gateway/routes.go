@@ -11,6 +11,8 @@ func registerRoutes(server *rest.Server, svc *Service) {
 	server.AddRoutes(apiRoutes(svc))
 	server.AddRoutes(workspaceUploadRoutes(svc),
 		rest.WithMaxBytes(workspaceUploadRequestMaxBytes(svc.workspaceUploadLimits())))
+	server.AddRoutes(documentUploadRoutes(svc),
+		rest.WithMaxBytes(documentUploadRequestMaxBytes(svc.Opts)))
 	server.AddRoutes(sseRoutes(svc), rest.WithSSE(), rest.WithTimeout(0))
 }
 
@@ -48,6 +50,11 @@ func apiRoutes(svc *Service) []rest.Route {
 		// Projects and conversation organization.
 		{Method: http.MethodGet, Path: "/v1/projects", Handler: svc.handleListProjects},
 		{Method: http.MethodPost, Path: "/v1/projects", Handler: svc.handleCreateProject},
+		{Method: http.MethodGet, Path: "/v1/projects/documents/limits", Handler: svc.handleProjectDocumentLimits},
+		{Method: http.MethodGet, Path: "/v1/projects/:projectId/documents", Handler: svc.handleListProjectDocuments},
+		{Method: http.MethodGet, Path: "/v1/projects/:projectId/documents/:documentId", Handler: svc.handleGetProjectDocument},
+		{Method: http.MethodGet, Path: "/v1/projects/:projectId/documents/:documentId/download", Handler: svc.handleDownloadProjectDocument},
+		{Method: http.MethodDelete, Path: "/v1/projects/:projectId/documents/:documentId", Handler: svc.handleDeleteProjectDocument},
 		{Method: http.MethodGet, Path: "/v1/projects/:id", Handler: svc.handleGetProject},
 
 		// Agent sessions / chat / import (static paths before :param)
@@ -150,6 +157,12 @@ func apiRoutes(svc *Service) []rest.Route {
 		{Method: http.MethodGet, Path: "/v1/admin/request-logs/:id", Handler: svc.handleGetRequestLog},
 		{Method: http.MethodGet, Path: "/v1/admin/route-profiles", Handler: svc.handleListRouteProfiles},
 		{Method: http.MethodPost, Path: "/v1/admin/route-profiles", Handler: svc.handleCreateRouteProfile},
+	}
+}
+
+func documentUploadRoutes(svc *Service) []rest.Route {
+	return []rest.Route{
+		{Method: http.MethodPost, Path: "/v1/projects/:projectId/documents", Handler: svc.handleUploadProjectDocument},
 	}
 }
 

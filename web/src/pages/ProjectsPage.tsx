@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { FolderKanban, Plus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch, useAccount } from '../context/AccountContext'
+import ProjectDocumentList from '../components/ProjectDocumentList'
 import {
   chatSessionKey,
   coderSessionKey,
@@ -88,7 +89,11 @@ export default function ProjectsPage() {
       const response = await apiFetch(`/v1/projects/${encodeURIComponent(id)}`, {}, currentAccount.id)
       const body = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(body.error || '项目详情加载失败')
-      setDetail(body as ProjectDetail)
+      setDetail({
+        ...body,
+        sessions: Array.isArray(body.sessions) ? body.sessions : [],
+        tags: Array.isArray(body.tags) ? body.tags : [],
+      } as ProjectDetail)
     } catch (loadError) {
       setDetail(null)
       setError(loadError instanceof Error ? loadError.message : '项目详情加载失败')
@@ -207,6 +212,7 @@ export default function ProjectsPage() {
                   ))}
                 </div>
               </div>
+              <ProjectDocumentList accountId={currentAccount?.id} projectId={detail.project.id} />
               <div className="min-h-0 flex-1 overflow-auto divide-y divide-border">
                 {detail.sessions.length === 0 && <p className="p-5 text-[13px] text-muted-foreground">项目中还没有会话</p>}
                 {detail.sessions.map((session) => (

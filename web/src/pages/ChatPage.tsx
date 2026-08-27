@@ -11,6 +11,9 @@ import { useRunStop } from '../hooks/useRunStop'
 import { isQueueUnavailableError, useRunMessageQueue } from '../hooks/useRunMessageQueue'
 import { useSessionRestore } from '../hooks/useSessionRestore'
 import { chatSessionKey, type UiMessage } from '../lib/sessionPersist'
+import DocumentPicker from '../components/DocumentPicker'
+import DocumentChips from '../components/DocumentChips'
+import type { ProjectDocument, ProjectSummary } from '../types/documents'
 
 export default function ChatPage() {
   const { currentAccount } = useAccount()
@@ -20,6 +23,10 @@ export default function ChatPage() {
   const [connected, setConnected] = useState(false)
   const [sessionId, setSessionId] = useState('')
   const [runId, setRunId] = useState('')
+  const [projects, setProjects] = useState<ProjectSummary[]>([])
+  const [projectId, setProjectId] = useState('')
+  const [selectedDocuments, setSelectedDocuments] = useState<ProjectDocument[]>([])
+  const [projectName, setProjectName] = useState('')
   const queue = useRunMessageQueue(currentAccount?.id, runId, sessionId)
 
   const storageKey = currentAccount?.id ? chatSessionKey(currentAccount.id) : ''
@@ -96,6 +103,27 @@ export default function ChatPage() {
     if (sessionId && storageKey) persistSessionId(storageKey, sessionId)
   }, [sessionId, storageKey, persistSessionId])
 
+  useEffect(() => {
+    if (!currentAccount?.id) return
+    void (async () => {
+      const response = await apiFetch('/v1/projects', {}, currentAccount.id)
+      if (!response.ok) return
+      const body = await response.json().catch(() => ({}))
+      setProjects(Array.isArray(body.projects) ? body.projects : [])
+    })()
+  }, [currentAccount?.id])
+
+  const createProject = async () => {
+    if (!currentAccount?.id || !projectName.trim()) return
+    const response = await apiFetch('/v1/projects', { method: 'POST', body: JSON.stringify({ name: projectName.trim() }) }, currentAccount.id)
+    const body = await response.json().catch(() => ({}))
+    if (!response.ok || !body.project) return
+    setProjects((current) => [body.project, ...current])
+    setProjectId(body.project.id)
+    setProjectName('')
+    setSelectedDocuments([])
+  }
+
   const appendVoiceText = useCallback((text: string) => {
     setInput((prev) => {
       const base = prev.trimEnd()
@@ -115,6 +143,9 @@ export default function ChatPage() {
 
   const sendMessage = async () => {
     if (!input.trim()) return
+    // The run inbox currently accepts text only. Do not create an optimistic
+    // message that cannot be persisted with its attachments.
+    if (isLoading && runId && selectedDocuments.length > 0) return
     if (voice.listening) {
       await voice.stop()
     }
@@ -125,6 +156,7 @@ export default function ChatPage() {
       role: 'user',
       content: text,
       timestamp: new Date(),
+      documents: selectedDocuments,
     }
 
     setMessages((prev) => [...prev, userMessage])
@@ -166,6 +198,8 @@ export default function ChatPage() {
               message: text,
               session_id: sid || undefined,
               mode: 'chat',
+              project_id: projectId || undefined,
+              document_ids: selectedDocuments.map((document) => document.id),
               stream: false,
             }),
           },
@@ -184,6 +218,7 @@ export default function ChatPage() {
       }
 
       if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`)
+      setSelectedDocuments([])
 
       if (data.session_id) {
         setSessionId(data.session_id)
@@ -342,6 +377,17 @@ export default function ChatPage() {
               <QueueModeControl value={queue.mode} onChange={queue.setMode} disabled={queue.busy} />
             </div>
           )}
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <select value={projectId} onChange={(event) => { setProjectId(event.target.value); setSelectedDocuments([]) }} className="h-8 max-w-52 rounded-md border border-border bg-card px-2 text-[11px]">
+              <option value="">不使用项目</option>
+              {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+            </select>
+            <input value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="新项目" className="h-8 w-28 rounded-md border border-border bg-card px-2 text-[11px]" />
+            <button type="button" disabled={!projectName.trim()} onClick={() => void createProject()} className="h-8 rounded-md border border-border px-2 text-[11px] disabled:opacity-50">创建</button>
+            <DocumentPicker accountId={currentAccount?.id} projectId={projectId} selected={selectedDocuments} onChange={setSelectedDocuments} />
+          </div>
+          {selectedDocuments.length > 0 && <div className="mb-2"><DocumentChips documents={selectedDocuments} onRemove={(id) => setSelectedDocuments((current) => current.filter((document) => document.id !== id))} /></div>}
+          {isLoading && runId && selectedDocuments.length > 0 && <p className="mb-2 text-[11px] text-amber-600">运行中不能发送附件，请停止或等待当前运行结束。</p>}
           <div className="flex gap-2">
             <textarea
               value={input}
@@ -369,7 +415,7 @@ export default function ChatPage() {
             />
             <button
               onClick={() => void sendMessage()}
-              disabled={!input.trim() || queue.busy}
+              disabled={!input.trim() || queue.busy || Boolean(isLoading && runId && selectedDocuments.length)}
               className="h-10 px-4 bg-primary text-primary-foreground rounded-xl text-[13px] font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
             >
               {isLoading && runId

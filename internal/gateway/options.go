@@ -49,6 +49,12 @@ type Options struct {
 	WorkspaceMaxBytes int64
 	// WorkspaceMaxFileBytes bounds one uncompressed workspace file.
 	WorkspaceMaxFileBytes int64
+	// DocumentsRoot stores project document originals and extracted text.
+	DocumentsRoot                 string
+	DocumentUploadMaxBytes        int64
+	DocumentProjectMaxBytes       int64
+	DocumentExtractedTextMaxBytes int64
+	DocumentParserTimeout         time.Duration
 	// DatabasePath is the SQLite file used for chat and provider audit records.
 	// The default is <cwd>/.jarvis/gateway.db.
 	DatabasePath       string
@@ -110,6 +116,18 @@ func (o Options) withDefaults() Options {
 	}
 	if o.WorkspaceMaxFileBytes <= 0 {
 		o.WorkspaceMaxFileBytes = defaultWorkspaceFileBytes
+	}
+	if o.DocumentUploadMaxBytes <= 0 {
+		o.DocumentUploadMaxBytes = 10 << 20
+	}
+	if o.DocumentProjectMaxBytes <= 0 {
+		o.DocumentProjectMaxBytes = 500 << 20
+	}
+	if o.DocumentExtractedTextMaxBytes <= 0 {
+		o.DocumentExtractedTextMaxBytes = 2 << 20
+	}
+	if o.DocumentParserTimeout <= 0 {
+		o.DocumentParserTimeout = 30 * time.Second
 	}
 	if o.RunTimeout == 0 {
 		o.RunTimeout = 30 * time.Minute

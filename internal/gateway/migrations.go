@@ -432,6 +432,79 @@ CREATE INDEX IF NOT EXISTS idx_session_projects_project_updated
     ON session_projects(account_id, project_id, updated_at DESC);
 `
 
+const projectDocumentsSchema = `
+CREATE TABLE IF NOT EXISTS project_documents (
+    id TEXT PRIMARY KEY,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    filename TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    sha256 TEXT NOT NULL,
+    status TEXT NOT NULL,
+    storage_path TEXT NOT NULL,
+    extracted_text_path TEXT NOT NULL DEFAULT '',
+    extracted_bytes INTEGER NOT NULL DEFAULT 0,
+    parser TEXT NOT NULL DEFAULT '',
+    parser_version TEXT NOT NULL DEFAULT '',
+    error_code TEXT NOT NULL DEFAULT '',
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    deleted_at TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_project_documents_project
+    ON project_documents(account_id, project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_project_documents_hash
+    ON project_documents(account_id, sha256);
+`
+
+const messageDocumentsSchema = `
+CREATE TABLE IF NOT EXISTS message_documents (
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    entry_id TEXT NOT NULL,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    document_id TEXT NOT NULL REFERENCES project_documents(id) ON DELETE RESTRICT,
+    position INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(session_id, entry_id, document_id),
+    UNIQUE(session_id, entry_id, position)
+);
+CREATE INDEX IF NOT EXISTS idx_message_documents_session_entry
+    ON message_documents(session_id, entry_id, position);
+CREATE INDEX IF NOT EXISTS idx_message_documents_document
+    ON message_documents(account_id, document_id);
+
+DROP INDEX IF EXISTS idx_run_message_queue_items_run_position;
+DROP INDEX IF EXISTS idx_run_message_queue_items_session_created;
+ALTER TABLE run_message_queue_items RENAME TO run_message_queue_items_v22;
+CREATE TABLE run_message_queue_items (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    session_id TEXT NOT NULL,
+    account_id INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    event_type TEXT NOT NULL CHECK(event_type IN ('enqueue', 'pin', 'steer')),
+    position INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK(status IN (
+        'pending', 'injecting', 'injected', 'executing',
+        'completed', 'cancelled', 'dropped', 'answered', 'failed'
+    )),
+    idempotency_key TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(run_id, idempotency_key)
+);
+INSERT INTO run_message_queue_items
+SELECT * FROM run_message_queue_items_v22;
+DROP TABLE run_message_queue_items_v22;
+CREATE INDEX idx_run_message_queue_items_run_position
+    ON run_message_queue_items(run_id, position);
+CREATE INDEX idx_run_message_queue_items_session_created
+    ON run_message_queue_items(session_id, created_at);
+`
+
 const localClassificationSchema = `
 CREATE TABLE IF NOT EXISTS account_tags (
     id TEXT PRIMARY KEY,
@@ -520,6 +593,8 @@ var gatewayMigrations = []gatewayMigration{
 	{version: 19, name: "run_message_queues", schema: runMessageQueueSchema},
 	{version: 20, name: "local_conversation_classification", schema: localClassificationSchema},
 	{version: 21, name: "project_organization", schema: projectOrganizationSchema},
+	{version: 22, name: "project_documents", schema: projectDocumentsSchema},
+	{version: 23, name: "message_documents", schema: messageDocumentsSchema},
 }
 
 func applyGatewayMigrations(db *sql.DB) error {

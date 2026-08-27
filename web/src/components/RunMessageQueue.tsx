@@ -1,7 +1,8 @@
 import { ChevronDown, ChevronUp, ListEnd, Pin, Trash2, Zap } from 'lucide-react'
-import type {
-  QueueEventType,
-  RunMessageQueueSnapshot,
+import {
+  visibleQueueItems,
+  type QueueEventType,
+  type RunMessageQueueSnapshot,
 } from '../hooks/useRunMessageQueue'
 
 const modes: Array<{ value: QueueEventType; label: string; icon: typeof ListEnd; title: string }> = [
@@ -79,13 +80,9 @@ export default function RunMessageQueue({
   onMove: (id: string, direction: -1 | 1) => void
   onCancel: (id: string) => void
 }) {
-  const activeItems = snapshot.items.filter((item) =>
-    ['pending', 'injecting', 'injected', 'executing'].includes(item.status),
-  )
-  const recentTerminalItems = snapshot.items
-    .filter((item) => ['answered', 'failed', 'dropped', 'cancelled'].includes(item.status))
-    .slice(-3)
-  const visibleItems = [...activeItems, ...recentTerminalItems]
+  // Once a queued message starts executing it belongs in the conversation,
+  // not in the list of messages still waiting to be processed.
+  const visibleItems = visibleQueueItems(snapshot)
   if (!visibleItems.length && !error) return null
 
   const pendingIds = visibleItems.filter((item) => item.status === 'pending').map((item) => item.id)

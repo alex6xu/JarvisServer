@@ -2,16 +2,18 @@ package gateway
 
 // ChatRequest is the body of POST /v1/agent/chat.
 type ChatRequest struct {
-	Message        string `json:"message"`
-	SessionID      string `json:"session_id,omitempty"`
-	Model          string `json:"model,omitempty"`
-	Stream         bool   `json:"stream,omitempty"`
-	WorkspaceID    string `json:"workspace_id,omitempty"`
-	Mode           string `json:"mode,omitempty"` // "chat" (personal Jarvis) or "coder" (coding Jarvis)
-	Pinned         bool   `json:"pinned,omitempty"`
-	QueueEventType string `json:"queue_event_type,omitempty"`
-	IdempotencyKey string `json:"idempotency_key,omitempty"`
-	AccountID      int    `json:"-"`
+	Message        string   `json:"message"`
+	SessionID      string   `json:"session_id,omitempty"`
+	Model          string   `json:"model,omitempty"`
+	Stream         bool     `json:"stream,omitempty"`
+	WorkspaceID    string   `json:"workspace_id,omitempty"`
+	ProjectID      string   `json:"project_id,omitempty"`
+	DocumentIDs    []string `json:"document_ids,omitempty"`
+	Mode           string   `json:"mode,omitempty"` // "chat" (personal Jarvis) or "coder" (coding Jarvis)
+	Pinned         bool     `json:"pinned,omitempty"`
+	QueueEventType string   `json:"queue_event_type,omitempty"`
+	IdempotencyKey string   `json:"idempotency_key,omitempty"`
+	AccountID      int      `json:"-"`
 }
 
 // ChatResponse is returned immediately; the client then opens the SSE stream.
@@ -90,12 +92,24 @@ type ActiveRunInfo struct {
 
 // RestoredMessage matches web RestoredSessionMessage.
 type RestoredMessage struct {
-	ID        string     `json:"id"`
-	Role      string     `json:"role"`
-	Content   string     `json:"content"`
-	Model     string     `json:"model,omitempty"`
-	CreatedAt string     `json:"created_at,omitempty"`
-	ToolSteps []ToolStep `json:"tool_steps,omitempty"`
+	ID        string            `json:"id"`
+	Role      string            `json:"role"`
+	Content   string            `json:"content"`
+	Model     string            `json:"model,omitempty"`
+	CreatedAt string            `json:"created_at,omitempty"`
+	ToolSteps []ToolStep        `json:"tool_steps,omitempty"`
+	Documents []MessageDocument `json:"documents,omitempty"`
+}
+
+// MessageDocument is the safe attachment metadata returned with a restored
+// user message. Storage and extracted-text paths never leave the server.
+type MessageDocument struct {
+	ID        string `json:"id"`
+	ProjectID string `json:"project_id"`
+	Filename  string `json:"filename"`
+	MIMEType  string `json:"mime_type"`
+	SizeBytes int64  `json:"size_bytes"`
+	Status    string `json:"status"`
 }
 
 // SessionMeta is the session object inside SessionDetailResponse.

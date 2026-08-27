@@ -38,6 +38,12 @@ export function createQueueIdempotencyKey() {
   return `queue-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
+const visibleQueueStatuses = new Set<QueueItemStatus>(['pending', 'injecting', 'injected'])
+
+export function visibleQueueItems(snapshot: RunMessageQueueSnapshot): RunMessageQueueItem[] {
+  return snapshot.items.filter((item) => visibleQueueStatuses.has(item.status))
+}
+
 export function pendingQueueOrder(snapshot: RunMessageQueueSnapshot): string[] {
   return snapshot.items.filter((item) => item.status === 'pending').map((item) => item.id)
 }

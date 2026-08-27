@@ -203,6 +203,10 @@ func (s *Service) importGitHubRepository(ctx context.Context, accountID int, own
 	if err := s.Control.UpsertWorkspace(ctx, info); err != nil {
 		return WorkspaceInfo{}, err
 	}
+	if _, err := s.Audit.EnsureWorkspaceProject(ctx, accountID, info.ID); err != nil {
+		_ = s.Control.DeleteWorkspace(ctx, info.ID)
+		return WorkspaceInfo{}, err
+	}
 	cleanup = false
 	return info, nil
 }

@@ -1,4 +1,5 @@
 /** Browser keys and helpers for restoring Chat / Coder sessions. */
+import type { MessageDocument } from '../types/documents'
 
 export function coderWorkspaceKey(accountId: number) {
   return `cg_coder_workspace_${accountId}`
@@ -94,6 +95,7 @@ export type UiMessage = {
   toolSteps?: ToolStep[]
   /** Preferred render path for assistants; falls back to content + toolSteps. */
   segments?: MessageSegment[]
+  documents?: MessageDocument[]
 }
 
 export function appendTextSegment(segments: MessageSegment[], text: string): MessageSegment[] {
@@ -178,6 +180,7 @@ export type RestoredSessionMessage = {
   created_at?: string
   tool_steps?: ToolStep[]
   toolSteps?: ToolStep[]
+  documents?: MessageDocument[]
 }
 
 export type ActiveRunInfo = {
@@ -216,6 +219,7 @@ export function mapRestoredMessages(messages: RestoredSessionMessage[] | undefin
       content,
       timestamp: m.created_at ? new Date(m.created_at) : new Date(),
       model: m.model,
+      documents: m.documents,
       toolSteps,
       segments:
         m.role === 'assistant' || (!m.role && content)

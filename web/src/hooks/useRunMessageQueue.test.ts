@@ -4,6 +4,7 @@ import {
   movePendingMessage,
   pendingQueueOrder,
   QueueUnavailableError,
+  visibleQueueItems,
   type RunMessageQueueSnapshot,
 } from './useRunMessageQueue'
 
@@ -14,7 +15,10 @@ const snapshot: RunMessageQueueSnapshot = {
     { id: 'done', run_id: 'run-1', session_id: 's', content: 'done', event_type: 'enqueue', position: 0, status: 'completed', created_at: '', updated_at: '' },
     { id: 'a', run_id: 'run-1', session_id: 's', content: 'A', event_type: 'enqueue', position: 1, status: 'pending', created_at: '', updated_at: '' },
     { id: 'b', run_id: 'run-1', session_id: 's', content: 'B', event_type: 'pin', position: 2, status: 'pending', created_at: '', updated_at: '' },
-    { id: 'injected', run_id: 'run-1', session_id: 's', content: 'read', event_type: 'steer', position: 3, status: 'injected', created_at: '', updated_at: '' },
+    { id: 'injecting', run_id: 'run-1', session_id: 's', content: 'loading', event_type: 'steer', position: 3, status: 'injecting', created_at: '', updated_at: '' },
+    { id: 'injected', run_id: 'run-1', session_id: 's', content: 'read', event_type: 'steer', position: 4, status: 'injected', created_at: '', updated_at: '' },
+    { id: 'executing', run_id: 'run-1', session_id: 's', content: 'running', event_type: 'enqueue', position: 5, status: 'executing', created_at: '', updated_at: '' },
+    { id: 'answered', run_id: 'run-1', session_id: 's', content: 'answered', event_type: 'enqueue', position: 6, status: 'answered', created_at: '', updated_at: '' },
   ],
 }
 
@@ -24,6 +28,12 @@ describe('queue availability errors', () => {
     expect(isQueueUnavailableError(new QueueUnavailableError(409, 'run closed'))).toBe(true)
     expect(isQueueUnavailableError(new QueueUnavailableError(500, 'failed'))).toBe(false)
     expect(isQueueUnavailableError(new Error('HTTP 404'))).toBe(false)
+  })
+})
+
+describe('run message queue visibility', () => {
+  it('removes executing and terminal messages from the waiting queue', () => {
+    expect(visibleQueueItems(snapshot).map((item) => item.id)).toEqual(['a', 'b', 'injecting', 'injected'])
   })
 })
 
