@@ -71,6 +71,56 @@ curl --fail http://127.0.0.1:8080/healthz
 - 升级：先停服备份，替换二进制与 web/dist，再启动；回滚用 .previous 产物 + 数据库备份。
 - 安全：只开 443；不把 API Key 写进 Git；数据库权限 0600。
 
+## 一键同步工作空间到安装目录（推荐）
+
+在开发工作空间完成修改后，使用 `deploy/sync-install.sh` 可以一次完成测试、生产构建、源码同步、产物替换、systemd 重启和健康检查：
+
+```bash
+cd /root/JarvisServer/workspaces/<workspace-id>
+
+# 首先只预览，不复制、不构建、不重启
+bash deploy/sync-install.sh --dry-run --skip-tests
+
+# 确认后正式同步到默认安装目录 /root/JarvisServer
+bash deploy/sync-install.sh
+```
+
+如果已经把完整源码直接放在安装目录中，也可以在安装目录一键执行；脚本会识别源目录和安装目录相同，并跳过源码复制：
+
+```bash
+cd /root/JarvisServer
+bash deploy/sync-install.sh
+```
+
+常用选项：
+
+```bash
+# 仍构建和同步，但不重启服务
+bash deploy/sync-install.sh --no-restart
+
+# 跳过测试，只执行生产构建、同步和部署
+bash deploy/sync-install.sh --skip-tests
+
+# 指定其他安装目录、配置、服务和健康地址
+JARVIS_INSTALL_DIR=/opt/jarvis-source \
+JARVIS_CONFIG_FILE=/opt/jarvis-source/etc/gateway.server.yaml \
+JARVIS_SYSTEMD_UNIT=jarvis-gateway.service \
+JARVIS_HEALTH_URL=http://127.0.0.1:8080/healthz \
+bash deploy/sync-install.sh
+```
+
+脚本的安全规则：
+
+- 不复制或覆盖安装目录的 `.git`，避免两个仓库的 commit/rebase 状态混在一起；
+- 保留 `data/`、`runtime/`、`workspaces/`、`backups/`、生产 `gateway.server.yaml` 和环境文件；
+- 拒绝受限的 Snap Go，自动寻找 native Go toolchain，也可通过 `JARVIS_GO` 指定；
+- 部署前检查磁盘空间，并用文件锁阻止两个同步任务同时运行；
+- Gateway 和 Web 先构建到 staging，再原子替换；
+- 健康检查失败时自动恢复上一版二进制和前端产物；
+- 每次部署备份位于 `<安装目录>/backups/sync-install-<UTC时间>`。
+
+> 脚本不会自动执行 `git pull` 或 `git commit`。请先在工作空间确认代码版本，避免将远端更新、提交历史和生产部署混为同一个操作。
+
 ## 拉取代码后使用 screen 更新
 
 服务器直接保留源码仓库、Caddy 指向仓库内 `web/dist` 时，可以在 `git pull` 成功后执行：

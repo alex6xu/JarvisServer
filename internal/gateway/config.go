@@ -90,8 +90,8 @@ type AgentConf struct {
 	DocumentParserTimeoutSeconds  int    `json:",default=30"`
 	DatabasePath                  string `json:",optional"`
 	AuditRetentionDays            int    `json:",default=30"`
-	AuditMaxBodyBytes             int    `json:",default=1048576"`
-	RunTimeoutSeconds             int    `json:",default=1800"`
+	AuditMaxBodyBytes             int    `json:",default=65536"`
+	RunTimeoutSeconds             int    `json:",default=7200"`
 	AllowPrivateProviderURLs      bool   `json:",optional"`
 	AllowPrivateNotificationURLs  bool   `json:",optional"`
 }

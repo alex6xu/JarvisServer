@@ -207,6 +207,7 @@ func (t *BashTool) Execute(ctx context.Context, id string, args json.RawMessage,
 
 	shell, flag := resolveShell(t.Shell, runtime.GOOS, shellLookPath)
 	cmd := exec.CommandContext(runCtx, shell, flag, a.Command)
+	configureCommandCancellation(cmd)
 	if t.Dir != "" {
 		cmd.Dir = t.Dir
 	}
@@ -292,6 +293,7 @@ func (t *BashTool) startBackground(a bashToolArgs) (agentcore.AgentToolResult, e
 
 	shell, flag := resolveShell(t.Shell, runtime.GOOS, shellLookPath)
 	cmd := exec.CommandContext(jobCtx, shell, flag, a.Command)
+	configureCommandCancellation(cmd)
 	if t.Dir != "" {
 		cmd.Dir = t.Dir
 	}

@@ -106,7 +106,7 @@ func (o Options) withDefaults() Options {
 		o.AuditRetentionDays = 30
 	}
 	if o.AuditMaxBodyBytes <= 0 {
-		o.AuditMaxBodyBytes = 1 << 20
+		o.AuditMaxBodyBytes = 64 << 10
 	}
 	if o.WorkspaceUploadMaxBytes <= 0 {
 		o.WorkspaceUploadMaxBytes = defaultWorkspaceArchiveBytes
@@ -130,7 +130,7 @@ func (o Options) withDefaults() Options {
 		o.DocumentParserTimeout = 30 * time.Second
 	}
 	if o.RunTimeout == 0 {
-		o.RunTimeout = 30 * time.Minute
+		o.RunTimeout = 2 * time.Hour
 	}
 	if o.GitHubClientID == "" {
 		o.GitHubClientID = os.Getenv("GITHUB_CLIENT_ID")

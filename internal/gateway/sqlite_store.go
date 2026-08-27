@@ -343,6 +343,7 @@ func (s *GatewayStore) PruneAudit(ctx context.Context, before time.Time) error {
 	defer tx.Rollback()
 	cutoff := before.UTC().Format(time.RFC3339Nano)
 	queries := []string{
+		`DELETE FROM run_checkpoints WHERE created_at < ?`,
 		`DELETE FROM provider_exchanges WHERE created_at < ?`,
 		`DELETE FROM chat_exchanges WHERE created_at < ?`,
 		`DELETE FROM runs WHERE created_at < ? AND status <> 'running'`,
