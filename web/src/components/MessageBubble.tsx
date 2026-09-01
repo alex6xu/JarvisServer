@@ -1,6 +1,7 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Components } from 'react-markdown'
+import type { ReactNode } from 'react'
 import {
   segmentsFromContentAndTools,
   type MessageSegment,
@@ -9,6 +10,7 @@ import {
 } from '../lib/sessionPersist'
 import ToolStepCard from './ToolStepCard'
 import DocumentChips from './DocumentChips'
+import { conversationHeadingId, conversationMessageId, parseMarkdownHeadings } from '../lib/conversationOutline'
 
 type Props = {
   message: UiMessage
@@ -20,7 +22,7 @@ type RenderSegment =
   | { type: 'text'; content: string; sourceIndex: number }
   | { type: 'tools'; steps: ToolStep[]; sourceIndex: number; stepOffset: number }
 
-const markdownComponents: Components = {
+const baseMarkdownComponents: Components = {
   table: ({ children }) => (
     <div className="markdown-table-wrap">
       <table>{children}</table>
@@ -33,15 +35,49 @@ const markdownComponents: Components = {
   ),
 }
 
-function AssistantMarkdown({ text }: { text: string }) {
+function headingComponent(
+  tag: 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6',
+  messageId: string,
+  nextOrdinal: () => number,
+) {
+  const Heading = tag
+  return function MarkdownHeading({ children }: { children?: ReactNode }) {
+    const ordinal = nextOrdinal()
+    return (
+      <Heading
+        id={conversationHeadingId(messageId, ordinal)}
+        className="scroll-mt-20"
+      >
+        {children}
+      </Heading>
+    )
+  }
+}
+
+function AssistantMarkdown({ text, messageId, headingStart = 0 }: { text: string; messageId: string; headingStart?: number }) {
   if (!text) return null
+  let ordinal = headingStart
+  const nextOrdinal = () => ordinal++
+  const components: Components = {
+    ...baseMarkdownComponents,
+    h1: headingComponent('h1', messageId, nextOrdinal),
+    h2: headingComponent('h2', messageId, nextOrdinal),
+    h3: headingComponent('h3', messageId, nextOrdinal),
+    h4: headingComponent('h4', messageId, nextOrdinal),
+    h5: headingComponent('h5', messageId, nextOrdinal),
+    h6: headingComponent('h6', messageId, nextOrdinal),
+  }
   return (
     <div className="markdown-body text-[13px]">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
         {text}
       </ReactMarkdown>
     </div>
   )
+}
+
+export function countMarkdownHeadings(text: string): number {
+  return parseMarkdownHeadings(text).length
 }
 
 function resolveSegments(message: UiMessage): MessageSegment[] {
@@ -82,9 +118,13 @@ export default function MessageBubble({ message, markdownAssistant = true, colla
   const segments = resolveSegments(message)
   const renderSegments = collapseTools ? groupToolSegments(segments) : null
   let toolOrdinal = 0
+  let headingOrdinal = 0
 
   return (
-    <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} animate-fade-in`}>
+    <div
+      id={conversationMessageId(message.id)}
+      className={`flex scroll-mt-4 ${isUser ? 'justify-end' : 'justify-start'} animate-fade-in`}
+    >
       <div
         className={`${
           isUser ? 'max-w-[80%]' : 'max-w-[min(92%,48rem)] w-full'
@@ -112,9 +152,19 @@ export default function MessageBubble({ message, markdownAssistant = true, colla
             {(renderSegments || segments).map((seg, idx) => {
               if (seg.type === 'text') {
                 if (!seg.content) return null
-                return markdownAssistant ? (
-                  <AssistantMarkdown key={`${message.id}-t-${'sourceIndex' in seg ? seg.sourceIndex : idx}`} text={seg.content} />
-                ) : (
+                if (markdownAssistant) {
+                  const headingStart = headingOrdinal
+                  headingOrdinal += countMarkdownHeadings(seg.content)
+                  return (
+                    <AssistantMarkdown
+                      key={`${message.id}-t-${'sourceIndex' in seg ? seg.sourceIndex : idx}`}
+                      text={seg.content}
+                      messageId={message.id}
+                      headingStart={headingStart}
+                    />
+                  )
+                }
+                return (
                   <p key={`${message.id}-t-${'sourceIndex' in seg ? seg.sourceIndex : idx}`} className="text-[13px] whitespace-pre-wrap">
                     {seg.content}
                   </p>

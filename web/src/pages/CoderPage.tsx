@@ -5,6 +5,7 @@ import MessageBubble from '../components/MessageBubble'
 import RecentSessionSelect from '../components/RecentSessionSelect'
 import StopRunButton from '../components/StopRunButton'
 import RunMessageQueue, { QueueModeControl } from '../components/RunMessageQueue'
+import ConversationOutline from '../components/ConversationOutline'
 import { useVoiceInput } from '../hooks/useVoiceInput'
 import { useRunEventStream } from '../hooks/useRunEventStream'
 import { useRunStop } from '../hooks/useRunStop'
@@ -1075,7 +1076,9 @@ export default function CoderPage() {
         </div>
       )}
 
-      <div className="flex-1 overflow-auto p-6 space-y-4">
+      <div className="flex min-h-0 flex-1">
+        <ConversationOutline messages={messages} />
+        <div className="min-w-0 flex-1 overflow-auto p-6 space-y-4">
         {messages.length === 0 ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-center animate-fade-in max-w-2xl w-full">
@@ -1124,7 +1127,8 @@ export default function CoderPage() {
           </div>
         )}
 
-        <div ref={messagesEndRef} />
+          <div ref={messagesEndRef} />
+        </div>
       </div>
 
       {messages.length > 0 && (
