@@ -141,6 +141,13 @@ func apiRoutes(svc *Service) []rest.Route {
 		{Method: http.MethodPut, Path: "/v1/admin/route-policies/:id", Handler: svc.handlePublishRoutePolicy},
 		{Method: http.MethodGet, Path: "/v1/admin/runs/:runId/attempts", Handler: svc.handleListRunAttempts},
 
+		// Admin plugins. Changes apply to subsequent runs.
+		{Method: http.MethodGet, Path: "/v1/admin/plugins", Handler: svc.handleAdminListPlugins},
+		{Method: http.MethodPost, Path: "/v1/admin/plugins/install", Handler: svc.handleAdminInstallPlugin},
+		{Method: http.MethodPost, Path: "/v1/admin/plugins/reload", Handler: svc.handleAdminReloadPlugins},
+		{Method: http.MethodPut, Path: "/v1/admin/plugins/:id/status", Handler: svc.handleAdminPluginStatus},
+		{Method: http.MethodDelete, Path: "/v1/admin/plugins/package", Handler: svc.handleAdminUninstallPlugin},
+
 		// Admin skills (static paths before :name)
 		{Method: http.MethodGet, Path: "/v1/admin/skills", Handler: svc.handleAdminListSkills},
 		{Method: http.MethodPost, Path: "/v1/admin/skills/validate", Handler: svc.handleAdminValidateSkill},

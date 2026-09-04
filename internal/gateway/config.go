@@ -64,36 +64,46 @@ type GitHubConf struct {
 }
 
 // AgentConf holds jarvis agent / auth settings layered on RestConf.
+type PluginConf struct {
+	Enabled            *bool  `json:",optional"`
+	Dir                string `json:",optional"`
+	StatePath          string `json:",optional"`
+	InitTimeoutSeconds int    `json:",default=10"`
+	CallTimeoutSeconds int    `json:",default=60"`
+	MaxOutputBytes     int    `json:",default=1048576"`
+}
+
 type AgentConf struct {
-	Cwd                           string `json:",optional"`
-	Model                         string `json:",optional"`
-	BaseURL                       string `json:",optional"`
-	Protocol                      string `json:",optional"`
-	ProviderName                  string `json:",optional"`
-	APIKey                        string `json:",optional"`
-	ThinkingLevel                 string `json:",optional"`
-	Approve                       bool   `json:",optional"`
-	NoTools                       bool   `json:",optional"`
-	NoSkills                      bool   `json:",optional"`
-	AuthMode                      string `json:",default=token"`
-	APIToken                      string `json:",optional"`
-	AdminPassword                 string `json:",optional"`
-	AllowRegistration             bool   `json:",optional"`
-	WorkspacesRoot                string `json:",optional"`
-	WorkspaceUploadMaxBytes       int64  `json:",default=104857600"`
-	WorkspaceMaxBytes             int64  `json:",default=104857600"`
-	WorkspaceMaxFileBytes         int64  `json:",default=10485760"`
-	DocumentsRoot                 string `json:",optional"`
-	DocumentUploadMaxBytes        int64  `json:",default=10485760"`
-	DocumentProjectMaxBytes       int64  `json:",default=524288000"`
-	DocumentExtractedTextMaxBytes int64  `json:",default=2097152"`
-	DocumentParserTimeoutSeconds  int    `json:",default=30"`
-	DatabasePath                  string `json:",optional"`
-	AuditRetentionDays            int    `json:",default=30"`
-	AuditMaxBodyBytes             int    `json:",default=65536"`
-	RunTimeoutSeconds             int    `json:",default=7200"`
-	AllowPrivateProviderURLs      bool   `json:",optional"`
-	AllowPrivateNotificationURLs  bool   `json:",optional"`
+	Cwd                           string     `json:",optional"`
+	Model                         string     `json:",optional"`
+	BaseURL                       string     `json:",optional"`
+	Protocol                      string     `json:",optional"`
+	ProviderName                  string     `json:",optional"`
+	APIKey                        string     `json:",optional"`
+	ThinkingLevel                 string     `json:",optional"`
+	Approve                       bool       `json:",optional"`
+	NoTools                       bool       `json:",optional"`
+	NoSkills                      bool       `json:",optional"`
+	Plugins                       PluginConf `json:",optional"`
+	AuthMode                      string     `json:",default=token"`
+	APIToken                      string     `json:",optional"`
+	AdminPassword                 string     `json:",optional"`
+	AllowRegistration             bool       `json:",optional"`
+	WorkspacesRoot                string     `json:",optional"`
+	WorkspaceUploadMaxBytes       int64      `json:",default=104857600"`
+	WorkspaceMaxBytes             int64      `json:",default=104857600"`
+	WorkspaceMaxFileBytes         int64      `json:",default=10485760"`
+	DocumentsRoot                 string     `json:",optional"`
+	DocumentUploadMaxBytes        int64      `json:",default=10485760"`
+	DocumentProjectMaxBytes       int64      `json:",default=524288000"`
+	DocumentExtractedTextMaxBytes int64      `json:",default=2097152"`
+	DocumentParserTimeoutSeconds  int        `json:",default=30"`
+	DatabasePath                  string     `json:",optional"`
+	AuditRetentionDays            int        `json:",default=30"`
+	AuditMaxBodyBytes             int        `json:",default=65536"`
+	RunTimeoutSeconds             int        `json:",default=7200"`
+	AllowPrivateProviderURLs      bool       `json:",optional"`
+	AllowPrivateNotificationURLs  bool       `json:",optional"`
 }
 
 // ToOptions maps Config into the existing Service Options.
@@ -126,6 +136,12 @@ func (c Config) ToOptions() Options {
 		Approve:                       c.Agent.Approve,
 		NoTools:                       c.Agent.NoTools,
 		NoSkills:                      c.Agent.NoSkills,
+		PluginsEnabled:                c.Agent.Plugins.Enabled,
+		PluginsDir:                    c.Agent.Plugins.Dir,
+		PluginStatePath:               c.Agent.Plugins.StatePath,
+		PluginInitTimeout:             time.Duration(c.Agent.Plugins.InitTimeoutSeconds) * time.Second,
+		PluginCallTimeout:             time.Duration(c.Agent.Plugins.CallTimeoutSeconds) * time.Second,
+		PluginMaxOutputBytes:          c.Agent.Plugins.MaxOutputBytes,
 		AuthMode:                      c.Agent.AuthMode,
 		APIToken:                      c.Agent.APIToken,
 		AdminPassword:                 c.Agent.AdminPassword,

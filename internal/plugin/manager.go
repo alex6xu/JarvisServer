@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"time"
 
 	"github.com/alex6xu/jarvisserver/internal/agentcore"
 )
@@ -20,6 +21,47 @@ type Manager struct {
 	plugins []*Plugin
 }
 
+// DiscoveryOptions controls which launchers are loaded and how their child
+// processes are constrained. An empty Enabled map means all candidates enabled.
+type DiscoveryOptions struct {
+	Enabled        map[string]bool
+	StrictUnique   bool
+	Dir            string
+	Env            []string
+	InitTimeout    time.Duration
+	CallTimeout    time.Duration
+	MaxOutputBytes int
+}
+
+// Candidate is one safely discovered launcher, whether enabled or disabled.
+type Candidate struct {
+	ID   string
+	Path string
+}
+
+// Candidates returns deterministic, regular, non-symlink executable launchers.
+func Candidates(dir string) ([]Candidate, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []Candidate{}, nil
+		}
+		return nil, fmt.Errorf("plugin: read dir %q: %w", dir, err)
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
+	out := make([]Candidate, 0, len(entries))
+	for _, entry := range entries {
+		// DirEntry.Info follows symlinks, so reject using Lstat on the full path.
+		path := filepath.Join(dir, entry.Name())
+		info, err := os.Lstat(path)
+		if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || !isExecutable(info.Mode()) {
+			continue
+		}
+		out = append(out, Candidate{ID: entry.Name(), Path: path})
+	}
+	return out, nil
+}
+
 // Discover finds and loads every plugin under dir. A plugin is any executable
 // regular file directly inside dir (non-executable files and subdirectories are
 // ignored). Each plugin is launched and handshaked; a failure is written to
@@ -27,32 +69,50 @@ type Manager struct {
 // error — it yields an empty Manager. pluginStderr, when non-nil, receives every
 // plugin's stderr.
 func Discover(dir string, warnLog, pluginStderr io.Writer) (*Manager, error) {
-	m := &Manager{}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return m, nil // no plugins directory → no plugins
-		}
-		return nil, fmt.Errorf("plugin: read dir %q: %w", dir, err)
-	}
-	// Deterministic load order for stable tool ordering and diagnostics.
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
+	return DiscoverWithOptions(dir, warnLog, pluginStderr, DiscoveryOptions{})
+}
 
-	for _, e := range entries {
-		if e.IsDir() {
+// DiscoverWithOptions loads the selected candidate launchers with explicit
+// process limits. Duplicate manifest/tool names are rejected deterministically.
+func DiscoverWithOptions(dir string, warnLog, pluginStderr io.Writer, opts DiscoveryOptions) (*Manager, error) {
+	m := &Manager{}
+	candidates, err := Candidates(dir)
+	if err != nil {
+		return nil, err
+	}
+	seenPlugins := make(map[string]bool)
+	seenTools := make(map[string]bool)
+	for _, candidate := range candidates {
+		if len(opts.Enabled) > 0 && !opts.Enabled[candidate.ID] {
 			continue
 		}
-		info, err := e.Info()
-		if err != nil || !isExecutable(info.Mode()) {
-			continue
+		p, err := LoadWithOptions(candidate.Path, nil, pluginStderr, LoadOptions{
+			ID: candidate.ID, Dir: opts.Dir, Env: opts.Env,
+			InitTimeout: opts.InitTimeout, CallTimeout: opts.CallTimeout, MaxOutputBytes: opts.MaxOutputBytes,
+		})
+		if opts.StrictUnique && err == nil && seenPlugins[p.Manifest.Name] {
+			err = fmt.Errorf("duplicate plugin manifest name %q", p.Manifest.Name)
 		}
-		path := filepath.Join(dir, e.Name())
-		p, err := Load(path, nil, pluginStderr)
+		if opts.StrictUnique && err == nil {
+			for _, tool := range p.Manifest.Tools {
+				if seenTools[tool.Name] {
+					err = fmt.Errorf("duplicate plugin tool name %q", tool.Name)
+					break
+				}
+			}
+		}
 		if err != nil {
+			if p != nil {
+				_ = p.Close()
+			}
 			if warnLog != nil {
-				fmt.Fprintf(warnLog, "jarvis: plugin %q failed to load: %v\n", e.Name(), err)
+				fmt.Fprintf(warnLog, "jarvis: plugin %q failed to load: %v\n", candidate.ID, err)
 			}
 			continue
+		}
+		seenPlugins[p.Manifest.Name] = true
+		for _, tool := range p.Manifest.Tools {
+			seenTools[tool.Name] = true
 		}
 		m.plugins = append(m.plugins, p)
 	}

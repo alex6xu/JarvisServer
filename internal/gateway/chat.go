@@ -42,6 +42,7 @@ type Service struct {
 	Notifications  *NotificationService
 	Digest         *StockDigestService
 	Skills         *SkillRegistryService
+	Plugins        *PluginRegistry
 	Logger         *distributedlog.Logger
 	metadataCancel context.CancelFunc
 	metadataDone   chan struct{}
@@ -246,6 +247,11 @@ func NewService(opts Options) (*Service, error) {
 		Logger:        opts.Logger,
 	}
 	service.Digest = NewStockDigestService(service.Stocks, service.Crypto, service.NewsSentiment, service.Sentiment, service.Notifications, audit)
+	service.Plugins, err = NewPluginRegistry(opts)
+	if err != nil {
+		_ = service.Close()
+		return nil, fmt.Errorf("initialize plugin registry: %w", err)
+	}
 	if !opts.NoSkills {
 		_, _ = run.LoadSkills(false)
 		knownTools := []string{"stock_latest_digest", "skill_load", "memory_search"}
@@ -376,7 +382,11 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 	}
 
 	noTools := s.Opts.NoTools || (strings.EqualFold(req.Mode, "coder") && req.WorkspaceID == "")
-	env, err := run.SetupEnvAt(
+	pluginOptions := run.PluginLoadOptions{Disabled: true}
+	if s.Plugins != nil {
+		pluginOptions = s.Plugins.LoadOptions(runCwd)
+	}
+	env, err := run.SetupEnvAtWithPlugins(
 		runCwd,
 		model,
 		route.BaseURL,
@@ -389,6 +399,7 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 		nil,
 		true,
 		run.ToolPolicy{},
+		pluginOptions,
 	)
 	if err != nil {
 		return ChatResponse{}, err

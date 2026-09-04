@@ -53,6 +53,13 @@ Agent:
   # ThinkingLevel: ""
   # NoTools: false
   # NoSkills: false # Skill directory defaults to ~/.agents/skills; override with JARVIS_SKILLS_DIR.
+  Plugins:
+    Enabled: true
+    # Dir: /path/to/JARVIS_HOME/plugins
+    # StatePath: /path/to/JARVIS_HOME/plugins-state.json
+    InitTimeoutSeconds: 10
+    CallTimeoutSeconds: 60
+    MaxOutputBytes: 1048576
   # WorkspacesRoot: ./workspaces
   # DatabasePath: ./.jarvis/gateway.db
   # APIToken: ""

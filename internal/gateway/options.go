@@ -30,6 +30,13 @@ type Options struct {
 	NoTools bool
 	// NoSkills disables skill discovery.
 	NoSkills bool
+	// PluginsEnabled controls external JSON-RPC plugins for Gateway runs.
+	PluginsEnabled       *bool
+	PluginsDir           string
+	PluginStatePath      string
+	PluginInitTimeout    time.Duration
+	PluginCallTimeout    time.Duration
+	PluginMaxOutputBytes int
 	// AuthMode is "none" (accept any bearer / auto-issue on login) or "token"
 	// (require Authorization matching APIKey when set).
 	AuthMode string
@@ -95,12 +102,26 @@ type Options struct {
 	Logger *distributedlog.Logger
 }
 
+func boolPtr(value bool) *bool { return &value }
+
 func (o Options) withDefaults() Options {
 	if o.Addr == "" {
 		o.Addr = ":8080"
 	}
 	if o.AuthMode == "" {
 		o.AuthMode = "token"
+	}
+	if o.PluginsEnabled == nil {
+		o.PluginsEnabled = boolPtr(true)
+	}
+	if o.PluginInitTimeout <= 0 {
+		o.PluginInitTimeout = 10 * time.Second
+	}
+	if o.PluginCallTimeout <= 0 {
+		o.PluginCallTimeout = 60 * time.Second
+	}
+	if o.PluginMaxOutputBytes <= 0 {
+		o.PluginMaxOutputBytes = 1 << 20
 	}
 	if o.AuditRetentionDays == 0 {
 		o.AuditRetentionDays = 30

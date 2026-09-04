@@ -35,6 +35,13 @@ type InstallResult struct {
 // for the caller/uninstall to reconcile via a re-run (distribution is
 // idempotent — each distributor clears its own stale target first).
 func Install(rawRef, lockfilePath string, logw io.Writer) (InstallResult, error) {
+	return InstallWithEnvironment(rawRef, lockfilePath, logw, nil)
+}
+
+// InstallWithEnvironment is Install with an explicit environment for npm pack.
+// It allows a long-lived server to avoid exposing its credential environment to
+// the package-manager subprocess while retaining CLI compatibility.
+func InstallWithEnvironment(rawRef, lockfilePath string, logw io.Writer, environment []string) (InstallResult, error) {
 	logf := func(format string, a ...any) {
 		if logw != nil {
 			fmt.Fprintf(logw, format, a...)
@@ -47,7 +54,7 @@ func Install(rawRef, lockfilePath string, logw io.Writer) (InstallResult, error)
 	}
 
 	logf("Fetching %s ...\n", ref.String())
-	fetched, err := Fetch(ref)
+	fetched, err := FetchWithEnvironment(ref, environment)
 	if err != nil {
 		return InstallResult{}, err
 	}
