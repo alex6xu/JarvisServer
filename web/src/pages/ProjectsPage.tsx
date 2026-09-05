@@ -3,6 +3,7 @@ import { FolderKanban, Plus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch, useAccount } from '../context/AccountContext'
 import ProjectDocumentList from '../components/ProjectDocumentList'
+import ProjectTips from '../components/ProjectTips'
 import {
   chatSessionKey,
   coderSessionKey,
@@ -212,26 +213,29 @@ export default function ProjectsPage() {
                   ))}
                 </div>
               </div>
-              <ProjectDocumentList accountId={currentAccount?.id} projectId={detail.project.id} />
-              <div className="min-h-0 flex-1 overflow-auto divide-y divide-border">
+              <div className="min-h-0 flex-1 overflow-auto">
+                <ProjectTips accountId={currentAccount?.id} projectId={detail.project.id} />
+                <ProjectDocumentList accountId={currentAccount?.id} projectId={detail.project.id} />
+                <div className="divide-y divide-border">
                 {detail.sessions.length === 0 && <p className="p-5 text-[13px] text-muted-foreground">项目中还没有会话</p>}
-                {detail.sessions.map((session) => (
-                  <div key={session.id} className="px-5 py-4">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="rounded bg-accent px-1.5 py-0.5 text-[9px] uppercase text-muted-foreground">{session.type}</span>
-                          <p className="truncate text-[13px] font-medium text-foreground">{session.title || session.id}</p>
+                  {detail.sessions.map((session) => (
+                    <div key={session.id} className="px-5 py-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="rounded bg-accent px-1.5 py-0.5 text-[9px] uppercase text-muted-foreground">{session.type}</span>
+                            <p className="truncate text-[13px] font-medium text-foreground">{session.title || session.id}</p>
+                          </div>
+                          <p className="mt-1 line-clamp-2 text-[12px] text-muted-foreground">{session.preview || '暂无预览'}</p>
+                          <p className="mt-2 text-[10px] text-muted-foreground">{session.message_count} 条消息 · {new Date(session.updated_at).toLocaleString('zh-CN', { hour12: false })}</p>
                         </div>
-                        <p className="mt-1 line-clamp-2 text-[12px] text-muted-foreground">{session.preview || '暂无预览'}</p>
-                        <p className="mt-2 text-[10px] text-muted-foreground">{session.message_count} 条消息 · {new Date(session.updated_at).toLocaleString('zh-CN', { hour12: false })}</p>
+                        <button type="button" onClick={() => continueSession(session)} className="h-8 rounded-md border border-border px-3 text-[11px] text-primary hover:bg-accent">
+                          {session.type === 'code' ? '在 Code 继续' : '在 Chat 继续'}
+                        </button>
                       </div>
-                      <button type="button" onClick={() => continueSession(session)} className="h-8 rounded-md border border-border px-3 text-[11px] text-primary hover:bg-accent">
-                        {session.type === 'code' ? '在 Code 继续' : '在 Chat 继续'}
-                      </button>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
             </div>
           )}

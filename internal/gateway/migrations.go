@@ -541,6 +541,33 @@ CREATE INDEX IF NOT EXISTS idx_message_tags_session_entry
     ON message_tags(session_id, entry_id);
 `
 
+const projectTipsSchema = `
+CREATE TABLE IF NOT EXISTS project_tips (
+    id TEXT PRIMARY KEY,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    type TEXT NOT NULL CHECK(type IN ('idea','todo','question','note')),
+    status TEXT NOT NULL CHECK(status IN ('inbox','planned','doing','done','archived')),
+    title TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL,
+    priority INTEGER NOT NULL DEFAULT 0 CHECK(priority BETWEEN 0 AND 3),
+    source TEXT NOT NULL DEFAULT 'user',
+    due_at TEXT NOT NULL DEFAULT '',
+    completed_at TEXT NOT NULL DEFAULT '',
+    position INTEGER NOT NULL DEFAULT 0,
+    version INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    archived_at TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_project_tips_project_status
+    ON project_tips(account_id, project_id, status, priority DESC, position, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_project_tips_due
+    ON project_tips(account_id, due_at) WHERE due_at <> '' AND status NOT IN ('done','archived');
+CREATE INDEX IF NOT EXISTS idx_project_tips_updated
+    ON project_tips(account_id, updated_at DESC);
+`
+
 const runMessageQueueSchema = `
 CREATE TABLE IF NOT EXISTS run_message_queues (
     run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
@@ -595,6 +622,7 @@ var gatewayMigrations = []gatewayMigration{
 	{version: 21, name: "project_organization", schema: projectOrganizationSchema},
 	{version: 22, name: "project_documents", schema: projectDocumentsSchema},
 	{version: 23, name: "message_documents", schema: messageDocumentsSchema},
+	{version: 24, name: "project_tips", schema: projectTipsSchema},
 }
 
 func applyGatewayMigrations(db *sql.DB) error {
