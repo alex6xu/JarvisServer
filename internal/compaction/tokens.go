@@ -175,6 +175,26 @@ func EstimateContextTokens(msgs []agentcore.Message) ContextUsageEstimate {
 	}
 }
 
+// EstimateContextTokensWithPrompt includes the system prompt and serialized
+// tool definitions when provider usage is not yet available. Provider-reported
+// input usage already includes both, so adding them again after a completed
+// turn would double-count the request.
+func EstimateContextTokensWithPrompt(systemPrompt string, msgs []agentcore.Message, tools []agentcore.AgentTool) ContextUsageEstimate {
+	estimate := EstimateContextTokens(msgs)
+	if estimate.LastUsageIndex >= 0 {
+		return estimate
+	}
+	staticTokens := ceilDiv(len(systemPrompt), charsPerToken)
+	for _, tool := range tools {
+		staticTokens += ceilDiv(len(tool.Name())+len(tool.Description())+len(tool.Schema()), charsPerToken)
+		// Account for the surrounding provider-specific JSON shape.
+		staticTokens += 16
+	}
+	estimate.Tokens += staticTokens
+	estimate.TrailingTokens += staticTokens
+	return estimate
+}
+
 // ShouldCompact reports whether context usage has exceeded the usable window,
 // matching pi: contextTokens > contextWindow - reserveTokens. Disabled settings
 // or a non-positive contextWindow (unknown) never trigger compaction.

@@ -85,10 +85,8 @@ func (s *Service) handleChat(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleRunEvents(w http.ResponseWriter, r *http.Request) {
-	runID := pathParam(r, "runId")
-	st, ok := s.Runs.Get(runID)
+	st, _, ok := s.ownedRunFromRequest(w, r)
 	if !ok {
-		writeErr(w, http.StatusNotFound, "run not found")
 		return
 	}
 	afterSeq := parseAfterSeq(r.URL.Query().Get("after_seq"))

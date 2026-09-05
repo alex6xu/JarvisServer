@@ -11,6 +11,8 @@ func registerRoutes(server *rest.Server, svc *Service) {
 	server.AddRoutes(apiRoutes(svc))
 	server.AddRoutes(workspaceUploadRoutes(svc),
 		rest.WithMaxBytes(workspaceUploadRequestMaxBytes(svc.workspaceUploadLimits())))
+	server.AddRoutes(documentUploadRoutes(svc),
+		rest.WithMaxBytes(documentUploadRequestMaxBytes(svc.Opts)))
 	server.AddRoutes(sseRoutes(svc), rest.WithSSE(), rest.WithTimeout(0))
 }
 
@@ -29,6 +31,8 @@ func apiRoutes(svc *Service) []rest.Route {
 		{Method: http.MethodDelete, Path: "/v1/stocks/watchlist/:symbol", Handler: svc.handleDeleteWatchlist},
 		{Method: http.MethodGet, Path: "/v1/crypto/candles", Handler: svc.handleCryptoCandles},
 		{Method: http.MethodGet, Path: "/v1/notifications/channels", Handler: svc.handleListNotificationChannels},
+		{Method: http.MethodPost, Path: "/v1/notifications/channels/wechat/qr/start", Handler: svc.handleStartWeChatQR},
+		{Method: http.MethodGet, Path: "/v1/notifications/channels/wechat/qr/:sessionId", Handler: svc.handleWeChatQRStatus},
 		{Method: http.MethodPut, Path: "/v1/notifications/channels/:kind", Handler: svc.handleUpsertNotificationChannel},
 		{Method: http.MethodDelete, Path: "/v1/notifications/channels/:kind", Handler: svc.handleDeleteNotificationChannel},
 		{Method: http.MethodPost, Path: "/v1/notifications/channels/:kind/test", Handler: svc.handleTestNotificationChannel},
@@ -43,9 +47,30 @@ func apiRoutes(svc *Service) []rest.Route {
 		{Method: http.MethodPost, Path: "/v1/auth/logout", Handler: svc.handleAuthLogout},
 		{Method: http.MethodPost, Path: "/v1/auth/change-password", Handler: svc.handleChangePassword},
 
+		// Projects and conversation organization.
+		{Method: http.MethodGet, Path: "/v1/projects", Handler: svc.handleListProjects},
+		{Method: http.MethodPost, Path: "/v1/projects", Handler: svc.handleCreateProject},
+		{Method: http.MethodGet, Path: "/v1/projects/documents/limits", Handler: svc.handleProjectDocumentLimits},
+		{Method: http.MethodGet, Path: "/v1/projects/:projectId/documents", Handler: svc.handleListProjectDocuments},
+		{Method: http.MethodGet, Path: "/v1/projects/:projectId/documents/:documentId", Handler: svc.handleGetProjectDocument},
+		{Method: http.MethodGet, Path: "/v1/projects/:projectId/documents/:documentId/download", Handler: svc.handleDownloadProjectDocument},
+		{Method: http.MethodDelete, Path: "/v1/projects/:projectId/documents/:documentId", Handler: svc.handleDeleteProjectDocument},
+		{Method: http.MethodGet, Path: "/v1/projects/:projectId/tips", Handler: svc.handleListProjectTips},
+		{Method: http.MethodPost, Path: "/v1/projects/:projectId/tips", Handler: svc.handleCreateProjectTip},
+		{Method: http.MethodGet, Path: "/v1/projects/:projectId/tips/:tipId", Handler: svc.handleGetProjectTip},
+		{Method: http.MethodPatch, Path: "/v1/projects/:projectId/tips/:tipId", Handler: svc.handleUpdateProjectTip},
+		{Method: http.MethodDelete, Path: "/v1/projects/:projectId/tips/:tipId", Handler: svc.handleDeleteProjectTip},
+		{Method: http.MethodGet, Path: "/v1/projects/:id", Handler: svc.handleGetProject},
+
 		// Agent sessions / chat / import (static paths before :param)
 		{Method: http.MethodPost, Path: "/v1/agent/chat", Handler: svc.handleChat},
 		{Method: http.MethodPost, Path: "/v1/agent/runs/:runId/cancel", Handler: svc.handleCancelRun},
+		{Method: http.MethodGet, Path: "/v1/agent/runs/:runId/messages/queue", Handler: svc.handleGetRunMessageQueue},
+		{Method: http.MethodPost, Path: "/v1/agent/runs/:runId/messages/queue", Handler: svc.handlePostRunMessageQueue},
+		{Method: http.MethodPost, Path: "/v1/agent/sessions/:sessionId/messages/queue", Handler: svc.handlePostSessionMessageQueue},
+		{Method: http.MethodPost, Path: "/v1/agent/runs/:runId/messages/:messageId/pin", Handler: svc.handlePinRunMessage},
+		{Method: http.MethodPut, Path: "/v1/agent/runs/:runId/messages/queue/order", Handler: svc.handleReorderRunMessageQueue},
+		{Method: http.MethodDelete, Path: "/v1/agent/runs/:runId/messages/:messageId", Handler: svc.handleDeleteRunMessage},
 		{Method: http.MethodGet, Path: "/v1/agent/sessions", Handler: svc.handleListSessions},
 		{Method: http.MethodGet, Path: "/v1/agent/sessions/active", Handler: svc.handleGetActiveSession},
 		{Method: http.MethodPut, Path: "/v1/agent/sessions/active", Handler: svc.handleSetActiveSession},
@@ -56,6 +81,9 @@ func apiRoutes(svc *Service) []rest.Route {
 		{Method: http.MethodPost, Path: "/v1/agent/sessions/:sessionId/fork", Handler: svc.handleForkSession},
 		{Method: http.MethodGet, Path: "/v1/agent/sessions/:sessionId/diff", Handler: svc.handleSessionDiff},
 		{Method: http.MethodPost, Path: "/v1/agent/sessions/:sessionId/merge", Handler: svc.handleMergeSession},
+		{Method: http.MethodGet, Path: "/v1/agent/sessions/:sessionId/project", Handler: svc.handleGetSessionProject},
+		{Method: http.MethodPut, Path: "/v1/agent/sessions/:sessionId/project", Handler: svc.handleSetSessionProject},
+		{Method: http.MethodDelete, Path: "/v1/agent/sessions/:sessionId/project", Handler: svc.handleDeleteSessionProject},
 		{Method: http.MethodGet, Path: "/v1/agent/sessions/:sessionId", Handler: svc.handleGetSession},
 
 		// Tags (static before :slug)
@@ -118,6 +146,13 @@ func apiRoutes(svc *Service) []rest.Route {
 		{Method: http.MethodPut, Path: "/v1/admin/route-policies/:id", Handler: svc.handlePublishRoutePolicy},
 		{Method: http.MethodGet, Path: "/v1/admin/runs/:runId/attempts", Handler: svc.handleListRunAttempts},
 
+		// Admin plugins. Changes apply to subsequent runs.
+		{Method: http.MethodGet, Path: "/v1/admin/plugins", Handler: svc.handleAdminListPlugins},
+		{Method: http.MethodPost, Path: "/v1/admin/plugins/install", Handler: svc.handleAdminInstallPlugin},
+		{Method: http.MethodPost, Path: "/v1/admin/plugins/reload", Handler: svc.handleAdminReloadPlugins},
+		{Method: http.MethodPut, Path: "/v1/admin/plugins/:id/status", Handler: svc.handleAdminPluginStatus},
+		{Method: http.MethodDelete, Path: "/v1/admin/plugins/package", Handler: svc.handleAdminUninstallPlugin},
+
 		// Admin skills (static paths before :name)
 		{Method: http.MethodGet, Path: "/v1/admin/skills", Handler: svc.handleAdminListSkills},
 		{Method: http.MethodPost, Path: "/v1/admin/skills/validate", Handler: svc.handleAdminValidateSkill},
@@ -137,6 +172,12 @@ func apiRoutes(svc *Service) []rest.Route {
 	}
 }
 
+func documentUploadRoutes(svc *Service) []rest.Route {
+	return []rest.Route{
+		{Method: http.MethodPost, Path: "/v1/projects/:projectId/documents", Handler: svc.handleUploadProjectDocument},
+	}
+}
+
 func workspaceUploadRoutes(svc *Service) []rest.Route {
 	return []rest.Route{
 		{Method: http.MethodPost, Path: "/v1/workspaces/upload", Handler: svc.handleUploadWorkspace},
@@ -147,5 +188,6 @@ func sseRoutes(svc *Service) []rest.Route {
 	return []rest.Route{
 		{Method: http.MethodGet, Path: "/v1/agent/runs/:runId/events", Handler: svc.handleRunEvents},
 		{Method: http.MethodGet, Path: "/v1/crypto/stream", Handler: svc.handleCryptoStream},
+		{Method: http.MethodGet, Path: "/v1/crypto/liquidations/stream", Handler: svc.handleCryptoLiquidationStream},
 	}
 }

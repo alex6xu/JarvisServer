@@ -62,6 +62,13 @@ func EnsureNPM() error {
 // npm's own error output (unknown package, network failure, auth) is included
 // in the returned error so the user sees why the fetch failed.
 func Fetch(ref PackageRef) (FetchResult, error) {
+	return FetchWithEnvironment(ref, nil)
+}
+
+// FetchWithEnvironment is Fetch with an explicit npm subprocess environment.
+// A nil environment preserves CLI inheritance; Gateway passes a sanitized list
+// so package installation cannot read provider or administrator secrets.
+func FetchWithEnvironment(ref PackageRef, environment []string) (FetchResult, error) {
 	if err := EnsureNPM(); err != nil {
 		return FetchResult{}, err
 	}
@@ -87,6 +94,7 @@ func Fetch(ref PackageRef) (FetchResult, error) {
 		"--pack-destination", tmp,
 		"--ignore-scripts",
 		"--loglevel", "error")
+	cmd.Env = environment
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()

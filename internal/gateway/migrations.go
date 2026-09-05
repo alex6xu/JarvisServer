@@ -389,6 +389,215 @@ CREATE INDEX IF NOT EXISTS idx_account_active_sessions_updated
     ON account_active_sessions(account_id, updated_at DESC);
 `
 
+const providerModelMetadataSchema = `
+ALTER TABLE provider_models ADD COLUMN max_input_tokens INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE provider_models ADD COLUMN max_output_tokens INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE provider_models ADD COLUMN metadata_source TEXT NOT NULL DEFAULT 'provider_default';
+ALTER TABLE provider_models ADD COLUMN manual_context_window INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE provider_models ADD COLUMN detected_at TEXT;
+`
+
+const projectOrganizationSchema = `
+CREATE TABLE IF NOT EXISTS projects (
+    id TEXT PRIMARY KEY,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    slug TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT 'user',
+    status TEXT NOT NULL DEFAULT 'active',
+    linked_workspace_id TEXT NOT NULL DEFAULT '',
+    session_count INTEGER NOT NULL DEFAULT 0,
+    message_count INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(account_id, slug)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_account_workspace
+    ON projects(account_id, linked_workspace_id) WHERE linked_workspace_id <> '';
+CREATE INDEX IF NOT EXISTS idx_projects_account_updated
+    ON projects(account_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS session_projects (
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    session_id TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    confidence REAL NOT NULL DEFAULT 1,
+    source TEXT NOT NULL DEFAULT 'user',
+    pinned INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_session_projects_project_updated
+    ON session_projects(account_id, project_id, updated_at DESC);
+`
+
+const projectDocumentsSchema = `
+CREATE TABLE IF NOT EXISTS project_documents (
+    id TEXT PRIMARY KEY,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    filename TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    sha256 TEXT NOT NULL,
+    status TEXT NOT NULL,
+    storage_path TEXT NOT NULL,
+    extracted_text_path TEXT NOT NULL DEFAULT '',
+    extracted_bytes INTEGER NOT NULL DEFAULT 0,
+    parser TEXT NOT NULL DEFAULT '',
+    parser_version TEXT NOT NULL DEFAULT '',
+    error_code TEXT NOT NULL DEFAULT '',
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    deleted_at TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_project_documents_project
+    ON project_documents(account_id, project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_project_documents_hash
+    ON project_documents(account_id, sha256);
+`
+
+const messageDocumentsSchema = `
+CREATE TABLE IF NOT EXISTS message_documents (
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    entry_id TEXT NOT NULL,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    document_id TEXT NOT NULL REFERENCES project_documents(id) ON DELETE RESTRICT,
+    position INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(session_id, entry_id, document_id),
+    UNIQUE(session_id, entry_id, position)
+);
+CREATE INDEX IF NOT EXISTS idx_message_documents_session_entry
+    ON message_documents(session_id, entry_id, position);
+CREATE INDEX IF NOT EXISTS idx_message_documents_document
+    ON message_documents(account_id, document_id);
+
+DROP INDEX IF EXISTS idx_run_message_queue_items_run_position;
+DROP INDEX IF EXISTS idx_run_message_queue_items_session_created;
+ALTER TABLE run_message_queue_items RENAME TO run_message_queue_items_v22;
+CREATE TABLE run_message_queue_items (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    session_id TEXT NOT NULL,
+    account_id INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    event_type TEXT NOT NULL CHECK(event_type IN ('enqueue', 'pin', 'steer')),
+    position INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK(status IN (
+        'pending', 'injecting', 'injected', 'executing',
+        'completed', 'cancelled', 'dropped', 'answered', 'failed'
+    )),
+    idempotency_key TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(run_id, idempotency_key)
+);
+INSERT INTO run_message_queue_items
+SELECT * FROM run_message_queue_items_v22;
+DROP TABLE run_message_queue_items_v22;
+CREATE INDEX idx_run_message_queue_items_run_position
+    ON run_message_queue_items(run_id, position);
+CREATE INDEX idx_run_message_queue_items_session_created
+    ON run_message_queue_items(session_id, created_at);
+`
+
+const localClassificationSchema = `
+CREATE TABLE IF NOT EXISTS account_tags (
+    id TEXT PRIMARY KEY,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    slug TEXT NOT NULL,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT 'system',
+    use_count INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(account_id, slug)
+);
+CREATE INDEX IF NOT EXISTS idx_account_tags_usage
+    ON account_tags(account_id, use_count DESC, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS message_tags (
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    entry_id TEXT NOT NULL,
+    tag_id TEXT NOT NULL REFERENCES account_tags(id) ON DELETE CASCADE,
+    confidence REAL NOT NULL,
+    source TEXT NOT NULL,
+    evidence_json TEXT NOT NULL DEFAULT '{}',
+    classifier_version INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY(session_id, entry_id, tag_id)
+);
+CREATE INDEX IF NOT EXISTS idx_message_tags_account_tag_created
+    ON message_tags(account_id, tag_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_message_tags_session_entry
+    ON message_tags(session_id, entry_id);
+`
+
+const projectTipsSchema = `
+CREATE TABLE IF NOT EXISTS project_tips (
+    id TEXT PRIMARY KEY,
+    account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    type TEXT NOT NULL CHECK(type IN ('idea','todo','question','note')),
+    status TEXT NOT NULL CHECK(status IN ('inbox','planned','doing','done','archived')),
+    title TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL,
+    priority INTEGER NOT NULL DEFAULT 0 CHECK(priority BETWEEN 0 AND 3),
+    source TEXT NOT NULL DEFAULT 'user',
+    due_at TEXT NOT NULL DEFAULT '',
+    completed_at TEXT NOT NULL DEFAULT '',
+    position INTEGER NOT NULL DEFAULT 0,
+    version INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    archived_at TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_project_tips_project_status
+    ON project_tips(account_id, project_id, status, priority DESC, position, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_project_tips_due
+    ON project_tips(account_id, due_at) WHERE due_at <> '' AND status NOT IN ('done','archived');
+CREATE INDEX IF NOT EXISTS idx_project_tips_updated
+    ON project_tips(account_id, updated_at DESC);
+`
+
+const runMessageQueueSchema = `
+CREATE TABLE IF NOT EXISTS run_message_queues (
+    run_id TEXT PRIMARY KEY REFERENCES runs(id) ON DELETE CASCADE,
+    version INTEGER NOT NULL DEFAULT 0,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS run_message_queue_items (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+    session_id TEXT NOT NULL,
+    account_id INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    event_type TEXT NOT NULL CHECK(event_type IN ('enqueue', 'pin', 'steer')),
+    position INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK(status IN (
+        'pending', 'injecting', 'injected', 'executing',
+        'completed', 'cancelled', 'dropped'
+    )),
+    idempotency_key TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(run_id, idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS idx_run_message_queue_items_run_position
+    ON run_message_queue_items(run_id, position);
+CREATE INDEX IF NOT EXISTS idx_run_message_queue_items_session_created
+    ON run_message_queue_items(session_id, created_at);
+`
+
 var gatewayMigrations = []gatewayMigration{
 	{version: 1, name: "gateway_base", schema: gatewaySchema},
 	{version: 2, name: "control_plane_repositories", schema: controlPlaneSchema},
@@ -407,6 +616,13 @@ var gatewayMigrations = []gatewayMigration{
 	{version: 15, name: "watchlist", schema: watchlistSchema},
 	{version: 16, name: "notification_deliveries", schema: notificationDeliveriesSchema},
 	{version: 17, name: "account_active_sessions", schema: activeSessionsSchema},
+	{version: 18, name: "provider_model_metadata", schema: providerModelMetadataSchema},
+	{version: 19, name: "run_message_queues", schema: runMessageQueueSchema},
+	{version: 20, name: "local_conversation_classification", schema: localClassificationSchema},
+	{version: 21, name: "project_organization", schema: projectOrganizationSchema},
+	{version: 22, name: "project_documents", schema: projectDocumentsSchema},
+	{version: 23, name: "message_documents", schema: messageDocumentsSchema},
+	{version: 24, name: "project_tips", schema: projectTipsSchema},
 }
 
 func applyGatewayMigrations(db *sql.DB) error {

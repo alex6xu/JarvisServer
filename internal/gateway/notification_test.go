@@ -64,6 +64,57 @@ func TestNotificationChannelCRUDAndOpenClawDelivery(t *testing.T) {
 	}
 }
 
+func TestWeChatQRConnectPersistsChannel(t *testing.T) {
+	polls := 0
+	bridge := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer bridge-secret" {
+			t.Errorf("authorization=%q", r.Header.Get("Authorization"))
+		}
+		var body map[string]string
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		switch body["action"] {
+		case "login_qr_start":
+			writeJSON(w, http.StatusOK, map[string]string{
+				"session_id": "bridge-session", "status": "waiting",
+				"qr_code_url": "https://example.com/wechat-qr.png",
+				"expires_at":  time.Now().Add(time.Minute).UTC().Format(time.RFC3339),
+			})
+		case "login_qr_status":
+			polls++
+			writeJSON(w, http.StatusOK, map[string]string{
+				"session_id": "bridge-session", "status": "connected", "target": "wx-user",
+				"display_name": "Jarvis", "access_token": "connected-token",
+			})
+		default:
+			http.Error(w, "bad action", http.StatusBadRequest)
+		}
+	}))
+	t.Cleanup(bridge.Close)
+
+	root := t.TempDir()
+	svc, err := NewService(Options{Cwd: root, DatabasePath: filepath.Join(root, "gateway.db"), AdminPassword: "test-password", NoTools: true, AllowPrivateNotificationURLs: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = svc.Close() })
+
+	started, err := svc.Notifications.StartWeChatQR(context.Background(), 1, bridge.URL, "bridge-secret")
+	if err != nil || started.SessionID == "" || started.QRCodeURL == "" || started.Status != "waiting" {
+		t.Fatalf("started=%+v err=%v", started, err)
+	}
+	status, err := svc.Notifications.WeChatQRStatus(context.Background(), 1, started.SessionID)
+	if err != nil || status.Status != "connected" || status.Channel == nil || status.Channel.TargetHint != "wx-user" || polls != 1 {
+		t.Fatalf("status=%+v polls=%d err=%v", status, polls, err)
+	}
+	_, config, err := svc.Notifications.channelConfig(context.Background(), 1, notificationWeChat)
+	if err != nil || config.AccessToken != "connected-token" || config.BridgeURL != bridge.URL || config.Target != "wx-user" {
+		t.Fatalf("config=%+v err=%v", config, err)
+	}
+	if _, err := svc.Notifications.WeChatQRStatus(context.Background(), 2, started.SessionID); err == nil {
+		t.Fatal("expected QR session ownership check")
+	}
+}
+
 func TestNotificationPublishIsIdempotent(t *testing.T) {
 	requests := 0
 	fail := false

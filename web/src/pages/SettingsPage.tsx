@@ -3,6 +3,7 @@ import { apiFetch, useAccount } from '../context/AccountContext'
 import { useAuth } from '../context/AuthContext'
 import NotificationSettings from '../components/NotificationSettings'
 import SkillSettings from '../components/SkillSettings'
+import PluginSettings from '../components/PluginSettings'
 
 export default function SettingsPage() {
   const { user, changePassword, isAdmin } = useAuth()
@@ -417,6 +418,8 @@ export default function SettingsPage() {
         </div>
 
         <NotificationSettings accountId={currentAccount?.id} />
+
+        <PluginSettings accountId={currentAccount?.id} isAdmin={isAdmin} />
 
         <SkillSettings accountId={currentAccount?.id} isAdmin={isAdmin} />
 

@@ -55,6 +55,49 @@ func TestFetchProviderModelsOpenAICompatible(t *testing.T) {
 	}
 }
 
+func TestDecodeProviderModelMetadata(t *testing.T) {
+	models, err := decodeProviderModelMetadata([]byte(`{"data":[{"id":"openrouter/model","context_length":131072,"top_provider":{"context_length":65536},"max_output_tokens":8192}]}`), Provider{ContextWindow: 32768})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 1 || models[0].ContextWindow != 131072 || models[0].MaxOutputTokens != 8192 || models[0].EffectiveSource != "auto:discovery" {
+		t.Fatalf("metadata=%+v", models)
+	}
+
+	gemini, err := decodeProviderModelMetadata([]byte(`{"models":[{"name":"gemini-test","inputTokenLimit":100000,"outputTokenLimit":8000}]}`), Provider{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gemini) != 1 || gemini[0].ContextWindow != 108000 || gemini[0].MaxInputTokens != 100000 || gemini[0].MaxOutputTokens != 8000 {
+		t.Fatalf("gemini metadata=%+v", gemini)
+	}
+}
+
+func TestDecodeOllamaContextWindow(t *testing.T) {
+	window := decodeOllamaContextWindow([]byte(`{"model_info":{"general.architecture":"llama","llama.context_length":131072}}`))
+	if window != 131072 {
+		t.Fatalf("window=%d", window)
+	}
+}
+
+func TestManualModelContextOverrideWins(t *testing.T) {
+	model := ProviderModelMetadata{ID: "m", ContextWindow: 131072, MetadataSource: "auto:discovery", ManualContextWindow: 200000}
+	resolveProviderModelMetadata(&model, 32768)
+	if model.EffectiveContextWindow != 200000 || model.EffectiveSource != "manual" {
+		t.Fatalf("resolved=%+v", model)
+	}
+}
+
+func TestDiscoveryDoesNotOverwriteManualModelContext(t *testing.T) {
+	provider := Provider{Models: "m", ContextWindow: 32768}
+	existing := []ProviderModelMetadata{{ID: "m", ContextWindow: 64000, ManualContextWindow: 200000}}
+	discovered := []ProviderModelMetadata{{ID: "m", ContextWindow: 128000, MetadataSource: "auto:discovery"}}
+	merged := mergeDiscoveredProviderModelMetadata(provider, existing, discovered)
+	if len(merged) != 1 || merged[0].ContextWindow != 128000 || merged[0].ManualContextWindow != 200000 || merged[0].EffectiveContextWindow != 200000 {
+		t.Fatalf("merged=%+v", merged)
+	}
+}
+
 func TestMapChannelType(t *testing.T) {
 	p, n := mapChannelType(2, "")
 	if p != "anthropic" || n != "" {

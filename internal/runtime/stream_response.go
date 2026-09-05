@@ -96,7 +96,12 @@ func streamAssistantResponse(ctx context.Context, agentCtx *agentcore.AgentConte
 	if err != nil {
 		// Early "cannot build stream" failure: synthesize a terminal message so
 		// the loop has a uniform assistant message to record.
-		return newErrorAssistantMessage(cfg, err), nil
+		final := newErrorAssistantMessage(cfg, err)
+		agentCtx.Messages = append(agentCtx.Messages, final)
+		if emitErr := emit(ctx, agentcore.MessageEndEvent{Message: final}); emitErr != nil {
+			return agentcore.AssistantMessage{}, emitErr
+		}
+		return final, nil
 	}
 
 	// 6. drain the stream, back-filling the partial into the context.
@@ -151,7 +156,13 @@ func streamAssistantResponse(ctx context.Context, agentCtx *agentcore.AgentConte
 	// 7. stream ended without done/error: fall back to the stream result.
 	final, resErr := stream.Result(ctx)
 	if resErr != nil {
-		return newErrorAssistantMessage(cfg, resErr), nil
+		final = newErrorAssistantMessage(cfg, resErr)
+		final = preservePartialOnError(agentCtx, final, addedPartial)
+		finalizeMessage(agentCtx, final, &addedPartial)
+		if emitErr := emit(ctx, agentcore.MessageEndEvent{Message: final}); emitErr != nil {
+			return agentcore.AssistantMessage{}, emitErr
+		}
+		return final, nil
 	}
 	finalizeMessage(agentCtx, final, &addedPartial)
 	if err := emit(ctx, agentcore.MessageEndEvent{Message: final}); err != nil {

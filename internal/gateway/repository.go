@@ -116,7 +116,14 @@ VALUES (?, ?, ?, ?, ?, ?)`, header.ID, entry.ID, entry.ParentID, seq+1, string(p
 			return err
 		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	// Coder sessions inherit a deterministic workspace-backed project. This is
+	// best-effort so session persistence remains authoritative if organization
+	// metadata is temporarily unavailable.
+	_ = s.EnsureWorkspaceProjectForSession(context.Background(), header)
+	return nil
 }
 
 // AppendSessionEntry adds one message without rewriting the rest of the
@@ -161,6 +168,13 @@ func (s *GatewayStore) AppendSessionEntry(header session.SessionHeader, parentID
 	}
 	if err := tx.Commit(); err != nil {
 		return session.Entry{}, err
+	}
+	// Classification is deliberately best-effort and runs only after the message
+	// transaction commits, so a local organizer failure can never lose or delay
+	// the user's durable message.
+	_ = s.EnsureWorkspaceProjectForSession(context.Background(), header)
+	if _, ok := message.(agentcore.UserMessage); ok {
+		_ = s.ClassifyStoredUserMessage(context.Background(), header, entry)
 	}
 	return entry, nil
 }

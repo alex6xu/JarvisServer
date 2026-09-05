@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/alex6xu/jarvisserver/internal/distributedlog"
@@ -168,31 +170,78 @@ func (s *Service) handleASR(w http.ResponseWriter, _ *http.Request) {
 	writeErr(w, http.StatusBadRequest, "asr is not configured")
 }
 
-func (s *Service) handleListTags(w http.ResponseWriter, _ *http.Request) {
-	s.Mem.ensureDemoTag()
-	writeJSON(w, http.StatusOK, map[string]any{"tags": s.Mem.listTags()})
+func (s *Service) handleListTags(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := s.requestAccountID(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "account context is required")
+		return
+	}
+	limit := parseTagInt(r.URL.Query().Get("limit"), 80)
+	tags, err := s.Audit.ListAccountTags(r.Context(), accountID, strings.TrimSpace(r.URL.Query().Get("kind")), limit)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tags": tags})
 }
 
-func (s *Service) handleTagsOverview(w http.ResponseWriter, _ *http.Request) {
-	s.Mem.ensureDemoTag()
-	writeJSON(w, http.StatusOK, map[string]any{"groups": []any{}})
+func (s *Service) handleTagsOverview(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := s.requestAccountID(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "account context is required")
+		return
+	}
+	groups, err := s.Audit.TagsOverview(r.Context(), accountID,
+		parseTagInt(r.URL.Query().Get("top"), 12), parseTagInt(r.URL.Query().Get("per_tag"), 5))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"groups": groups})
 }
 
 func (s *Service) handleGetTag(w http.ResponseWriter, r *http.Request) {
-	slug := pathParam(r, "slug")
-	tag, ok := s.Mem.getTag(slug)
+	accountID, ok := s.requestAccountID(r)
 	if !ok {
-		s.Mem.ensureDemoTag()
-		tag, ok = s.Mem.getTag(slug)
-	}
-	if !ok {
-		writeErr(w, http.StatusNotFound, "tag not found")
+		writeErr(w, http.StatusUnauthorized, "account context is required")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"tag": tag, "messages": []any{}})
+	slug := strings.ToLower(strings.TrimSpace(pathParam(r, "slug")))
+	tag, err := s.Audit.AccountTagBySlug(r.Context(), accountID, slug)
+	if err != nil {
+		if isMissingAccountTag(err) {
+			writeErr(w, http.StatusNotFound, "tag not found")
+			return
+		}
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	messages, err := s.Audit.TaggedMessages(r.Context(), accountID, slug, parseTagInt(r.URL.Query().Get("limit"), 80))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"tag": tag, "messages": messages})
 }
 
-func (s *Service) handleRetag(w http.ResponseWriter, _ *http.Request) {
-	s.Mem.ensureDemoTag()
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+func (s *Service) handleRetag(w http.ResponseWriter, r *http.Request) {
+	accountID, ok := s.requestAccountID(r)
+	if !ok {
+		writeErr(w, http.StatusUnauthorized, "account context is required")
+		return
+	}
+	classified, err := s.Audit.RetagAccountMessages(r.Context(), accountID, parseTagInt(r.URL.Query().Get("limit"), 200))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "classified": classified})
+}
+
+func parseTagInt(value string, fallback int) int {
+	n, err := strconv.Atoi(strings.TrimSpace(value))
+	if err != nil || n <= 0 {
+		return fallback
+	}
+	return n
 }

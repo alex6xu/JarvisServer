@@ -147,6 +147,11 @@ func (s *Service) listWorkspaces(accountID int) ([]WorkspaceInfo, error) {
 		}
 		_ = s.Control.UpsertWorkspace(context.Background(), info)
 		if info.AccountID == accountID {
+			// Backfill projects for workspaces created before project documents were
+			// introduced, so Code can attach a document before its first session.
+			if _, err := s.Audit.EnsureWorkspaceProject(context.Background(), accountID, info.ID); err != nil {
+				return nil, err
+			}
 			out = append(out, info)
 		}
 	}
@@ -315,6 +320,11 @@ func (s *Service) createWorkspaceFromZip(name string, accountID int, r io.Reader
 	}
 	info.AccountID = accountID
 	if err := s.Control.UpsertWorkspace(context.Background(), info); err != nil {
+		_ = os.RemoveAll(dir)
+		return WorkspaceInfo{}, err
+	}
+	if _, err := s.Audit.EnsureWorkspaceProject(context.Background(), accountID, info.ID); err != nil {
+		_ = s.Control.DeleteWorkspace(context.Background(), info.ID)
 		_ = os.RemoveAll(dir)
 		return WorkspaceInfo{}, err
 	}

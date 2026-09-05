@@ -1,6 +1,7 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import type { UiMessage } from '../lib/sessionPersist'
 import MessageBubble from './MessageBubble'
+import ConversationOutline from './ConversationOutline'
 
 type Props = {
   messages: UiMessage[]
@@ -21,28 +22,31 @@ export default function MessageList({ messages, isLoading, empty, markdownAssist
   }
 
   return (
-    <div className="flex-1 overflow-auto p-6 space-y-4">
-      {messages.map((msg) => (
-        <MessageBubble key={msg.id} message={msg} markdownAssistant={markdownAssistant} />
-      ))}
-      {isLoading && (
-        <div className="flex justify-start animate-fade-in">
-          <div className="bg-card border border-border rounded-xl px-4 py-3">
-            <div className="flex items-center gap-1.5">
-              <div className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-pulse" />
-              <div
-                className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-pulse"
-                style={{ animationDelay: '0.2s' }}
-              />
-              <div
-                className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-pulse"
-                style={{ animationDelay: '0.4s' }}
-              />
+    <div className="flex min-h-0 flex-1">
+      {markdownAssistant && <ConversationOutline messages={messages} />}
+      <div className="min-w-0 flex-1 overflow-auto p-6 space-y-4">
+        {messages.map((msg) => (
+          <MessageBubble key={msg.id} message={msg} markdownAssistant={markdownAssistant} />
+        ))}
+        {isLoading && (
+          <div className="flex justify-start animate-fade-in">
+            <div className="bg-card border border-border rounded-xl px-4 py-3">
+              <div className="flex items-center gap-1.5">
+                <div className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-pulse" />
+                <div
+                  className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-pulse"
+                  style={{ animationDelay: '0.2s' }}
+                />
+                <div
+                  className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-pulse"
+                  style={{ animationDelay: '0.4s' }}
+                />
+              </div>
             </div>
           </div>
-        </div>
-      )}
-      <div ref={endRef} />
+        )}
+        <div ref={endRef} />
+      </div>
     </div>
   )
 }

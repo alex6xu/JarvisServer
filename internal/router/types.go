@@ -43,6 +43,9 @@ type Endpoint struct {
 	Capabilities Capabilities `json:"capabilities"`
 	CostPerMTok  float64      `json:"cost_per_mtok,omitempty"`
 	ActiveLoad   int          `json:"active_load,omitempty"`
+	// ContextRank is request-relative: 2 fits, 1 is unknown, 0 is known
+	// undersized. It influences ranking but is never a hard filter.
+	ContextRank int `json:"context_rank,omitempty"`
 }
 
 type Policy struct {

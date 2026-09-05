@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/alex6xu/jarvisserver/internal/agentcore"
 	"github.com/alex6xu/jarvisserver/internal/agenttool"
@@ -76,6 +77,22 @@ func SetupEnv(model, baseURL, protocol, providerName, apiKey string, noTools, no
 // gateway run concurrent agents in different workspaces without process-wide
 // os.Chdir calls.
 func SetupEnvAt(cwd, model, baseURL, protocol, providerName, apiKey string, noTools, noSkills bool, systemPrompt string, appendSystemPrompt []string, memEnabled bool, policy ToolPolicy) (Env, error) {
+	return SetupEnvAtWithPlugins(cwd, model, baseURL, protocol, providerName, apiKey, noTools, noSkills, systemPrompt, appendSystemPrompt, memEnabled, policy, PluginLoadOptions{})
+}
+
+// PluginLoadOptions lets Gateway constrain plugin discovery without changing the
+// CLI's existing behavior. A nil Enabled map means every discovered plugin.
+type PluginLoadOptions struct {
+	Disabled       bool
+	Directory      string
+	Enabled        map[string]bool
+	Environment    []string
+	InitTimeout    time.Duration
+	CallTimeout    time.Duration
+	MaxOutputBytes int
+}
+
+func SetupEnvAtWithPlugins(cwd, model, baseURL, protocol, providerName, apiKey string, noTools, noSkills bool, systemPrompt string, appendSystemPrompt []string, memEnabled bool, policy ToolPolicy, pluginOpts PluginLoadOptions) (Env, error) {
 	absCwd, err := filepath.Abs(cwd)
 	if err != nil {
 		return Env{}, fmt.Errorf("resolve working directory: %w", err)
@@ -142,9 +159,31 @@ func SetupEnvAt(cwd, model, baseURL, protocol, providerName, apiKey string, noTo
 	// is fault-tolerant: a plugin that fails to start is logged and skipped, and
 	// disabling tools (--no-tools) skips plugin discovery entirely.
 	var mgr *plugin.Manager
-	if !noTools {
-		if m, err := plugin.Discover(PluginsDir(), os.Stderr, os.Stderr); err == nil {
-			tools = append(tools, m.Tools()...)
+	if !noTools && !pluginOpts.Disabled {
+		directory := pluginOpts.Directory
+		if directory == "" {
+			directory = PluginsDir()
+		}
+		if m, err := plugin.DiscoverWithOptions(directory, os.Stderr, os.Stderr, plugin.DiscoveryOptions{
+			Enabled: pluginOpts.Enabled, StrictUnique: pluginOpts.Environment != nil,
+			Dir: cwd, Env: pluginOpts.Environment,
+			InitTimeout: pluginOpts.InitTimeout, CallTimeout: pluginOpts.CallTimeout,
+			MaxOutputBytes: pluginOpts.MaxOutputBytes,
+		}); err == nil {
+			pluginTools := m.Tools()
+			if pluginOpts.Environment != nil {
+				existing := make(map[string]bool, len(tools))
+				for _, tool := range tools {
+					existing[tool.Name()] = true
+				}
+				for _, tool := range pluginTools {
+					if existing[tool.Name()] {
+						_ = m.Close()
+						return Env{}, fmt.Errorf("plugin tool %q conflicts with an existing tool", tool.Name())
+					}
+				}
+			}
+			tools = append(tools, pluginTools...)
 			mgr = m
 		} else {
 			fmt.Fprintf(os.Stderr, "jarvis: plugin discovery failed: %v\n", err)

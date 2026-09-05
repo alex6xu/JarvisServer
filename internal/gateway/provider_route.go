@@ -11,21 +11,24 @@ import (
 
 // LLMRoute is the resolved model + wire settings for one chat run.
 type LLMRoute struct {
-	Model         string
-	BaseURL       string
-	Protocol      string
-	ProviderName  string
-	APIKey        string
-	ProviderID    int
-	ProviderLabel string
-	Priority      int          `json:"priority"`
-	Weight        int          `json:"weight"`
-	IsDefault     bool         `json:"is_default"`
-	EndpointID    string       `json:"endpoint_id,omitempty"`
-	ContextWindow int          `json:"context_window,omitempty"`
-	QualityTier   int          `json:"quality_tier,omitempty"`
-	CostPerMTok   float64      `json:"cost_per_mtok,omitempty"`
-	Purpose       RoutePurpose `json:"purpose,omitempty"`
+	Model           string
+	BaseURL         string
+	Protocol        string
+	ProviderName    string
+	APIKey          string
+	ProviderID      int
+	ProviderLabel   string
+	Priority        int          `json:"priority"`
+	Weight          int          `json:"weight"`
+	IsDefault       bool         `json:"is_default"`
+	EndpointID      string       `json:"endpoint_id,omitempty"`
+	ContextWindow   int          `json:"context_window,omitempty"`
+	MaxInputTokens  int          `json:"max_input_tokens,omitempty"`
+	MaxOutputTokens int          `json:"max_output_tokens,omitempty"`
+	MetadataSource  string       `json:"metadata_source,omitempty"`
+	QualityTier     int          `json:"quality_tier,omitempty"`
+	CostPerMTok     float64      `json:"cost_per_mtok,omitempty"`
+	Purpose         RoutePurpose `json:"purpose,omitempty"`
 }
 
 // resolveLLM picks a MemStore provider (by model match, else default) and maps it
