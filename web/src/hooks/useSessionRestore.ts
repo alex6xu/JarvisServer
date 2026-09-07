@@ -211,6 +211,7 @@ export function useSessionRestore() {
       return {
         sessionId: saved,
         messages,
+        activeModel: data.session?.model,
         workspaceId,
       }
     },

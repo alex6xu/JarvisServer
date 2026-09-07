@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { ArrowUp, Folder, Plus, SquarePen, X } from 'lucide-react'
+import { ArrowUp, Bot, Folder, MessagesSquare, Plus, SquarePen, X } from 'lucide-react'
 import { useAppearance } from '../context/AppearanceContext'
 import WorkbenchWelcome from '../components/WorkbenchWelcome'
 import { apiFetch, useAccount } from '../context/AccountContext'
@@ -13,10 +13,12 @@ import { useRunEventStream } from '../hooks/useRunEventStream'
 import { useRunStop } from '../hooks/useRunStop'
 import { isQueueUnavailableError, useRunMessageQueue } from '../hooks/useRunMessageQueue'
 import { useSessionRestore } from '../hooks/useSessionRestore'
-import { chatSessionKey, type UiMessage } from '../lib/sessionPersist'
+import { chatModelKey, chatSessionKey, readLocal, writeLocal, type UiMessage } from '../lib/sessionPersist'
 import DocumentPicker from '../components/DocumentPicker'
 import DocumentChips from '../components/DocumentChips'
 import type { ProjectDocument, ProjectSummary } from '../types/documents'
+
+type ModelOption = { id: string }
 
 export default function ChatPage() {
   const { currentAccount } = useAccount()
@@ -34,6 +36,8 @@ export default function ChatPage() {
   const [connected, setConnected] = useState(false)
   const [sessionId, setSessionId] = useState('')
   const [runId, setRunId] = useState('')
+  const [models, setModels] = useState<ModelOption[]>([])
+  const [selectedModel, setSelectedModel] = useState('')
   const [projects, setProjects] = useState<ProjectSummary[]>([])
   const [projectId, setProjectId] = useState('')
   const [selectedDocuments, setSelectedDocuments] = useState<ProjectDocument[]>([])
@@ -65,12 +69,27 @@ export default function ChatPage() {
     setIsLoading(false)
     setProjectId(new URLSearchParams(window.location.search).get('project') || '')
     setSelectedDocuments([])
+    const savedModel = readLocal(chatModelKey(currentAccount.id))
+    setSelectedModel(savedModel)
     ;(async () => {
       try {
         const probe = await apiFetch('/v1/models', {}, currentAccount.id)
-        if (!cancelled) setConnected(probe.ok)
+        if (cancelled) return
+        setConnected(probe.ok)
+        if (probe.ok) {
+          const data = await probe.json()
+          const available: ModelOption[] = (data.data || []).map((model: { id: string }) => ({ id: model.id }))
+          setModels(available)
+          const preferred = available.find((model) => model.id === savedModel)
+            || available.find((model) => model.id === (data.default || 'auto'))
+            || available[0]
+          setSelectedModel(preferred?.id || '')
+        }
       } catch {
-        if (!cancelled) setConnected(false)
+        if (!cancelled) {
+          setConnected(false)
+          setModels([])
+        }
       }
 
       try {
@@ -99,6 +118,20 @@ export default function ChatPage() {
         }
         setSessionId(result.sessionId)
         setMessages(result.messages)
+        if (result.activeModel) setSelectedModel(result.activeModel)
+        try {
+          const assignmentResponse = await apiFetch(
+            `/v1/agent/sessions/${encodeURIComponent(result.sessionId)}/project`,
+            {},
+            currentAccount.id,
+          )
+          if (assignmentResponse.ok && !cancelled) {
+            const assignmentData = await assignmentResponse.json()
+            setProjectId(assignmentData.assignment?.project?.id || '')
+          }
+        } catch {
+          // A session without a project remains valid.
+        }
         setRestoring(false)
         if (result.activeRunId) {
           setRunId(result.activeRunId)
@@ -136,6 +169,10 @@ export default function ChatPage() {
   }, [sessionId, storageKey, persistSessionId])
 
   useEffect(() => {
+    if (currentAccount?.id && selectedModel) writeLocal(chatModelKey(currentAccount.id), selectedModel)
+  }, [currentAccount?.id, selectedModel])
+
+  useEffect(() => {
     if (!currentAccount?.id) return
     let cancelled = false
     setProjects([])
@@ -162,6 +199,17 @@ export default function ChatPage() {
       const body = await response.json().catch(() => ({}))
       if (!response.ok || !body.project) throw new Error(body.error || '项目创建失败')
       setProjects((current) => [body.project, ...current])
+      if (sessionId) {
+        const assignmentResponse = await apiFetch(
+          `/v1/agent/sessions/${encodeURIComponent(sessionId)}/project`,
+          { method: 'PUT', body: JSON.stringify({ project_id: body.project.id, pinned: true }) },
+          currentAccount.id,
+        )
+        if (!assignmentResponse.ok) {
+          const assignmentBody = await assignmentResponse.json().catch(() => ({}))
+          throw new Error(assignmentBody.error || '新项目已创建，但会话关联失败')
+        }
+      }
       setProjectId(body.project.id)
       setProjectName('')
       setSelectedDocuments([])
@@ -170,6 +218,33 @@ export default function ChatPage() {
     } catch (err) {
       setProjectError(err instanceof Error ? err.message : '项目创建失败')
     } finally { setProjectBusy(false) }
+  }
+
+  const changeProject = async (nextProjectId: string) => {
+    if (!currentAccount?.id || projectBusy || isLoading) return
+    const previousProjectId = projectId
+    setProjectId(nextProjectId)
+    setSelectedDocuments([])
+    if (!sessionId) return
+    setProjectBusy(true)
+    setProjectError('')
+    try {
+      const response = await apiFetch(
+        `/v1/agent/sessions/${encodeURIComponent(sessionId)}/project`,
+        nextProjectId
+          ? { method: 'PUT', body: JSON.stringify({ project_id: nextProjectId, pinned: true }) }
+          : { method: 'DELETE' },
+        currentAccount.id,
+      )
+      const body = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(body.error || '会话项目关联失败')
+      window.dispatchEvent(new Event('jarvis:sessions-changed'))
+    } catch (err) {
+      setProjectId(previousProjectId)
+      setProjectError(err instanceof Error ? err.message : '会话项目关联失败')
+    } finally {
+      setProjectBusy(false)
+    }
   }
 
   const appendVoiceText = useCallback((text: string) => {
@@ -246,6 +321,7 @@ export default function ChatPage() {
               message: text,
               session_id: sid || undefined,
               mode: 'chat',
+              model: selectedModel || undefined,
               project_id: projectId || undefined,
               document_ids: selectedDocuments.map((document) => document.id),
               stream: false,
@@ -282,6 +358,7 @@ export default function ChatPage() {
           role: 'assistant',
           content: '',
           timestamp: new Date(),
+          model: selectedModel || undefined,
           toolSteps: [],
           segments: [],
         },
@@ -291,6 +368,7 @@ export default function ChatPage() {
         setRunId(data.run_id)
         await consumeRunEvents(data.run_id, assistantId, {
           accountId: currentAccount?.id,
+          fallbackModel: selectedModel,
           onSessionId: setSessionId,
           onQueueChanged: () => void queue.refresh(data.run_id),
           setMessages,
@@ -364,6 +442,10 @@ export default function ChatPage() {
             mode="chat"
             currentSessionId={sessionId}
           />}
+          {!workbench && <select aria-label="当前模型" value={selectedModel} onChange={(event) => setSelectedModel(event.target.value)} disabled={isLoading} className="h-8 max-w-[200px] rounded-md border border-border bg-card px-2 text-[12px] text-foreground">
+            {selectedModel && !models.some((model) => model.id === selectedModel) && <option value={selectedModel}>{selectedModel}</option>}
+            {models.length === 0 && !selectedModel ? <option value="">默认模型</option> : models.map((model) => <option key={model.id} value={model.id}>{model.id === 'auto' ? '智能路由' : model.id}</option>)}
+          </select>}
           {runId && <StopRunButton stopping={isStopping} onStop={() => void stopRun()} />}
           <button
             onClick={clearChat}
@@ -432,9 +514,9 @@ export default function ChatPage() {
             </div>
           )}
           <div className={workbench ? 'workbench-context-bar' : 'mb-2 flex flex-wrap items-center gap-2'}>
-            {workbench && <Folder size={15} className="shrink-0" />}
-            <select aria-label="当前项目" value={projectId} onChange={(event) => { setProjectId(event.target.value); setSelectedDocuments([]) }} className="h-8 max-w-52 rounded-md border border-border bg-card px-2 text-[11px]">
-              <option value="">{workbench ? '选择项目' : '不使用项目'}</option>
+            {workbench && <span className="workbench-context-group"><Folder size={15} /><span>项目</span></span>}
+            <select aria-label="当前项目" value={projectId} onChange={(event) => void changeProject(event.target.value)} disabled={projectBusy || isLoading} className={workbench ? 'workbench-context-select workbench-project-select' : 'h-8 max-w-52 rounded-md border border-border bg-card px-2 text-[11px]'}>
+              <option value="">{workbench ? '未关联项目' : '不使用项目'}</option>
               {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
             </select>
             {workbench && <button type="button" title={creatingProject ? '取消新建项目' : '新建项目'} aria-label={creatingProject ? '取消新建项目' : '新建项目'} onClick={() => setCreatingProject(!creatingProject)} className="workbench-icon-button">{creatingProject ? <X size={15} /> : <Plus size={15} />}</button>}
@@ -442,8 +524,17 @@ export default function ChatPage() {
               <input aria-label="新项目名称" value={projectName} onChange={(event) => setProjectName(event.target.value)} placeholder="新项目" className="h-8 w-28 rounded-md border border-border bg-card px-2 text-[11px]" />
               <button type="button" disabled={!projectName.trim() || projectBusy} onClick={() => void createProject()} className="h-8 rounded-md border border-border px-2 text-[11px] disabled:opacity-50">{projectBusy ? '创建中...' : '创建'}</button>
             </>}
+            {workbench && <span className="workbench-context-divider" />}
+            {workbench && <span className="workbench-context-group"><MessagesSquare size={15} /><span>会话</span></span>}
+            {workbench && <RecentSessionSelect accountId={currentAccount?.id} mode="chat" currentSessionId={sessionId} variant="context" />}
+            {workbench && <span className="workbench-context-divider" />}
+            {workbench && <span className="workbench-context-group"><Bot size={15} /><span>模型</span></span>}
+            {workbench && <select aria-label="当前模型" title="选择本会话使用的模型" value={selectedModel} onChange={(event) => setSelectedModel(event.target.value)} disabled={isLoading} className="workbench-context-select workbench-model-select">
+              {selectedModel && !models.some((model) => model.id === selectedModel) && <option value={selectedModel}>{selectedModel}</option>}
+              {models.length === 0 && !selectedModel ? <option value="">默认模型</option> : models.map((model) => <option key={model.id} value={model.id}>{model.id === 'auto' ? '智能路由' : model.id}</option>)}
+            </select>}
             <DocumentPicker accountId={currentAccount?.id} projectId={projectId} selected={selectedDocuments} onChange={setSelectedDocuments} />
-            {workbench && <span className="workbench-context-mode"><span />自动路由</span>}
+            {workbench && <span className="workbench-context-mode"><span />{selectedModel === 'auto' ? '自动路由' : '已指定模型'}</span>}
           </div>
           {projectError && <p role="alert" className="mb-2 text-[12px] text-destructive">{projectError}</p>}
           {selectedDocuments.length > 0 && <div className="mb-2"><DocumentChips documents={selectedDocuments} onRemove={(id) => setSelectedDocuments((current) => current.filter((document) => document.id !== id))} /></div>}

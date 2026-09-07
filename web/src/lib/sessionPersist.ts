@@ -13,6 +13,10 @@ export function chatSessionKey(accountId: number) {
   return `cg_chat_session_${accountId}`
 }
 
+export function chatModelKey(accountId: number) {
+  return `cg_chat_model_${accountId}`
+}
+
 export function readLocal(key: string): string {
   try {
     return localStorage.getItem(key) || ''
@@ -198,6 +202,7 @@ export type SessionRestorePayload = {
     type?: 'chat' | 'code'
     platform?: string
     message_count?: number
+    model?: string
     workspace_id?: string
   }
   messages: RestoredSessionMessage[]
