@@ -623,6 +623,7 @@ var gatewayMigrations = []gatewayMigration{
 	{version: 22, name: "project_documents", schema: projectDocumentsSchema},
 	{version: 23, name: "message_documents", schema: messageDocumentsSchema},
 	{version: 24, name: "project_tips", schema: projectTipsSchema},
+	{version: 25, name: "ui_settings", schema: uiSettingsSchema},
 }
 
 func applyGatewayMigrations(db *sql.DB) error {

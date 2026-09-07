@@ -1,7 +1,9 @@
 import { lazy, Suspense } from 'react'
+import './workbench.css'
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { AccountProvider } from './context/AccountContext'
+import { AppearanceProvider } from './context/AppearanceContext'
 import Layout from './components/Layout'
 import ChatPage from './pages/ChatPage'
 import CoderPage from './pages/CoderPage'
@@ -35,6 +37,7 @@ function ProtectedApp() {
 
   return (
     <AccountProvider>
+      <AppearanceProvider>
       <Routes>
         <Route path="/" element={<Layout />}>
           <Route index element={<ChatPage />} />
@@ -61,6 +64,7 @@ function ProtectedApp() {
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      </AppearanceProvider>
     </AccountProvider>
   )
 }

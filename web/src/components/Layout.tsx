@@ -14,6 +14,8 @@ import {
 } from 'lucide-react'
 import { useAccount } from '../context/AccountContext'
 import { useAuth } from '../context/AuthContext'
+import { useAppearance } from '../context/AppearanceContext'
+import WorkbenchSidebar from './WorkbenchSidebar'
 
 const baseNavigation = [
   { name: 'Chat', href: '/', icon: MessageSquare },
@@ -33,6 +35,8 @@ export default function Layout() {
   const navigate = useNavigate()
   const { accounts, currentAccount, setCurrentAccountId, loading } = useAccount()
   const { user, isAdmin, logout } = useAuth()
+  const { homeLayout, loading: appearanceLoading } = useAppearance()
+  const workbench = homeLayout === 'workbench'
 
   const navigation = baseNavigation.filter((item) => !item.adminOnly || isAdmin)
   const initial = (user?.username || currentAccount?.username || 'A').charAt(0).toUpperCase()
@@ -42,9 +46,11 @@ export default function Layout() {
     navigate('/login', { replace: true })
   }
 
+  if (appearanceLoading) return <div className="min-h-screen bg-background flex items-center justify-center text-muted-foreground text-sm">加载中...</div>
+
   return (
-    <div className="flex h-screen bg-background">
-      <aside className="w-16 shrink-0 border-r border-border flex flex-col bg-card sm:w-60">
+    <div className={workbench ? 'workbench-theme workbench-shell' : 'flex h-screen bg-background'}>
+      {workbench ? <WorkbenchSidebar /> : <aside className="w-16 shrink-0 border-r border-border flex flex-col bg-card sm:w-60">
         <div className="h-14 flex items-center justify-center border-b border-border sm:justify-start sm:px-5">
           <div className="flex items-center gap-2.5">
             <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center">
@@ -132,9 +138,9 @@ export default function Layout() {
             <span className="hidden sm:inline">退出登录</span>
           </button>
         </div>
-      </aside>
+      </aside>}
 
-      <main className="min-w-0 flex-1 overflow-auto">
+      <main className={workbench ? 'workbench-main min-w-0 flex-1 overflow-auto' : 'min-w-0 flex-1 overflow-auto'}>
         <Outlet />
       </main>
     </div>

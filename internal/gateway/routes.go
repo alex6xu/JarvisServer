@@ -119,6 +119,9 @@ func apiRoutes(svc *Service) []rest.Route {
 		{Method: http.MethodGet, Path: "/v1/asr/status", Handler: svc.handleASRStatus},
 		{Method: http.MethodPost, Path: "/v1/asr", Handler: svc.handleASR},
 
+		{Method: http.MethodGet, Path: "/v1/ui/settings", Handler: svc.handleGetUISettings},
+		{Method: http.MethodPut, Path: "/v1/admin/ui/settings", Handler: svc.handleUpdateUISettings},
+
 		// Admin accounts
 		{Method: http.MethodGet, Path: "/v1/admin/accounts", Handler: svc.handleListAccounts},
 		{Method: http.MethodPost, Path: "/v1/admin/accounts", Handler: svc.handleCreateAccount},

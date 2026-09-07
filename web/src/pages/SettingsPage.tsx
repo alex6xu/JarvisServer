@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 import NotificationSettings from '../components/NotificationSettings'
 import SkillSettings from '../components/SkillSettings'
 import PluginSettings from '../components/PluginSettings'
+import AppearanceSettings from '../components/AppearanceSettings'
 
 export default function SettingsPage() {
   const { user, changePassword, isAdmin } = useAuth()
@@ -239,6 +240,7 @@ export default function SettingsPage() {
       </div>
 
       <div className="space-y-4 max-w-2xl">
+        {isAdmin && <AppearanceSettings />}
         <div className="bg-card border border-border rounded-xl p-5">
           <h3 className="text-sm font-semibold text-foreground mb-4">当前账号</h3>
           <div className="space-y-2 text-[13px]">
