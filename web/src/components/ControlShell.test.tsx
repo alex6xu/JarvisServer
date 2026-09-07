@@ -47,12 +47,13 @@ describe('Control shell presentation contracts', () => {
     expect(html).toContain('test-account')
   })
 
-  it('keeps administrator navigation and account selection', () => {
+  it('keeps account context without the switcher or initially closed management links', () => {
     state.admin = true
     const html = renderToStaticMarkup(<Layout />)
-    expect(html).toContain('href="/accounts"')
-    expect(html).toContain('aria-label="切换账号"')
-    expect(html).toContain('value="7" selected=""')
+    expect(html).not.toContain('href="/accounts"')
+    expect(html).not.toContain('aria-label="切换账号"')
+    expect(html).toContain('test-account')
+    expect(html).toContain('aria-haspopup="menu"')
     expect(html).toContain('aria-label="退出登录"')
     state.admin = false
   })

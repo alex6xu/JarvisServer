@@ -163,3 +163,17 @@ button:disabled, select:disabled { cursor: not-allowed; }
 .workbench-theme :is(.text-green-400, .text-emerald-400) { color: #187344; }
 .workbench-theme :is(.text-amber-400, .text-yellow-400) { color: #885c10; }
 .workbench-theme :is(.text-red-400, .text-rose-400) { color: #b92d3d; }
+
+/* Keep disclosures inside the drawer; only history and the popup scroll. */
+.control-shell .workbench-sidebar { overflow: hidden; }
+.control-shell .workbench-history { flex: 1 1 120px; }
+.control-shell .workbench-account { position: relative; }
+.control-shell .workbench-settings { flex: 1; min-width: 0; }
+.control-shell .workbench-settings-trigger { width: 100%; }
+.control-shell .workbench-settings-menu { position: absolute; bottom: calc(100% + 4px); left: 0; right: 0; z-index: 10; max-height: min(360px, 60dvh); overflow-y: auto; padding: 6px; border: 1px solid rgb(var(--color-border)); border-radius: 8px; background: rgb(var(--color-card)); box-shadow: 0 8px 28px #0004; }
+.control-shell .workbench-project-row { display: flex; align-items: center; }
+.control-shell .workbench-project-row > button { display: grid; place-items: center; flex-shrink: 0; width: 32px; height: 32px; border-radius: 6px; color: rgb(var(--color-muted-foreground)); }
+.control-shell .workbench-project-row > button:hover { background: rgb(var(--color-accent)); }
+.control-shell .workbench-project-row > a { flex: 1; min-width: 0; }
+.control-shell .workbench-project-row .is-collapsed { transform: rotate(-90deg); }
+.control-shell .workbench-project-chats { margin-left: 16px; padding-left: 8px; border-left: 1px solid rgb(var(--color-border)); }
