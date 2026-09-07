@@ -14,7 +14,7 @@ export default function MessageList({ messages, isLoading, empty, markdownAssist
   const endRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: 'smooth' })
+    endRef.current?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
   }, [messages, isLoading])
 
   if (messages.length === 0 && empty) {
@@ -24,7 +24,7 @@ export default function MessageList({ messages, isLoading, empty, markdownAssist
   return (
     <div className="flex min-h-0 flex-1">
       {markdownAssistant && <ConversationOutline messages={messages} />}
-      <div className="min-w-0 flex-1 overflow-auto p-6 space-y-4">
+      <div className="control-transcript min-w-0 flex-1 overflow-auto p-6 space-y-4">
         {messages.map((msg) => (
           <MessageBubble key={msg.id} message={msg} markdownAssistant={markdownAssistant} />
         ))}

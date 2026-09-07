@@ -122,7 +122,7 @@ export default function TagsPage() {
   }
 
   return (
-    <div className="p-6 h-full flex flex-col min-h-0">
+    <div className="control-page p-6 h-full flex flex-col min-h-0">
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-foreground">问题标签</h2>

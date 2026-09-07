@@ -137,7 +137,7 @@ export default function ProjectsPage() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col p-6">
+    <div className="control-page flex h-full min-h-0 flex-col p-6">
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">

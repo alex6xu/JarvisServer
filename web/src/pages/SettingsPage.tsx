@@ -233,7 +233,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="p-6">
+    <div className="control-page p-6">
       <div className="mb-6">
         <h2 className="text-base font-semibold text-foreground">Settings</h2>
         <p className="text-[13px] text-muted-foreground mt-0.5">账号与实例配置</p>

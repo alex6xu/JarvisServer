@@ -416,7 +416,7 @@ export default function ChatPage() {
   }
 
   return (
-    <div className={workbench ? 'workbench-chat' : 'flex flex-col h-full'}>
+    <div className={workbench ? 'control-chat workbench-chat' : 'control-chat flex flex-col h-full'}>
       <header className={workbench ? 'workbench-chat-header' : 'h-14 flex items-center justify-between px-6 border-b border-border'}>
         <div>
           <h2 className="text-sm font-semibold text-foreground">{workbench ? '工作台' : 'Chat'}</h2>
@@ -496,7 +496,7 @@ export default function ChatPage() {
         )}
       />
 
-      <div className={workbench ? 'workbench-composer-area' : 'p-4 border-t border-border'}>
+      <div className={workbench ? 'control-composer-area workbench-composer-area' : 'control-composer-area p-4 border-t border-border'}>
         <div className={workbench ? 'workbench-composer-wrap' : 'max-w-3xl mx-auto'}>
           {runId && (
             <RunMessageQueue
@@ -539,7 +539,7 @@ export default function ChatPage() {
           {projectError && <p role="alert" className="mb-2 text-[12px] text-destructive">{projectError}</p>}
           {selectedDocuments.length > 0 && <div className="mb-2"><DocumentChips documents={selectedDocuments} onRemove={(id) => setSelectedDocuments((current) => current.filter((document) => document.id !== id))} /></div>}
           {isLoading && runId && selectedDocuments.length > 0 && <p className="mb-2 text-[11px] text-amber-600">运行中不能发送附件，请停止或等待当前运行结束。</p>}
-          <div className={workbench ? 'workbench-composer' : 'flex gap-2'}>
+          <div className={workbench ? 'control-composer workbench-composer' : 'control-composer flex gap-2'}>
             <textarea
               ref={inputRef}
               aria-label="消息"

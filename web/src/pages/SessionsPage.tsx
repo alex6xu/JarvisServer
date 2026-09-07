@@ -418,7 +418,7 @@ export default function SessionsPage() {
   }
 
   return (
-    <div className="flex h-full">
+    <div className="control-sessions flex h-full">
       <div className={`border-r border-border ${selectedSession ? 'w-80' : 'flex-1'} overflow-auto`}>
         <div className="p-4 border-b border-border">
           <div className="flex items-start justify-between gap-2">

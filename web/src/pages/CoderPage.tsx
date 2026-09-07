@@ -856,7 +856,7 @@ export default function CoderPage() {
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="control-chat control-coder flex flex-col h-full">
       <header className="h-14 flex items-center justify-between px-6 border-b border-border gap-3">
         <div className="min-w-0">
           <h2 className="text-sm font-semibold text-foreground">Code</h2>
@@ -1176,9 +1176,10 @@ export default function CoderPage() {
         </div>
         {selectedDocuments.length > 0 && <div className="mb-2"><DocumentChips documents={selectedDocuments} onRemove={(id) => setSelectedDocuments((current) => current.filter((document) => document.id !== id))} /></div>}
         {isLoading && runId && selectedDocuments.length > 0 && <p className="mb-2 text-[11px] text-amber-600">运行中不能发送附件。</p>}
-        <div className="flex gap-2 items-end">
+        <div className="control-composer flex gap-2 items-end">
           <textarea
             ref={textareaRef}
+            aria-label="代码任务消息"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={onKeyDown}

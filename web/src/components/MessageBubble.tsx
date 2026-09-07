@@ -123,7 +123,8 @@ export default function MessageBubble({ message, markdownAssistant = true, colla
   return (
     <div
       id={conversationMessageId(message.id)}
-      className={`flex scroll-mt-4 ${isUser ? 'justify-end' : 'justify-start'} animate-fade-in`}
+      data-message-role={message.role}
+      className={`control-message flex scroll-mt-4 ${isUser ? 'justify-end' : 'justify-start'} animate-fade-in`}
     >
       <div
         className={`${
