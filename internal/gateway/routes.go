@@ -20,6 +20,7 @@ func apiRoutes(svc *Service) []rest.Route {
 	return []rest.Route{
 		{Method: http.MethodGet, Path: "/healthz", Handler: svc.handleHealthz},
 		{Method: http.MethodGet, Path: "/v1/models", Handler: svc.handleModels},
+		{Method: http.MethodPost, Path: "/v1/chat/completions", Handler: svc.handleOpenAIChatCompletions},
 		{Method: http.MethodGet, Path: "/v1/stocks/quotes", Handler: svc.handleStockQuotes},
 		{Method: http.MethodGet, Path: "/v1/stocks/search", Handler: svc.handleStockSearch},
 		{Method: http.MethodGet, Path: "/v1/stocks/sentiment", Handler: svc.handleStockSentiment},

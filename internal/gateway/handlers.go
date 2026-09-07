@@ -47,13 +47,16 @@ func (s *Service) handleModels(w http.ResponseWriter, _ *http.Request) {
 			add(m)
 		}
 	}
-	data := make([]map[string]string, 0, len(ids))
+	data := make([]map[string]any, 0, len(ids))
 	models := make([]map[string]string, 0, len(ids))
 	for _, id := range ids {
-		data = append(data, map[string]string{"id": id})
+		data = append(data, map[string]any{
+			"id": id, "object": "model", "created": 0, "owned_by": "jarvis",
+		})
 		models = append(models, map[string]string{"id": id, "name": id})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
+		"object":  "list",
 		"data":    data,
 		"models":  models,
 		"default": "auto",
