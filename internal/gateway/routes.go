@@ -58,6 +58,7 @@ func apiRoutes(svc *Service) []rest.Route {
 		{Method: http.MethodDelete, Path: "/v1/projects/:projectId/documents/:documentId", Handler: svc.handleDeleteProjectDocument},
 		{Method: http.MethodGet, Path: "/v1/projects/:projectId/tips", Handler: svc.handleListProjectTips},
 		{Method: http.MethodPost, Path: "/v1/projects/:projectId/tips", Handler: svc.handleCreateProjectTip},
+		{Method: http.MethodPost, Path: "/v1/projects/:projectId/tips/:tipId/execute", Handler: svc.handleExecuteProjectTip},
 		{Method: http.MethodGet, Path: "/v1/projects/:projectId/tips/:tipId", Handler: svc.handleGetProjectTip},
 		{Method: http.MethodPatch, Path: "/v1/projects/:projectId/tips/:tipId", Handler: svc.handleUpdateProjectTip},
 		{Method: http.MethodDelete, Path: "/v1/projects/:projectId/tips/:tipId", Handler: svc.handleDeleteProjectTip},

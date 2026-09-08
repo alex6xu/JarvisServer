@@ -264,6 +264,7 @@ export default function SessionsPage() {
           throw new Error(data.error || '移出项目失败')
         }
         setProjectAssignment(null)
+        window.dispatchEvent(new Event('jarvis:sessions-changed'))
         return
       }
       const response = await apiFetch(
@@ -277,6 +278,7 @@ export default function SessionsPage() {
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data.error || '项目归属更新失败')
       setProjectAssignment(data.assignment || null)
+      window.dispatchEvent(new Event('jarvis:sessions-changed'))
     } catch (projectError) {
       setBranchError(projectError instanceof Error ? projectError.message : '项目归属更新失败')
     } finally {
@@ -368,6 +370,7 @@ export default function SessionsPage() {
         setImportError(data.error || '导入失败')
         return
       }
+      window.dispatchEvent(new Event('jarvis:sessions-changed'))
       setImportOpen(false)
       setImportText('')
       setImportTitle('')

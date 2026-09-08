@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { FolderKanban, Plus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch, useAccount } from '../context/AccountContext'
@@ -58,8 +58,14 @@ export default function ProjectsPage() {
   const [creating, setCreating] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const detailRequest = useRef(0)
+  const accountRef = useRef(currentAccount?.id)
+  accountRef.current = currentAccount?.id
 
   useEffect(() => {
+    detailRequest.current++
+    setCreating(false)
+    setProjects([])
     setSelected('')
     setDetail(null)
     void loadProjects()
@@ -67,28 +73,35 @@ export default function ProjectsPage() {
 
   const loadProjects = async () => {
     if (!currentAccount?.id) return
+    const accountId = currentAccount.id
     setLoading(true)
     setError('')
     try {
       const response = await apiFetch('/v1/projects', {}, currentAccount.id)
       const body = await response.json().catch(() => ({}))
+      if (accountRef.current !== accountId) return
       if (!response.ok) throw new Error(body.error || '项目加载失败')
       setProjects(body.projects || [])
     } catch (loadError) {
+      if (accountRef.current !== accountId) return
       setError(loadError instanceof Error ? loadError.message : '项目加载失败')
     } finally {
-      setLoading(false)
+      if (accountRef.current === accountId) setLoading(false)
     }
   }
 
   const openProject = async (id: string) => {
     if (!currentAccount?.id) return
+    const request = ++detailRequest.current
+    const accountId = currentAccount.id
+    setDetail(null)
     setSelected(id)
     setLoading(true)
     setError('')
     try {
       const response = await apiFetch(`/v1/projects/${encodeURIComponent(id)}`, {}, currentAccount.id)
       const body = await response.json().catch(() => ({}))
+      if (request !== detailRequest.current || accountRef.current !== accountId) return
       if (!response.ok) throw new Error(body.error || '项目详情加载失败')
       setDetail({
         ...body,
@@ -96,15 +109,17 @@ export default function ProjectsPage() {
         tags: Array.isArray(body.tags) ? body.tags : [],
       } as ProjectDetail)
     } catch (loadError) {
+      if (request !== detailRequest.current || accountRef.current !== accountId) return
       setDetail(null)
       setError(loadError instanceof Error ? loadError.message : '项目详情加载失败')
     } finally {
-      setLoading(false)
+      if (request === detailRequest.current && accountRef.current === accountId) setLoading(false)
     }
   }
 
   const createProject = async () => {
     if (!currentAccount?.id || !name.trim()) return
+    const accountId = currentAccount.id
     setCreating(true)
     setError('')
     try {
@@ -113,14 +128,17 @@ export default function ProjectsPage() {
         body: JSON.stringify({ name: name.trim() }),
       }, currentAccount.id)
       const body = await response.json().catch(() => ({}))
+      if (accountRef.current !== accountId) return
       if (!response.ok) throw new Error(body.error || '创建项目失败')
+      window.dispatchEvent(new Event('jarvis:sessions-changed'))
       setName('')
       await loadProjects()
       if (body.project?.id) await openProject(body.project.id)
     } catch (createError) {
+      if (accountRef.current !== accountId) return
       setError(createError instanceof Error ? createError.message : '创建项目失败')
     } finally {
-      setCreating(false)
+      if (accountRef.current === accountId) setCreating(false)
     }
   }
 

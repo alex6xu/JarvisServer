@@ -2,18 +2,21 @@ package gateway
 
 // ChatRequest is the body of POST /v1/agent/chat.
 type ChatRequest struct {
-	Message        string   `json:"message"`
-	SessionID      string   `json:"session_id,omitempty"`
-	Model          string   `json:"model,omitempty"`
-	Stream         bool     `json:"stream,omitempty"`
-	WorkspaceID    string   `json:"workspace_id,omitempty"`
-	ProjectID      string   `json:"project_id,omitempty"`
-	DocumentIDs    []string `json:"document_ids,omitempty"`
-	Mode           string   `json:"mode,omitempty"` // "chat" (personal Jarvis) or "coder" (coding Jarvis)
-	Pinned         bool     `json:"pinned,omitempty"`
-	QueueEventType string   `json:"queue_event_type,omitempty"`
-	IdempotencyKey string   `json:"idempotency_key,omitempty"`
-	AccountID      int      `json:"-"`
+	// Internal launch constraints; never accepted from public chat JSON.
+	ReadOnly       bool                     `json:"-"`
+	BeforeLaunch   func(ChatResponse) error `json:"-"`
+	Message        string                   `json:"message"`
+	SessionID      string                   `json:"session_id,omitempty"`
+	Model          string                   `json:"model,omitempty"`
+	Stream         bool                     `json:"stream,omitempty"`
+	WorkspaceID    string                   `json:"workspace_id,omitempty"`
+	ProjectID      string                   `json:"project_id,omitempty"`
+	DocumentIDs    []string                 `json:"document_ids,omitempty"`
+	Mode           string                   `json:"mode,omitempty"` // "chat" (personal Jarvis) or "coder" (coding Jarvis)
+	Pinned         bool                     `json:"pinned,omitempty"`
+	QueueEventType string                   `json:"queue_event_type,omitempty"`
+	IdempotencyKey string                   `json:"idempotency_key,omitempty"`
+	AccountID      int                      `json:"-"`
 }
 
 // ChatResponse is returned immediately; the client then opens the SSE stream.

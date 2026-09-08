@@ -1,7 +1,21 @@
 export type TipType = 'idea' | 'todo' | 'question' | 'note'
 export type TipStatus = 'inbox' | 'planned' | 'doing' | 'done' | 'archived'
 
+export interface TipRun {
+  id: string
+  mode: 'analyze' | 'execute'
+  session_mode: 'chat' | 'coder'
+  workspace_id?: string
+  session_id?: string
+  run_id?: string
+  status: string
+  error?: string
+  created_at: string
+  snapshot: ProjectTip
+}
+
 export interface ProjectTip {
+  runs?: TipRun[]
   id: string
   project_id: string
   type: TipType

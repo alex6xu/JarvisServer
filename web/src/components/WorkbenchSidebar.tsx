@@ -26,7 +26,7 @@ export default function WorkbenchSidebar() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
   const [busy, setBusy] = useState(true)
   const [error, setError] = useState('')
-  const [revision, setRevision] = useState(0)
+  const reloadRef = useRef<() => void>(() => {})
 
   useEffect(() => setOpen(false), [location.pathname, location.search])
   useEffect(() => {
@@ -89,19 +89,19 @@ export default function WorkbenchSidebar() {
         setSessions(sessionData.sessions || [])
         setError('')
       } catch {
-        if (!cancelled && version === request) { setProjects([]); setSessions([]); setMembers({}); setError('项目与会话加载失败') }
+        if (!cancelled && version === request) { setError('项目与会话加载失败') }
       } finally { if (!cancelled && version === request) setBusy(false) }
     }
     void load()
-    window.addEventListener('focus', load)
+    reloadRef.current = () => { void load() }
     window.addEventListener('jarvis:sessions-changed', load)
     return () => {
       cancelled = true
       controller.abort()
-      window.removeEventListener('focus', load)
+      reloadRef.current = () => {}
       window.removeEventListener('jarvis:sessions-changed', load)
     }
-  }, [currentAccount?.id, location.pathname, revision])
+  }, [currentAccount?.id])
 
   useEffect(() => setExpanded({}), [currentAccount?.id])
   const grouped = groupSidebarSessions(sessions, members)
@@ -121,7 +121,7 @@ export default function WorkbenchSidebar() {
         </div>
         {searching && <div className="workbench-search"><Search size={14} /><input autoFocus aria-label="搜索项目与会话" placeholder="搜索项目与会话" value={search} onChange={(event) => setSearch(event.target.value)} /><button title="清除搜索" aria-label="清除搜索" onClick={() => setSearch('')}><X size={14} /></button></div>}
         <nav aria-label="主导航" className="workbench-navigation">
-          <a href="/?new=1" className="workbench-nav-item"><SquarePen size={17} />新对话</a>
+          <Link to="/?new=1" className="workbench-nav-item"><SquarePen size={17} />新对话</Link>
           {sidebarNavigationGroups.map((group) => <div key={group.label} className="control-nav-group">
             <div className="workbench-section-title">{group.label}</div>
             {group.items.filter((item) => !item.adminOnly || isAdmin).map(({ href, label, icon: Icon }) => {
@@ -135,11 +135,11 @@ export default function WorkbenchSidebar() {
           {projects.filter((project) => matches(project.name) || grouped.projects[project.id]?.some((session) => matches(session.title || session.id))).map((project) => <SidebarProject key={project.id} project={project} sessions={grouped.projects[project.id] || []} expanded={!!expanded[project.id]} onToggle={() => setExpanded((previous) => ({ ...previous, [project.id]: !previous[project.id] }))} currentSession={currentSession} search={matches(project.name) ? '' : search} />)}
           {!busy && !error && projects.length === 0 && <p className="workbench-empty">暂无项目</p>}
           <div className="workbench-section-title"><span>最近</span><Link to="/sessions" title="全部会话" aria-label="全部会话"><History size={15} /></Link></div>
-          {grouped.recent.filter((session) => matches(session.title || session.id)).map((session) => <a key={session.id} href={chatHref(session.id)} aria-current={location.pathname === '/' && new URLSearchParams(location.search).get('session') === session.id ? 'page' : undefined} className="workbench-nav-item workbench-session" title={session.title || session.id}><span className="truncate">{session.title || session.id}</span></a>)}
+          {grouped.recent.filter((session) => matches(session.title || session.id)).map((session) => <Link key={session.id} to={chatHref(session.id)} aria-current={location.pathname === '/' && new URLSearchParams(location.search).get('session') === session.id ? 'page' : undefined} className="workbench-nav-item workbench-session" title={session.title || session.id}><span className="truncate">{session.title || session.id}</span></Link>)}
           {busy && <p className="workbench-empty" role="status">加载中...</p>}
           {!busy && !error && grouped.recent.length === 0 && <p className="workbench-empty">暂无会话</p>}
           {search && !projects.some((project) => matches(project.name) || grouped.projects[project.id]?.some((session) => matches(session.title || session.id))) && !grouped.recent.some((session) => matches(session.title || session.id)) && <p className="workbench-empty">没有匹配结果</p>}
-          {error && <button className="workbench-empty" onClick={() => setRevision((value) => value + 1)}>{error}，重试</button>}
+          {error && <button className="workbench-empty" onClick={() => reloadRef.current()}>{error}，重试</button>}
         </div>
         <div className="workbench-account">
           <div className="flex items-center gap-2">
