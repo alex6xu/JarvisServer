@@ -148,7 +148,13 @@ func (s *Service) listSessionsForAccount(accountID int, requestedTypes ...string
 
 func (s *Service) sessionMeta(h session.SessionHeader) SessionMeta {
 	meta := sessionMetaFromHeader(h, 0)
-	if _, entries, err := s.Store.LoadEntries(h.ID); err == nil {
+	if summaries, ok := s.Store.(sessionSummaryRepository); ok {
+		if count, title, err := summaries.SessionSummary(h.ID); err == nil {
+			meta.MessageCount = count
+			meta.Title = title
+			meta.Preview = title
+		}
+	} else if _, entries, err := s.Store.LoadEntries(h.ID); err == nil {
 		msgs := entriesToRestored(entries, h.Model)
 		meta.MessageCount = len(msgs)
 		meta.Title = sessionTitle(msgs)
