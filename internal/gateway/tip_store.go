@@ -26,21 +26,22 @@ const (
 var ErrTipVersionConflict = errors.New("tip was updated by another request")
 
 type ProjectTip struct {
-	ID          string `json:"id"`
-	ProjectID   string `json:"project_id"`
-	Type        string `json:"type"`
-	Status      string `json:"status"`
-	Title       string `json:"title,omitempty"`
-	Content     string `json:"content"`
-	Priority    int    `json:"priority"`
-	Source      string `json:"source"`
-	DueAt       string `json:"due_at,omitempty"`
-	CompletedAt string `json:"completed_at,omitempty"`
-	Position    int    `json:"position"`
-	Version     int    `json:"version"`
-	CreatedAt   string `json:"created_at"`
-	UpdatedAt   string `json:"updated_at"`
-	ArchivedAt  string `json:"archived_at,omitempty"`
+	Runs        []ProjectTipRun `json:"runs,omitempty"`
+	ID          string          `json:"id"`
+	ProjectID   string          `json:"project_id"`
+	Type        string          `json:"type"`
+	Status      string          `json:"status"`
+	Title       string          `json:"title,omitempty"`
+	Content     string          `json:"content"`
+	Priority    int             `json:"priority"`
+	Source      string          `json:"source"`
+	DueAt       string          `json:"due_at,omitempty"`
+	CompletedAt string          `json:"completed_at,omitempty"`
+	Position    int             `json:"position"`
+	Version     int             `json:"version"`
+	CreatedAt   string          `json:"created_at"`
+	UpdatedAt   string          `json:"updated_at"`
+	ArchivedAt  string          `json:"archived_at,omitempty"`
 
 	AccountID int `json:"-"`
 }

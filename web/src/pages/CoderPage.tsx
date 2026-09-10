@@ -445,6 +445,7 @@ export default function CoderPage() {
         setGhError(data.error || '导入失败')
         return
       }
+      window.dispatchEvent(new Event('jarvis:sessions-changed'))
       await fetchWorkspaces()
       if (data.workspace?.id) {
         setWorkspaceId(data.workspace.id)
@@ -583,6 +584,7 @@ export default function CoderPage() {
         setUploadError(requestId ? `${detail}（请求 ID：${requestId}）` : detail)
         return
       }
+      window.dispatchEvent(new Event('jarvis:sessions-changed'))
       await fetchWorkspaces()
       if (data.workspace?.id) {
         setWorkspaceId(data.workspace.id)
@@ -834,6 +836,7 @@ export default function CoderPage() {
       setRunId('')
       setIsLoading(false)
       abortRunStream()
+      window.dispatchEvent(new Event('jarvis:sessions-changed'))
       await fetchWorkspaces()
       setMessages([
         {

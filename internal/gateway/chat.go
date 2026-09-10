@@ -228,6 +228,10 @@ func NewService(opts Options) (*Service, error) {
 		_ = audit.Close()
 		return nil, fmt.Errorf("initialize notifications: %w", err)
 	}
+	if _, err := audit.db.Exec(`UPDATE project_tip_runs SET launch_status='failed', error='launch interrupted by server restart' WHERE launch_status='starting'`); err != nil {
+		_ = audit.Close()
+		return nil, err
+	}
 	runs := newRunManager(opts.Logger, audit)
 	service := &Service{
 		Opts:          opts,
@@ -381,9 +385,9 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 		return ChatResponse{}, err
 	}
 
-	noTools := s.Opts.NoTools || (strings.EqualFold(req.Mode, "coder") && req.WorkspaceID == "")
+	noTools := req.ReadOnly || s.Opts.NoTools || (strings.EqualFold(req.Mode, "coder") && req.WorkspaceID == "")
 	pluginOptions := run.PluginLoadOptions{Disabled: true}
-	if s.Plugins != nil {
+	if s.Plugins != nil && !req.ReadOnly {
 		pluginOptions = s.Plugins.LoadOptions(runCwd)
 	}
 	env, err := run.SetupEnvAtWithPlugins(
@@ -412,6 +416,10 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 		env.Tools = append(env.Tools, &SkillLoadTool{Snapshot: skillSnapshot})
 	}
 	env.Tools = applyGatewayToolPolicy(req.Mode, noTools, env.Tools, skillSnapshot)
+	if req.ReadOnly {
+		// Deliberately no tools, plugins, delegation or shell hooks in analysis.
+		env.Tools = nil
+	}
 
 	sysPrompt := hs.header.SystemPrompt
 	if sysPrompt == "" {
@@ -442,6 +450,9 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 		source = "resume"
 	}
 	set, herr := run.ResolveHookSet(env.Cwd, run.Trusted(env.Cwd))
+	if req.ReadOnly {
+		set, herr = nil, nil
+	}
 	if herr != nil {
 		closeEnv(env)
 		return ChatResponse{}, herr
@@ -638,6 +649,16 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 		distributedlog.F("model", model),
 		distributedlog.F("workspace_id", req.WorkspaceID),
 	)
+
+	if req.BeforeLaunch != nil {
+		if err := req.BeforeLaunch(ChatResponse{SessionID: hs.header.ID, RunID: state.ID, Model: model}); err != nil {
+			cancel()
+			state.Finish(err)
+			closeEnv(env)
+			_ = s.Audit.FinishChat(context.Background(), state.ID, "", runStatusError, err.Error(), time.Now().UTC())
+			return ChatResponse{}, err
+		}
+	}
 
 	go func() {
 		defer cancel()

@@ -1,3 +1,4 @@
+import { useLocation } from 'react-router-dom'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { ArrowUp, Bot, Folder, MessagesSquare, Plus, SquarePen, X } from 'lucide-react'
 import { useAppearance } from '../context/AppearanceContext'
@@ -20,7 +21,13 @@ import type { ProjectDocument, ProjectSummary } from '../types/documents'
 
 type ModelOption = { id: string }
 
-export default function ChatPage() {
+// Remount only the chat view on navigation; the sidebar stays mounted.
+export default function ChatRoute() {
+  const location = useLocation()
+  return <ChatPage key={location.key} />
+}
+
+function ChatPage() {
   const { currentAccount } = useAccount()
   const { homeLayout } = useAppearance()
   const workbench = homeLayout === 'workbench'
@@ -207,6 +214,7 @@ export default function ChatPage() {
         )
         if (!assignmentResponse.ok) {
           const assignmentBody = await assignmentResponse.json().catch(() => ({}))
+          window.dispatchEvent(new Event('jarvis:sessions-changed'))
           throw new Error(assignmentBody.error || '新项目已创建，但会话关联失败')
         }
       }
@@ -347,7 +355,7 @@ export default function ChatPage() {
       if (data.session_id) {
         setSessionId(data.session_id)
         if (storageKey) persistSessionId(storageKey, data.session_id)
-        window.dispatchEvent(new Event('jarvis:sessions-changed'))
+        if (data.session_id !== sessionId) window.dispatchEvent(new Event('jarvis:sessions-changed'))
       }
 
       const assistantId = data.run_id ? `run-${data.run_id}` : Date.now().toString()

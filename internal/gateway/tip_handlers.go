@@ -50,6 +50,13 @@ func (s *Service) handleListProjectTips(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	for i := range tips {
+		tips[i].Runs, err = s.Audit.ListProjectTipRuns(r.Context(), accountID, tips[i].ProjectID, tips[i].ID)
+		if err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"tips": tips})
 }
 
@@ -96,6 +103,11 @@ func (s *Service) handleGetProjectTip(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	tip.Runs, err = s.Audit.ListProjectTipRuns(r.Context(), accountID, tip.ProjectID, tip.ID)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"tip": tip})
 }
 
@@ -125,6 +137,11 @@ func (s *Service) handleUpdateProjectTip(w http.ResponseWriter, r *http.Request)
 	case err != nil:
 		writeErr(w, http.StatusBadRequest, err.Error())
 	default:
+		tip.Runs, err = s.Audit.ListProjectTipRuns(r.Context(), accountID, tip.ProjectID, tip.ID)
+		if err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
 		writeJSON(w, http.StatusOK, map[string]any{"tip": tip})
 	}
 }

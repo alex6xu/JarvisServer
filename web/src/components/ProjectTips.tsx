@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { restoreTipRun, tipHasActiveRun } from '../lib/tipExecution'
 import { Archive, Check, Circle, Lightbulb, ListTodo, MessageCircleQuestion, NotebookPen, Pencil, Trash2 } from 'lucide-react'
 import { useProjectTips } from '../hooks/useProjectTips'
-import type { ProjectTip, TipStatus, TipType } from '../types/tips'
+import type { ProjectTip, TipRun, TipStatus, TipType } from '../types/tips'
 
 const typeMeta: Record<TipType, { label: string; icon: typeof Lightbulb; className: string }> = {
   idea: { label: '想法', icon: Lightbulb, className: 'text-amber-500' },
@@ -19,7 +21,35 @@ const statusMeta: Array<{ value: TipStatus; label: string }> = [
 ]
 
 export default function ProjectTips({ accountId, projectId }: { accountId?: number; projectId: string }) {
+  return <ProjectTipsPanel key={`${accountId}:${projectId}`} accountId={accountId} projectId={projectId} />
+}
+
+function ProjectTipsPanel({ accountId, projectId }: { accountId?: number; projectId: string }) {
   const tips = useProjectTips(accountId, projectId)
+  const navigate = useNavigate()
+  const requestKeys = useRef<Record<string, string>>({})
+  const openRun = (run: TipRun) => {
+    if (!accountId || !run.session_id) return
+    const location = restoreTipRun(accountId, run)
+    if (location) navigate(location)
+  }
+  const execute = async (tip: ProjectTip, mode: 'analyze' | 'execute') => {
+    const message = mode === 'analyze'
+      ? '启动只读分析？Agent 将仅分析 Tip 并提出方案（不使用工具或修改文件）。'
+      : '确认交给 Agent 执行？绑定工作区的项目将进入 Code，Agent 可修改文件、运行命令；无工作区时进入 Chat。成功启动后标为进行中，不会自动完成。'
+    if (tips.saving || !window.confirm(message)) return
+    const slot = `${tip.id}:${mode}`
+    // Retain the key on network failure so retry cannot accidentally launch twice.
+    const key = requestKeys.current[slot] ||= crypto.randomUUID()
+    try {
+      const run = await tips.execute(tip, mode, key)
+      if (run?.session_id) { delete requestKeys.current[slot]; openRun(run) }
+      else if (run) void tips.load()
+    } catch {
+      // A durable failed launch may be retried with a fresh key after refreshing history.
+      void tips.load()
+    }
+  }
   const [content, setContent] = useState('')
   const [type, setType] = useState<TipType>('note')
   const [priority, setPriority] = useState(0)
@@ -131,6 +161,23 @@ export default function ProjectTips({ accountId, projectId }: { accountId?: numb
                       <div className="min-w-0 flex-1">
                         {tip.title && <p className="text-[11px] font-medium text-foreground">{tip.title}</p>}
                         <p className={`whitespace-pre-wrap text-[11px] leading-relaxed ${tip.status === 'done' ? 'text-muted-foreground line-through' : 'text-foreground'}`}>{tip.content}</p>
+                        <div className="mt-2 flex flex-wrap gap-2 text-[10px]">
+                          <button type="button" disabled={tips.saving || tipHasActiveRun(tip.runs)} onClick={() => void execute(tip, 'analyze')} className="text-primary disabled:opacity-40">只读分析</button>
+                          <button type="button" disabled={tips.saving || tipHasActiveRun(tip.runs)} onClick={() => void execute(tip, 'execute')} className="text-primary disabled:opacity-40">交给 Agent 执行</button>
+                        </div>
+                        {tip.runs && tip.runs.length > 0 && <details className="mt-2 text-[10px] text-muted-foreground">
+                          <summary className="cursor-pointer">Agent 历史 · {tip.runs.length}</summary>
+                          <button type="button" onClick={() => void tips.load()} className="text-primary">刷新状态</button>
+                          {tip.runs.map((run) => <div key={run.id} className="mt-2">
+                            <button type="button" disabled={!run.session_id} onClick={() => openRun(run)} className="text-primary disabled:text-muted-foreground">
+                              {run.mode === 'analyze' ? '分析' : '执行'} · {run.status} · {new Date(run.created_at).toLocaleString()} {run.session_id ? '→ 打开会话' : ''}
+                            </button>
+                            {run.error && <p className="text-red-500">{run.error}</p>}
+                            {run.status === 'failed' && <button type="button" onClick={() => { delete requestKeys.current[`${tip.id}:${run.mode}`]; void execute(tip, run.mode) }} disabled={tips.saving} className="text-primary">重新尝试</button>}
+                            <details><summary>启动时的 Tip (v{run.snapshot.version})</summary><p className="whitespace-pre-wrap">{run.snapshot.title}
+{run.snapshot.content}</p></details>
+                          </div>)}
+                        </details>}
                         <div className="mt-1 flex flex-wrap items-center gap-2 text-[9px] text-muted-foreground">
                           <span>{meta.label}</span>
                           {tip.priority > 0 && <span>{['', '低', '中', '高'][tip.priority]}优先级</span>}
