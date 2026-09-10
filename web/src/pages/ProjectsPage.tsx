@@ -133,7 +133,7 @@ export default function ProjectsPage() {
       window.dispatchEvent(new Event('jarvis:sessions-changed'))
       setName('')
       await loadProjects()
-      if (body.project?.id) await openProject(body.project.id)
+      if (body.project?.id) navigate(`/code?project=${encodeURIComponent(body.project.id)}`)
     } catch (createError) {
       if (accountRef.current !== accountId) return
       setError(createError instanceof Error ? createError.message : '创建项目失败')

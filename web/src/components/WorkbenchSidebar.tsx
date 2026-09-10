@@ -104,8 +104,12 @@ export default function WorkbenchSidebar() {
   }, [currentAccount?.id])
 
   useEffect(() => setExpanded({}), [currentAccount?.id])
+  useEffect(() => {
+    const project = new URLSearchParams(location.search).get('project')
+    if (project) setExpanded((previous) => ({ ...previous, [project]: true }))
+  }, [location.search, currentAccount?.id])
   const grouped = groupSidebarSessions(sessions, members)
-  const currentSession = location.pathname === '/' ? new URLSearchParams(location.search).get('session') || '' : ''
+  const currentSession = new URLSearchParams(location.search).get('session') || ''
   const matches = (value: string) => value.toLocaleLowerCase().includes(search.toLocaleLowerCase())
   return (
     <>
@@ -131,7 +135,7 @@ export default function WorkbenchSidebar() {
           </div>)}
         </nav>
         <div className="workbench-history">
-          <div className="workbench-section-title"><span>项目</span><Link to="/projects" title="新建项目" aria-label="新建项目"><Plus size={15} /></Link></div>
+          <div className="workbench-section-title"><span>项目</span><Link to="/code?new=1" title="新建项目" aria-label="新建项目"><Plus size={15} /></Link></div>
           {projects.filter((project) => matches(project.name) || grouped.projects[project.id]?.some((session) => matches(session.title || session.id))).map((project) => <SidebarProject key={project.id} project={project} sessions={grouped.projects[project.id] || []} expanded={!!expanded[project.id]} onToggle={() => setExpanded((previous) => ({ ...previous, [project.id]: !previous[project.id] }))} currentSession={currentSession} search={matches(project.name) ? '' : search} />)}
           {!busy && !error && projects.length === 0 && <p className="workbench-empty">暂无项目</p>}
           <div className="workbench-section-title"><span>最近</span><Link to="/sessions" title="全部会话" aria-label="全部会话"><History size={15} /></Link></div>

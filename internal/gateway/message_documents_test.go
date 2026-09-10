@@ -124,3 +124,42 @@ func TestBuildDocumentContextIsBoundedAndUntrusted(t *testing.T) {
 		t.Fatalf("context was not bounded: %d runes", len([]rune(contextText)))
 	}
 }
+
+func TestCodeProjectAcceptsManualProjectWithoutRebinding(t *testing.T) {
+	store := newTestGatewayStore(t)
+	ctx := context.Background()
+	account, err := store.CreateAccount(ctx, "manual-code-project", "", "user", "test-password")
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := store.CreateProject(ctx, account.ID, "Existing manual project", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := &Service{Audit: store}
+	req := ChatRequest{AccountID: account.ID, Mode: "coder", WorkspaceID: "owned-workspace", ProjectID: project.ID}
+	// chat validates workspace ownership before preparing message documents.
+	if _, _, err := svc.prepareMessageDocuments(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	unchanged, _ := store.ProjectByID(ctx, account.ID, project.ID)
+	if unchanged.LinkedWorkspaceID != "" {
+		t.Fatal("manual project was rebound")
+	}
+	req.WorkspaceID = ""
+	if _, _, err := svc.prepareMessageDocuments(ctx, req); err == nil {
+		t.Fatal("missing workspace accepted")
+	}
+	req.WorkspaceID = "owned-workspace"
+	req.AccountID = account.ID + 1
+	if _, _, err := svc.prepareMessageDocuments(ctx, req); err == nil {
+		t.Fatal("foreign project accepted")
+	}
+	req.AccountID = account.ID
+	if _, err := store.db.Exec(`UPDATE projects SET linked_workspace_id='other-workspace' WHERE id=?`, project.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := svc.prepareMessageDocuments(ctx, req); err == nil {
+		t.Fatal("mismatched linked project accepted")
+	}
+}

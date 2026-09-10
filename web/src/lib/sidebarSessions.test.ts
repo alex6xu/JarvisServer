@@ -12,7 +12,7 @@ describe('sidebar session grouping', () => {
     expect(result.recent).toHaveLength(12)
     expect(result.recent[0].id).toBe('13')
     expect(result.recent.some((s) => ['14', '15'].includes(s.id))).toBe(false)
-    expect(result.projects.p.map((s) => s.id)).toEqual(['15', '14'])
+    expect(result.projects.p.map((s) => s.id)).toEqual(['15', '14', 'code'])
     expect(result.projects.empty).toEqual([])
     expect(sessions[0].id).toBe('0')
   })

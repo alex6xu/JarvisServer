@@ -26,6 +26,7 @@ type RestoreOpts = {
   storageKey: string
   mode: 'chat' | 'coder'
   workspaceId?: string
+  projectId?: string
   /** Prefer URL ?session= / ?resume= over localStorage when true (default). */
   preferUrl?: boolean
   /** Explicit session override (e.g. from navigation). */
@@ -169,6 +170,14 @@ export function useSessionRestore() {
         return null
       }
 
+      if (opts.projectId) {
+        const assignmentRes = await apiFetch(`/v1/agent/sessions/${encodeURIComponent(saved)}/project`, {}, opts.accountId)
+        if (gen !== genRef.current) return null
+        if (!assignmentRes.ok) throw new Error('会话项目关联加载失败')
+        const assignment = await assignmentRes.json()
+        if (gen !== genRef.current) return null
+        if (assignment.assignment?.project?.id !== opts.projectId) return null
+      }
       persistSessionId(opts.storageKey, saved)
       await setServerActiveSession(opts, saved)
       if (gen !== genRef.current) return null

@@ -41,7 +41,7 @@ func (s *Service) prepareMessageDocuments(ctx context.Context, req ChatRequest) 
 	if err != nil || project.Status != "active" {
 		return initialMessageDocuments{}, "", errors.New("project not found")
 	}
-	if strings.EqualFold(req.Mode, "coder") && (req.WorkspaceID == "" || project.LinkedWorkspaceID != req.WorkspaceID) {
+	if strings.EqualFold(req.Mode, "coder") && (req.WorkspaceID == "" || (project.LinkedWorkspaceID != "" && project.LinkedWorkspaceID != req.WorkspaceID)) {
 		return initialMessageDocuments{}, "", errors.New("code project must match the workspace-linked project")
 	}
 

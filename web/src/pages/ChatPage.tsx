@@ -534,7 +534,7 @@ function ChatPage() {
             </>}
             {workbench && <span className="workbench-context-divider" />}
             {workbench && <span className="workbench-context-group"><MessagesSquare size={15} /><span>会话</span></span>}
-            {workbench && <RecentSessionSelect accountId={currentAccount?.id} mode="chat" currentSessionId={sessionId} variant="context" />}
+
             {workbench && <span className="workbench-context-divider" />}
             {workbench && <span className="workbench-context-group"><Bot size={15} /><span>模型</span></span>}
             {workbench && <select aria-label="当前模型" title="选择本会话使用的模型" value={selectedModel} onChange={(event) => setSelectedModel(event.target.value)} disabled={isLoading} className="workbench-context-select workbench-model-select">
