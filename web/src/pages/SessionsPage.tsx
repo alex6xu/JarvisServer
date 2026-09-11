@@ -11,6 +11,7 @@ import {
   coderSessionKey,
   coderWorkspaceKey,
   writeLocal,
+  mergeRestoredMessages,
   type ToolStep,
 } from '../lib/sessionPersist'
 
@@ -88,9 +89,13 @@ export default function SessionsPage() {
   const [projects, setProjects] = useState<ProjectOption[]>([])
   const [projectAssignment, setProjectAssignment] = useState<SessionProjectAssignment | null>(null)
   const [projectBusy, setProjectBusy] = useState(false)
+  const detailGeneration = useRef(0)
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
+    detailGeneration.current++
+    setDetailHasMore(false)
+    setDetailCursor(0)
     if (currentAccount) {
       setSelectedSession(null)
       setSelectedMeta(null)
@@ -116,6 +121,11 @@ export default function SessionsPage() {
   }
 
   const fetchSessionDetail = async (session: Session) => {
+    const generation = ++detailGeneration.current
+    setMessages([])
+    setDetailHasMore(false)
+    setDetailCursor(0)
+    setDetailLoadingOlder(false)
     setLoading(true)
     setBranchError('')
     setBranchDiff('')
@@ -130,6 +140,7 @@ export default function SessionsPage() {
         apiFetch('/v1/projects', {}, currentAccount?.id),
         apiFetch(`/v1/agent/sessions/${encodeURIComponent(session.id)}/project`, {}, currentAccount?.id),
       ])
+      if (generation !== detailGeneration.current) return
       if (projectsResponse.ok) {
         const projectData = await projectsResponse.json()
         setProjects(projectData.projects || [])
@@ -140,7 +151,8 @@ export default function SessionsPage() {
       }
       if (response.ok) {
         const data = await response.json()
-        setMessages((data.messages || []).slice().sort((a: Message, b: Message) => (a.seq ?? Number.MAX_SAFE_INTEGER) - (b.seq ?? Number.MAX_SAFE_INTEGER)))
+        if (generation !== detailGeneration.current) return
+        setMessages(mergeRestoredMessages<Message>(data.messages || []))
         setDetailHasMore(Boolean(data.has_more))
         setDetailCursor(Number(data.next_cursor || 0))
         if (data.workspace_id) setDetailWorkspaceId(data.workspace_id)
@@ -160,28 +172,26 @@ export default function SessionsPage() {
     } catch (error) {
       console.error('Failed to fetch session detail:', error)
     } finally {
-      setLoading(false)
+      if (generation === detailGeneration.current) setLoading(false)
     }
   }
 
   const loadOlderMessages = async () => {
     if (!selectedSession || !currentAccount?.id || !detailHasMore || !detailCursor || detailLoadingOlder) return
+    const generation = detailGeneration.current
     setDetailLoadingOlder(true)
     try {
       const response = await apiFetch(`/v1/agent/sessions/${encodeURIComponent(selectedSession)}?limit=30&before_seq=${detailCursor}`, {}, currentAccount.id)
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
       const data = await response.json()
+      if (generation !== detailGeneration.current) return
       const older = (data.messages || []) as Message[]
-      setMessages((current) => {
-        const byId = new Map(current.map((message) => [message.id, message]))
-        for (const message of older) if (!byId.has(message.id)) byId.set(message.id, message)
-        return [...byId.values()].sort((a, b) => (a.seq ?? Number.MAX_SAFE_INTEGER) - (b.seq ?? Number.MAX_SAFE_INTEGER))
-      })
+      setMessages((current) => mergeRestoredMessages(current, older))
       setDetailHasMore(Boolean(data.has_more))
       setDetailCursor(Number(data.next_cursor || 0))
     } catch (error) {
-      setBranchError(error instanceof Error ? error.message : '加载更早消息失败')
-    } finally { setDetailLoadingOlder(false) }
+      if (generation === detailGeneration.current) setBranchError(error instanceof Error ? error.message : '加载更早消息失败')
+    } finally { if (generation === detailGeneration.current) setDetailLoadingOlder(false) }
   }
 
   const forkSession = async (entryId?: string) => {

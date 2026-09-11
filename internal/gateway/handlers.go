@@ -178,6 +178,21 @@ func (s *Service) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	}
 	id := pathParam(r, "sessionId")
 	q := r.URL.Query()
+	cursorCount := 0
+	for _, key := range []string{"before_seq", "after_seq", "around_seq"} {
+		if raw, exists := q[key]; exists {
+			value, err := strconv.Atoi(q.Get(key))
+			if len(raw) != 1 || err != nil || value <= 0 {
+				writeErr(w, http.StatusBadRequest, "cursor must be a positive integer")
+				return
+			}
+			cursorCount++
+		}
+	}
+	if cursorCount > 1 {
+		writeErr(w, http.StatusBadRequest, "history cursors are mutually exclusive")
+		return
+	}
 	limit, beforeSeq, afterSeq := parseSessionPage(q.Get("limit"), q.Get("before_seq"), q.Get("after_seq"))
 	aroundSeq, _ := strconv.Atoi(q.Get("around_seq"))
 	resp, err := s.getSessionForAccountWindow(id, accountID, limit, beforeSeq, afterSeq, aroundSeq)

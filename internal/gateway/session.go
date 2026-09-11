@@ -40,6 +40,12 @@ func (s *Service) getSessionForAccountWindow(id string, accountID, limit, before
 			return SessionDetailResponse{}, fmt.Errorf("pagination is unavailable")
 		}
 		h, entries, err = paged.LoadEntriesAround(id, aroundSeq, 15, 30)
+		if err == nil && len(entries) > 0 {
+			next = entries[0].Seq
+			var older []session.Entry
+			_, older, _, _, err = paged.LoadEntriesPage(id, 1, next, 0)
+			hasMore = len(older) > 0
+		}
 	} else if limit > 0 {
 		if !ok {
 			return SessionDetailResponse{}, fmt.Errorf("pagination is unavailable")
@@ -79,6 +85,9 @@ func (s *Service) getSessionForAccountWindow(id string, accountID, limit, before
 		resp.WorkspaceID = info.WorkspaceID
 		resp.Session.WorkspaceID = info.WorkspaceID
 		resp.Session.ActiveRunStatus = info.Status
+	}
+	if err := boundHistoryResponse(&resp); err != nil {
+		return SessionDetailResponse{}, err
 	}
 	return resp, nil
 }
@@ -408,6 +417,7 @@ func projectRestoredMessages(messages []RestoredMessage) ([]RestoredMessage, boo
 	copy(out, messages)
 	truncated := false
 	for i := range out {
+		out[i].ToolSteps = append([]ToolStep(nil), out[i].ToolSteps...)
 		var changed bool
 		out[i].Content, changed = truncateHistoryText(out[i].Content, maxHistoryMessageBytes)
 		out[i].ContentTruncated = changed
@@ -418,61 +428,70 @@ func projectRestoredMessages(messages []RestoredMessage) ([]RestoredMessage, boo
 			step.Args, changed = truncateHistoryText(step.Args, maxHistoryToolBytes/3)
 			var changedResult bool
 			step.Result, changedResult = truncateHistoryText(step.Result, maxHistoryToolBytes)
+			step.ArgsTruncated = changed
 			step.ResultTruncated = changedResult
 			if changed || changedResult {
 				truncated = true
 			}
 		}
 	}
-	// Enforce a byte ceiling without dropping entries or their identifiers.
-	if len(out) > 0 {
-		perMessage := maxHistoryResponseBytes / len(out)
-		for i := range out {
-			if len(out[i].Content) > perMessage {
-				out[i].Content, _ = truncateHistoryText(out[i].Content, perMessage)
-				out[i].ContentTruncated, out[i].Truncated, truncated = true, true, true
-			}
-			for j := range out[i].ToolSteps {
-				if len(out[i].ToolSteps[j].Result) > perMessage/2 {
-					out[i].ToolSteps[j].Result, _ = truncateHistoryText(out[i].ToolSteps[j].Result, perMessage/2)
-					out[i].ToolSteps[j].ResultTruncated, truncated = true, true
-				}
-			}
-		}
-	}
-	for len(out) > 0 {
-		encoded, err := json.Marshal(out)
-		if err != nil || len(encoded) <= maxHistoryResponseBytes {
-			break
-		}
-		idx := len(out) - 1
-		if out[idx].Content == "" && len(out[idx].ToolSteps) == 0 {
-			break
-		}
-		contentLimit := len(out[idx].Content) / 2
-		if contentLimit > 0 {
-			out[idx].Content, _ = truncateHistoryText(out[idx].Content, contentLimit)
-		}
-		for j := range out[idx].ToolSteps {
-			resultLimit := len(out[idx].ToolSteps[j].Result) / 2
-			if resultLimit > 0 {
-				out[idx].ToolSteps[j].Result, _ = truncateHistoryText(out[idx].ToolSteps[j].Result, resultLimit)
-			}
-		}
-		out[idx].ContentTruncated = true
-		out[idx].Truncated = true
-		truncated = true
-	}
+
 	return out, truncated
 }
 
+// boundHistoryResponse measures the complete JSON envelope, including metadata,
+// escaping and attachments. It never drops entries or tool identities. An
+// irreducibly oversized structural envelope fails closed instead of looping.
+func boundHistoryResponse(resp *SessionDetailResponse) error {
+	for pass := 0; pass < 20; pass++ {
+		encoded, err := json.Marshal(resp)
+		if err != nil {
+			return err
+		}
+		if len(encoded)+1 <= maxHistoryResponseBytes {
+			return nil
+		}
+		changed := false
+		for i := range resp.Messages {
+			m := &resp.Messages[i]
+			if m.Content != "" {
+				m.Content, _ = truncateHistoryText(m.Content, len(m.Content)/2)
+				m.ContentTruncated = true
+				m.Truncated = true
+				changed = true
+			}
+			for j := range m.ToolSteps {
+				step := &m.ToolSteps[j]
+				if step.Args != "" {
+					step.Args, _ = truncateHistoryText(step.Args, len(step.Args)/2)
+					step.ArgsTruncated = true
+					changed = true
+				}
+				if step.Result != "" {
+					step.Result, _ = truncateHistoryText(step.Result, len(step.Result)/2)
+					step.ResultTruncated = true
+					changed = true
+				}
+			}
+		}
+		resp.Truncated = true
+		if !changed {
+			break
+		}
+	}
+	return fmt.Errorf("history response metadata exceeds presentation byte budget")
+}
+
 func truncateHistoryText(value string, maxBytes int) (string, bool) {
-	if maxBytes < 1 || len(value) <= maxBytes {
+	if len(value) <= maxBytes {
 		return value, false
 	}
-	marker := "\n[…内容已截断，可通过分页继续查看…]"
+	if maxBytes <= 0 {
+		return "", value != ""
+	}
+	marker := "\n[…展示已截断，原始记录保留…]"
 	if maxBytes <= len(marker) {
-		return marker[:maxBytes], true
+		return strings.Repeat(".", maxBytes), true
 	}
 	keep := maxBytes - len(marker)
 	value = value[:keep]

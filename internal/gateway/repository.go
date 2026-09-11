@@ -328,7 +328,7 @@ func (s *GatewayStore) LoadEntriesPage(id string, limit, beforeSeq, afterSeq int
 		e.Seq = x.seq
 		entries = append(entries, e)
 	}
-	if beforeSeq > 0 {
+	if afterSeq == 0 {
 		for i, j := 0, len(entries)-1; i < j; i, j = i+1, j-1 {
 			entries[i], entries[j] = entries[j], entries[i]
 		}

@@ -82,6 +82,7 @@ export type ToolStep = {
   args: string
   result: string
   result_truncated?: boolean
+  args_truncated?: boolean
   id?: string
   status?: 'running' | 'done' | 'error' | string
 }
@@ -224,8 +225,8 @@ export type SessionRestorePayload = {
 }
 
 /** Merge history windows by stable entry id, preserving ascending sequence order. */
-export function mergeRestoredMessages(...windows: UiMessage[][]): UiMessage[] {
-  const byId = new Map<string, UiMessage>()
+export function mergeRestoredMessages<T extends { id: string; seq?: number }>(...windows: T[][]): T[] {
+  const byId = new Map<string, T>()
   for (const window of windows) for (const message of window) {
     if (!byId.has(message.id)) byId.set(message.id, message)
   }

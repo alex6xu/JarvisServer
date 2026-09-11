@@ -55,6 +55,7 @@ type ToolStep struct {
 	Tool            string `json:"tool"`
 	Args            string `json:"args"`
 	Result          string `json:"result"`
+	ArgsTruncated   bool   `json:"args_truncated,omitempty"`
 	ResultTruncated bool   `json:"result_truncated,omitempty"`
 	ID              string `json:"id,omitempty"`
 	Status          string `json:"status,omitempty"` // running | done | error
