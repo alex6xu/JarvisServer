@@ -92,6 +92,7 @@ export type MessageSegment =
 
 export type UiMessage = {
   id: string
+  seq?: number
   role: ChatMessageRole
   content: string
   timestamp: Date
@@ -178,6 +179,7 @@ export function syncToolResultsInSegments(segments: MessageSegment[], steps: Too
 
 export type RestoredSessionMessage = {
   id: string
+  seq?: number
   role: string
   content: string
   model?: string
@@ -212,6 +214,17 @@ export type SessionRestorePayload = {
   latest_run?: ActiveRunInfo
   latest_run_tool_steps?: ToolStep[]
   last_event_seq?: number
+  has_more?: boolean
+  next_cursor?: number
+}
+
+/** Merge history windows by stable entry id, preserving ascending sequence order. */
+export function mergeRestoredMessages(...windows: UiMessage[][]): UiMessage[] {
+  const byId = new Map<string, UiMessage>()
+  for (const window of windows) for (const message of window) {
+    if (!byId.has(message.id)) byId.set(message.id, message)
+  }
+  return [...byId.values()].sort((a, b) => (a.seq ?? Number.MAX_SAFE_INTEGER) - (b.seq ?? Number.MAX_SAFE_INTEGER))
 }
 
 export function mapRestoredMessages(messages: RestoredSessionMessage[] | undefined): UiMessage[] {
@@ -220,6 +233,7 @@ export function mapRestoredMessages(messages: RestoredSessionMessage[] | undefin
     const content = m.content || ''
     return {
       id: m.id,
+      seq: m.seq,
       role: (m.role as ChatMessageRole) || 'assistant',
       content,
       timestamp: m.created_at ? new Date(m.created_at) : new Date(),

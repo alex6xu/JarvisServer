@@ -34,6 +34,7 @@ type SessionType = 'chat' | 'code'
 
 interface Message {
   id: string
+  seq?: number
   role: string
   content: string
   model?: string
@@ -136,7 +137,7 @@ export default function SessionsPage() {
       }
       if (response.ok) {
         const data = await response.json()
-        setMessages(data.messages || [])
+        setMessages((data.messages || []).slice().sort((a: Message, b: Message) => (a.seq ?? Number.MAX_SAFE_INTEGER) - (b.seq ?? Number.MAX_SAFE_INTEGER)))
         if (data.workspace_id) setDetailWorkspaceId(data.workspace_id)
         setDetailRunId(
           data.active_run && (data.active_run.status === 'running' || data.active_run.status === 'queued')

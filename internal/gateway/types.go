@@ -95,7 +95,8 @@ type ActiveRunInfo struct {
 
 // RestoredMessage matches web RestoredSessionMessage.
 type RestoredMessage struct {
-	ID        string            `json:"id"`
+	ID        string
+	Seq       int               `json:"id"`
 	Role      string            `json:"role"`
 	Content   string            `json:"content"`
 	Model     string            `json:"model,omitempty"`

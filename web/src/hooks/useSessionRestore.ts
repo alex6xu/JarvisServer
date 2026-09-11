@@ -31,6 +31,8 @@ type RestoreOpts = {
   preferUrl?: boolean
   /** Explicit session override (e.g. from navigation). */
   sessionId?: string
+  /** Center history restore on this persisted entry sequence. */
+  aroundSeq?: number
 }
 
 /**
@@ -132,7 +134,8 @@ export function useSessionRestore() {
       if (gen !== genRef.current) return null
       if (!saved) return null
 
-      let res = await apiFetch(`/v1/agent/sessions/${encodeURIComponent(saved)}`, {}, opts.accountId)
+      const restoreQuery = opts.aroundSeq ? `?around_seq=${encodeURIComponent(opts.aroundSeq)}` : ''
+      let res = await apiFetch(`/v1/agent/sessions/${encodeURIComponent(saved)}${restoreQuery}`, {}, opts.accountId)
       if (gen !== genRef.current) return null
       if (!res.ok) {
         // Stale localStorage / ?session= ids produce noisy 404s on every Chat mount.
@@ -144,7 +147,7 @@ export function useSessionRestore() {
             if (serverSession && serverSession !== saved) {
               saved = serverSession
               res = await apiFetch(
-                `/v1/agent/sessions/${encodeURIComponent(saved)}`,
+                `/v1/agent/sessions/${encodeURIComponent(saved)}${restoreQuery}`,
                 {},
                 opts.accountId,
               )

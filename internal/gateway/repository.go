@@ -270,14 +270,20 @@ func (s *GatewayStore) LoadEntries(id string) (session.SessionHeader, []session.
 func (s *GatewayStore) LoadEntriesPage(id string, limit, beforeSeq, afterSeq int) (session.SessionHeader, []session.Entry, int, bool, error) {
 	var raw string
 	if err := s.db.QueryRow(`SELECT header_json FROM sessions WHERE id=?`, id).Scan(&raw); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return session.SessionHeader{}, nil, 0, false, fmt.Errorf("%w: %s", os.ErrNotExist, id)
+		}
 		return session.SessionHeader{}, nil, 0, false, err
 	}
 	var header session.SessionHeader
 	if err := json.Unmarshal([]byte(raw), &header); err != nil {
 		return header, nil, 0, false, err
 	}
-	if limit <= 0 || limit > 200 {
-		limit = 50
+	if limit <= 0 {
+		limit = 30
+	}
+	if limit > 200 {
+		limit = 200
 	}
 	query := `SELECT seq,payload FROM session_entries WHERE session_id=? ORDER BY seq DESC LIMIT ?`
 	args := []any{id, limit + 1}
@@ -319,6 +325,7 @@ func (s *GatewayStore) LoadEntriesPage(id string, limit, beforeSeq, afterSeq int
 		if err := json.Unmarshal([]byte(x.payload), &e); err != nil {
 			return header, nil, 0, false, err
 		}
+		e.Seq = x.seq
 		entries = append(entries, e)
 	}
 	if beforeSeq > 0 {
@@ -331,6 +338,50 @@ func (s *GatewayStore) LoadEntriesPage(id string, limit, beforeSeq, afterSeq int
 		next = rawRows[len(rawRows)-1].seq
 	}
 	return header, entries, next, hasMore, nil
+}
+
+// LoadEntriesAround returns a bounded ascending window centered on centerSeq.
+func (s *GatewayStore) LoadEntriesAround(id string, centerSeq, before, after int) (session.SessionHeader, []session.Entry, error) {
+	var raw string
+	if err := s.db.QueryRow(`SELECT header_json FROM sessions WHERE id=?`, id).Scan(&raw); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return session.SessionHeader{}, nil, fmt.Errorf("%w: %s", os.ErrNotExist, id)
+		}
+		return session.SessionHeader{}, nil, err
+	}
+	var header session.SessionHeader
+	if err := json.Unmarshal([]byte(raw), &header); err != nil {
+		return header, nil, err
+	}
+	if centerSeq < 1 {
+		return header, nil, fmt.Errorf("around_seq must be positive")
+	}
+	if before < 0 {
+		before = 0
+	}
+	if after < 0 {
+		after = 0
+	}
+	rows, err := s.db.Query(`SELECT seq,payload FROM session_entries WHERE session_id=? AND (seq=? OR seq IN (SELECT seq FROM session_entries WHERE session_id=? AND seq<? ORDER BY seq DESC LIMIT ?) OR seq IN (SELECT seq FROM session_entries WHERE session_id=? AND seq>? ORDER BY seq LIMIT ?)) ORDER BY seq`, id, centerSeq, id, centerSeq, before, id, centerSeq, after)
+	if err != nil {
+		return header, nil, err
+	}
+	defer rows.Close()
+	entries := make([]session.Entry, 0, before+after+1)
+	for rows.Next() {
+		var seq int
+		var payload string
+		if err := rows.Scan(&seq, &payload); err != nil {
+			return header, nil, err
+		}
+		var e session.Entry
+		if err := json.Unmarshal([]byte(payload), &e); err != nil {
+			return header, nil, err
+		}
+		e.Seq = seq
+		entries = append(entries, e)
+	}
+	return header, entries, rows.Err()
 }
 
 func (s *GatewayStore) List() ([]session.SessionHeader, error) {

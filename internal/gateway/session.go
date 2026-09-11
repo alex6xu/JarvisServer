@@ -23,13 +23,22 @@ func (s *Service) getSessionForAccount(id string, accountID int) (SessionDetailR
 }
 
 func (s *Service) getSessionForAccountPage(id string, accountID, limit, beforeSeq, afterSeq int) (SessionDetailResponse, error) {
+	return s.getSessionForAccountWindow(id, accountID, limit, beforeSeq, afterSeq, 0)
+}
+
+func (s *Service) getSessionForAccountWindow(id string, accountID, limit, beforeSeq, afterSeq, aroundSeq int) (SessionDetailResponse, error) {
 	var h session.SessionHeader
 	var entries []session.Entry
 	var next int
 	var hasMore bool
 	var err error
-	if limit > 0 {
-		paged, ok := s.Store.(*GatewayStore)
+	paged, ok := s.Store.(*GatewayStore)
+	if aroundSeq > 0 {
+		if !ok {
+			return SessionDetailResponse{}, fmt.Errorf("pagination is unavailable")
+		}
+		h, entries, err = paged.LoadEntriesAround(id, aroundSeq, 15, 30)
+	} else if limit > 0 {
 		if !ok {
 			return SessionDetailResponse{}, fmt.Errorf("pagination is unavailable")
 		}
@@ -76,7 +85,10 @@ func parseSessionPage(limitRaw, beforeRaw, afterRaw string) (int, int, int) {
 	before, _ := strconv.Atoi(beforeRaw)
 	after, _ := strconv.Atoi(afterRaw)
 	if limit < 1 {
-		limit = 0
+		limit = 30
+	}
+	if limit > 200 {
+		limit = 200
 	}
 	if before < 1 {
 		before = 0
@@ -388,6 +400,7 @@ func entriesToRestored(entries []session.Entry, model string) []RestoredMessage 
 		case agentcore.UserMessage:
 			out = append(out, RestoredMessage{
 				ID:        e.ID,
+				Seq:       e.Seq,
 				Role:      "user",
 				Content:   agentcore.ContentToText(m.Content),
 				CreatedAt: e.Timestamp.Format(time.RFC3339),
@@ -398,6 +411,7 @@ func entriesToRestored(entries []session.Entry, model string) []RestoredMessage 
 			}
 			out = append(out, RestoredMessage{
 				ID:        e.ID,
+				Seq:       e.Seq,
 				Role:      "assistant",
 				Content:   agentcore.ContentToText(m.Content),
 				Model:     model,

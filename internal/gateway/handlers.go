@@ -179,7 +179,8 @@ func (s *Service) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	id := pathParam(r, "sessionId")
 	q := r.URL.Query()
 	limit, beforeSeq, afterSeq := parseSessionPage(q.Get("limit"), q.Get("before_seq"), q.Get("after_seq"))
-	resp, err := s.getSessionForAccountPage(id, accountID, limit, beforeSeq, afterSeq)
+	aroundSeq, _ := strconv.Atoi(q.Get("around_seq"))
+	resp, err := s.getSessionForAccountWindow(id, accountID, limit, beforeSeq, afterSeq, aroundSeq)
 	if err != nil {
 		if isNotFound(err) {
 			writeErr(w, http.StatusNotFound, err.Error())
