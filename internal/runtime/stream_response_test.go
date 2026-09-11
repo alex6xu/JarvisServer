@@ -190,8 +190,19 @@ func TestStreamResponseEarlyBuildFailure(t *testing.T) {
 			return nil, context.DeadlineExceeded
 		},
 	}
-	msg, _ := runStream(t, &agentcore.AgentContext{}, cfg)
+	agentCtx := &agentcore.AgentContext{}
+	msg, events := runStream(t, agentCtx, cfg)
 	if msg.StopReason != agentcore.StopReasonError {
 		t.Errorf("early build failure should yield error message, got %+v", msg)
+	}
+	if len(agentCtx.Messages) != 1 {
+		t.Fatalf("early build failure was not stored in context: %+v", agentCtx.Messages)
+	}
+	stored, ok := agentCtx.Messages[0].(agentcore.AssistantMessage)
+	if !ok || stored.StopReason != msg.StopReason || stored.ErrorMessage != msg.ErrorMessage {
+		t.Fatalf("stored early build failure = %+v, want %+v", agentCtx.Messages[0], msg)
+	}
+	if len(events) != 1 || events[0].EventType() != agentcore.EventMessageEnd {
+		t.Fatalf("early build failure events = %+v, want one message_end", events)
 	}
 }

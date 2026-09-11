@@ -7,6 +7,7 @@ import (
 
 	"github.com/alex6xu/jarvisserver/internal/agentcore"
 	"github.com/alex6xu/jarvisserver/internal/agenttool"
+	"github.com/alex6xu/jarvisserver/internal/compaction"
 	"github.com/alex6xu/jarvisserver/internal/provider"
 )
 
@@ -261,6 +262,17 @@ func TestAgentLoopPrepareNextTurnSwapsModel(t *testing.T) {
 	collectStream(t, agentLoop(context.Background(), agentCtx, cfg))
 	if len(seenModels) != 2 || seenModels[1] != newModel {
 		t.Errorf("prepareNextTurn should swap model to %q, saw %v", newModel, seenModels)
+	}
+}
+
+func TestApplyTurnUpdateSwapsContextWindowAndCompaction(t *testing.T) {
+	agentCtx := &agentcore.AgentContext{}
+	cfg := RunConfig{LoopConfig: LoopConfig{ContextWindow: 32000}}
+	window := 128000
+	settings := compaction.CompactionSettings{Enabled: true, ReserveTokens: 16000, KeepRecentTokens: 20000}
+	applyTurnUpdate(agentCtx, &cfg, &TurnUpdate{ContextWindow: &window, Compaction: &settings})
+	if cfg.ContextWindow != window || cfg.Compaction != settings {
+		t.Fatalf("context window=%d compaction=%+v", cfg.ContextWindow, cfg.Compaction)
 	}
 }
 

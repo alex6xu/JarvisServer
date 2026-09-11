@@ -187,3 +187,16 @@ func TestDefaultCompactionSettings(t *testing.T) {
 		t.Fatal("default settings should be enabled")
 	}
 }
+
+func TestEstimateContextTokensWithPromptAvoidsUsageDoubleCount(t *testing.T) {
+	withoutUsage := EstimateContextTokensWithPrompt("12345678", []agentcore.Message{userMsg("12345678")}, nil)
+	if withoutUsage.Tokens != 4 {
+		t.Fatalf("first request tokens=%d, want 4", withoutUsage.Tokens)
+	}
+	usage := &agentcore.Usage{InputTokens: 100, OutputTokens: 20}
+	withUsage := EstimateContextTokensWithPrompt("a very long prompt that was already counted",
+		[]agentcore.Message{assistantMsg("done", usage, "stop")}, nil)
+	if withUsage.Tokens != 120 {
+		t.Fatalf("provider usage tokens=%d, want 120", withUsage.Tokens)
+	}
+}

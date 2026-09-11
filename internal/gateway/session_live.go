@@ -47,10 +47,27 @@ func newLiveSessionWriter(hs sessionHandle, model, providerName, runID string, a
 }
 
 func (w *liveSessionWriter) PersistInitial(message agentcore.AgentMessage) error {
+	return w.PersistInitialWithDocuments(message, initialMessageDocuments{})
+}
+
+func (w *liveSessionWriter) PersistInitialWithDocuments(message agentcore.AgentMessage, attachment initialMessageDocuments) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	_, err := w.appendLocked(message)
-	return err
+	if len(attachment.Documents) == 0 && attachment.ProjectID == "" {
+		_, err := w.appendLocked(message)
+		return err
+	}
+	if w.audit == nil {
+		return fmt.Errorf("document persistence requires gateway store")
+	}
+	w.header.UpdatedAt = time.Now().UTC()
+	entry, err := w.audit.AppendInitialMessage(w.header, w.parent, message, attachment)
+	if err != nil {
+		return err
+	}
+	w.parent = entry.ID
+	w.written = append(w.written, entry)
+	return nil
 }
 
 // QueueMessages records user guidance at the next assistant-message boundary.

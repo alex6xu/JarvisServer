@@ -36,6 +36,62 @@ func (s *Service) handleCryptoCandles(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
+func (s *Service) handleCryptoLiquidationStream(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.requestAccountID(r); !ok {
+		writeErr(w, http.StatusUnauthorized, "account context is required")
+		return
+	}
+	if s.Crypto == nil {
+		writeErr(w, http.StatusServiceUnavailable, "crypto market service is unavailable")
+		return
+	}
+	events, err := s.Crypto.StreamLiquidations(r.Context(), strings.Split(r.URL.Query().Get("symbols"), ","))
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, errInvalidCryptoRequest) {
+			status = http.StatusBadRequest
+		}
+		writeErr(w, status, err.Error())
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeErr(w, http.StatusInternalServerError, "streaming unsupported")
+		return
+	}
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache, no-transform")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	flusher.Flush()
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case event, open := <-events:
+			if !open {
+				return
+			}
+			payload, marshalErr := json.Marshal(event)
+			if marshalErr != nil {
+				continue
+			}
+			if _, writeErr := fmt.Fprintf(w, "data: %s\n\n", payload); writeErr != nil {
+				return
+			}
+			flusher.Flush()
+		case <-heartbeat.C:
+			if _, err := io.WriteString(w, ": heartbeat\n\n"); err != nil {
+				return
+			}
+			flusher.Flush()
+		}
+	}
+}
+
 func (s *Service) handleCryptoStream(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.requestAccountID(r); !ok {
 		writeErr(w, http.StatusUnauthorized, "account context is required")

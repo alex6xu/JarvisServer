@@ -170,6 +170,90 @@ func TestCompactionEventEnvelope(t *testing.T) {
 	}
 }
 
+func TestContextOverflowErrorDetection(t *testing.T) {
+	for _, message := range []string{
+		`{"error":{"code":"context_length_exceeded","message":"maximum context length is 8192 tokens"}}`,
+		"prompt is too long: 9000 tokens > 8192 maximum",
+		"上下文超限，请缩短输入",
+	} {
+		if !isContextOverflowError(message) {
+			t.Errorf("expected overflow error to be recognized: %q", message)
+		}
+	}
+	for _, message := range []string{"rate limit exceeded", "output token limit reached", ""} {
+		if isContextOverflowError(message) {
+			t.Errorf("non-overflow error was misclassified: %q", message)
+		}
+	}
+}
+
+func TestContextOverflowCompactsAndRetriesOnce(t *testing.T) {
+	calls := 0
+	main := func(ctx context.Context, model string, llm provider.LlmContext, cfg provider.StreamConfig) (*provider.AssistantMessageEventStream, error) {
+		calls++
+		msg := agentcore.AssistantMessage{RoleField: agentcore.RoleAssistant}
+		if calls == 1 {
+			msg.StopReason = agentcore.StopReasonError
+			msg.ErrorMessage = "context_length_exceeded: maximum context length is 8192 tokens"
+		} else {
+			msg.StopReason = agentcore.StopReasonEndTurn
+			msg.Content = agentcore.ContentList{agentcore.NewTextContent("recovered")}
+		}
+		s := provider.NewAssistantMessageEventStream(0)
+		go func() { _ = s.Emit(ctx, provider.StreamDoneEvent{Message: msg}); s.Close() }()
+		return s, nil
+	}
+	cfg := newRunCfg(main)
+	cfg.SummaryStream = summaryStream("## Goal\ncontinue after overflow")
+	// Deliberately overstate the window so normal threshold compaction does not
+	// fire; recovery must be driven by the provider error itself.
+	cfg.ContextWindow = 1_000_000
+	cfg.Compaction = compaction.CompactionSettings{Enabled: true, ReserveTokens: 500, KeepRecentTokens: 20_000}
+	agentCtx := &agentcore.AgentContext{Messages: bigUserMessages(12, 800)}
+
+	events := collectEvents(t, agentLoop(context.Background(), agentCtx, cfg))
+	if calls != 2 {
+		t.Fatalf("main provider calls = %d, want overflow + one retry", calls)
+	}
+	ce := findCompaction(events)
+	if ce == nil || ce.Reason != "overflow" || ce.ErrorMessage != "" {
+		t.Fatalf("expected successful overflow compaction, got %+v", ce)
+	}
+	if ce.TokensAfter >= ce.TokensBefore {
+		t.Fatalf("overflow recovery did not reduce context: %+v", ce)
+	}
+	last, ok := agentCtx.Messages[len(agentCtx.Messages)-1].(agentcore.AssistantMessage)
+	if !ok || last.StopReason != agentcore.StopReasonEndTurn || agentcore.ContentToText(last.Content) != "recovered" {
+		t.Fatalf("retry result = %+v", agentCtx.Messages[len(agentCtx.Messages)-1])
+	}
+	for _, msg := range agentCtx.Messages {
+		if assistant, ok := msg.(agentcore.AssistantMessage); ok && isContextOverflowError(assistant.ErrorMessage) {
+			t.Fatalf("rejected overflow placeholder leaked into context: %+v", assistant)
+		}
+	}
+}
+
+func TestContextOverflowRetriesAtMostOnce(t *testing.T) {
+	calls := 0
+	main := func(ctx context.Context, model string, llm provider.LlmContext, cfg provider.StreamConfig) (*provider.AssistantMessageEventStream, error) {
+		calls++
+		msg := agentcore.AssistantMessage{RoleField: agentcore.RoleAssistant, StopReason: agentcore.StopReasonError,
+			ErrorMessage: "context_length_exceeded: maximum context length reached"}
+		s := provider.NewAssistantMessageEventStream(0)
+		go func() { _ = s.Emit(ctx, provider.StreamDoneEvent{Message: msg}); s.Close() }()
+		return s, nil
+	}
+	cfg := newRunCfg(main)
+	cfg.SummaryStream = summaryStream("## Goal\nretry once")
+	cfg.ContextWindow = 1_000_000
+	cfg.Compaction = compaction.CompactionSettings{Enabled: true, ReserveTokens: 500, KeepRecentTokens: 20_000}
+
+	collectEvents(t, agentLoop(context.Background(), &agentcore.AgentContext{Messages: bigUserMessages(12, 800)}, cfg))
+	if calls != 2 {
+		t.Fatalf("main provider calls = %d, want exactly 2", calls)
+	}
+}
+
 func TestAutoCompactionFailureIsNonFatal(t *testing.T) {
 	main := scriptedStream([]agentcore.AssistantMessage{
 		{RoleField: agentcore.RoleAssistant, StopReason: agentcore.StopReasonEndTurn, Content: agentcore.ContentList{agentcore.NewTextContent("ok")}},

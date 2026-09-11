@@ -118,6 +118,23 @@ WHERE run_id = ? AND status = ?`, runStatusInterrupted, message, finishedAt,
 		finishedAt, runID, runStatusRunning); err != nil {
 		return fmt.Errorf("interrupt run attempt: %w", err)
 	}
+	queueResult, err := tx.ExecContext(ctx, `
+UPDATE run_message_queue_items
+SET status = ?, updated_at = ?
+WHERE run_id = ? AND status IN (?, ?)`, queueStatusDropped, finishedAt, runID,
+		queueStatusPending, queueStatusInjecting)
+	if err != nil {
+		return fmt.Errorf("drop interrupted run queue: %w", err)
+	}
+	if changedQueueItems, rowsErr := queueResult.RowsAffected(); rowsErr != nil {
+		return rowsErr
+	} else if changedQueueItems > 0 {
+		if _, err := tx.ExecContext(ctx, `
+UPDATE run_message_queues SET version = version + 1, updated_at = ? WHERE run_id = ?`,
+			finishedAt, runID); err != nil {
+			return fmt.Errorf("version interrupted run queue: %w", err)
+		}
+	}
 	if !newlyInterrupted {
 		return tx.Commit()
 	}

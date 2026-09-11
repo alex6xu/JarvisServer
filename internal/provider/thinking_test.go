@@ -14,6 +14,27 @@ import (
 )
 
 // decodeBody unmarshals an encoded request body into a generic map for asserts.
+func TestEncodeOpenAIRequestForwardsOnlyPublicGenerationControls(t *testing.T) {
+	req := CompletionRequest{Model: "m", Config: StreamConfig{Extra: map[string]any{
+		"temperature": 0.25, "max_tokens": 42, "response_format": map[string]any{"type": "json_object"},
+		"route_purpose": "must-not-leak", "private_option": true,
+	}}}
+	encoded, err := encodeOpenAIRequest(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := decodeBody(t, encoded)
+	if body["temperature"] != 0.25 || body["max_tokens"] != float64(42) {
+		t.Fatalf("generation controls = %#v", body)
+	}
+	if _, ok := body["route_purpose"]; ok {
+		t.Fatalf("internal routing hint leaked upstream: %#v", body)
+	}
+	if _, ok := body["private_option"]; ok {
+		t.Fatalf("unknown extra leaked upstream: %#v", body)
+	}
+}
+
 func decodeBody(t *testing.T, b []byte) map[string]any {
 	t.Helper()
 	var m map[string]any

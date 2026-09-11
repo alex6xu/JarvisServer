@@ -91,6 +91,23 @@ func validateProviderInput(p Provider) error {
 	if p.CostPerMTok < 0 {
 		return fmt.Errorf("cost_per_mtok must not be negative")
 	}
+	seen := make(map[string]struct{}, len(p.ModelMetadata))
+	for _, model := range p.ModelMetadata {
+		id := strings.ToLower(strings.TrimSpace(model.ID))
+		if id == "" {
+			return fmt.Errorf("model metadata id is required")
+		}
+		if _, exists := seen[id]; exists {
+			return fmt.Errorf("duplicate model metadata for %q", model.ID)
+		}
+		seen[id] = struct{}{}
+		if model.ManualContextWindow != 0 && model.ManualContextWindow < 4096 {
+			return fmt.Errorf("manual context window for %q must be at least 4096", model.ID)
+		}
+		if model.ContextWindow < 0 || model.MaxInputTokens < 0 || model.MaxOutputTokens < 0 {
+			return fmt.Errorf("model token limits for %q must not be negative", model.ID)
+		}
+	}
 	return nil
 }
 
@@ -174,42 +191,80 @@ func (r *ProviderRouter) PlanForPurpose(providers []Provider, requestedModel str
 		if label == "" {
 			label = providerName
 		}
-		endpoints = append(endpoints, corerouter.Endpoint{
-			ID: fmt.Sprintf("provider_%d", provider.ID), ProviderID: provider.ID,
-			ProviderName: label, Enabled: provider.Status != 0,
-			Models: parseProviderModels(provider.Models), BaseURL: strings.TrimSpace(provider.BaseURL),
-			Protocol: protocol, Credential: provider.Key, Priority: provider.Priority,
-			Weight: max(provider.Weight, 1), Default: provider.IsDefault == 1,
-			CostPerMTok: provider.CostPerMTok,
-			Capabilities: corerouter.Capabilities{
-				Chat: provider.Capabilities.Chat, Reasoning: provider.Capabilities.Reasoning,
-				Coding: provider.Capabilities.Coding, Tools: provider.Capabilities.Tools,
-				Images: provider.Capabilities.Images, Thinking: provider.Capabilities.Thinking,
-				QualityTier: provider.QualityTier, ContextWindow: provider.ContextWindow,
-			},
-		})
+		for _, modelID := range parseProviderModels(provider.Models) {
+			metadata := providerModelMetadataFor(provider, modelID)
+			contextRank := 0
+			if minContextWindow <= 0 {
+				contextRank = 1
+			} else if metadata.EffectiveContextWindow <= 0 || metadata.EffectiveSource == "conservative_fallback" {
+				contextRank = 1
+			} else {
+				estimatedInput := max(minContextWindow-2048, 0)
+				fitsInput := metadata.MaxInputTokens <= 0 || metadata.MaxInputTokens >= estimatedInput
+				fitsOutput := metadata.MaxOutputTokens <= 0 || metadata.MaxOutputTokens >= 2048
+				if metadata.EffectiveContextWindow >= minContextWindow && fitsInput && fitsOutput {
+					contextRank = 2
+				}
+			}
+			endpoints = append(endpoints, corerouter.Endpoint{
+				// Models are logical endpoints, but the shared physical ID keeps
+				// health and circuit-breaker state provider-scoped.
+				ID: fmt.Sprintf("provider_%d", provider.ID), ProviderID: provider.ID,
+				ProviderName: label, Enabled: provider.Status != 0,
+				Models: []string{modelID}, BaseURL: strings.TrimSpace(provider.BaseURL),
+				Protocol: protocol, Credential: provider.Key, Priority: provider.Priority,
+				Weight: max(provider.Weight, 1), Default: provider.IsDefault == 1,
+				CostPerMTok: provider.CostPerMTok, ContextRank: contextRank,
+				Capabilities: corerouter.Capabilities{
+					Chat: provider.Capabilities.Chat, Reasoning: provider.Capabilities.Reasoning,
+					Coding: provider.Capabilities.Coding, Tools: provider.Capabilities.Tools,
+					Images: provider.Capabilities.Images, Thinking: provider.Capabilities.Thinking,
+					QualityTier: provider.QualityTier, ContextWindow: metadata.EffectiveContextWindow,
+				},
+			})
+		}
 	}
 	r.mu.RLock()
 	policy := policyForPurpose(r.policy, purpose)
 	r.mu.RUnlock()
 	request := corerouter.RouteRequest{
-		RequestedModel: requestedModel, Required: requirementsForPurpose(purpose, minContextWindow),
+		RequestedModel: requestedModel, Required: requirementsForPurpose(purpose, 0),
 		Policy: policy, PreferDefault: requestedModel == "" && purpose == RoutePurposeDefault,
 	}
 	plan, err := r.engine.Plan(context.Background(), request, endpoints)
+	if err == nil && minContextWindow > 0 && plan.Primary.Endpoint.ContextRank == 0 {
+		plan.Reason = "context window metadata fallback: " + plan.Reason
+	}
 	if err != nil && normalizeRoutePurpose(purpose) == RoutePurposeCodeExecution {
 		// A reasoning model with tool support can continue a coding run even when
 		// it is not explicitly tagged for coding. This matches the eligibility
 		// rule used to size the run context window and prevents a route from
 		// disappearing when Coder moves from analysis to execution turns.
-		request.Required = requirementsForPurpose(RoutePurposeCodeAnalysis, minContextWindow)
+		request.Required = requirementsForPurpose(RoutePurposeCodeAnalysis, 0)
 		if reasoningPlan, reasoningErr := r.engine.Plan(context.Background(), request, endpoints); reasoningErr == nil {
 			plan, err = reasoningPlan, nil
 			plan.Reason = "code execution fallback to reasoning provider: " + plan.Reason
 		}
 	}
+	if err != nil && minContextWindow > 0 {
+		// Context-window metadata is useful for preferring a route that can hold
+		// the current history, but it must not make every otherwise-capable route
+		// disappear. The runtime compactor and provider remain responsible for
+		// fitting the actual request into the selected model's window.
+		request.Required = requirementsForPurpose(purpose, 0)
+		if relaxedPlan, relaxedErr := r.engine.Plan(context.Background(), request, endpoints); relaxedErr == nil {
+			plan, err = relaxedPlan, nil
+			plan.Reason = "context window metadata fallback: " + plan.Reason
+		} else if normalizeRoutePurpose(purpose) == RoutePurposeCodeExecution {
+			request.Required = requirementsForPurpose(RoutePurposeCodeAnalysis, 0)
+			if reasoningPlan, reasoningErr := r.engine.Plan(context.Background(), request, endpoints); reasoningErr == nil {
+				plan, err = reasoningPlan, nil
+				plan.Reason = "context window metadata fallback; code execution fallback to reasoning provider: " + plan.Reason
+			}
+		}
+	}
 	if err != nil {
-		if strings.TrimSpace(fallback.Model) == "" || (minContextWindow > 0 && fallback.ContextWindow < minContextWindow) {
+		if strings.TrimSpace(fallback.Model) == "" {
 			purpose = normalizeRoutePurpose(purpose)
 			if strings.TrimSpace(requestedModel) == "" {
 				return RoutePlan{}, fmt.Errorf("no available provider route for automatic model selection (purpose %q)", purpose)
@@ -223,22 +278,46 @@ func (r *ProviderRouter) PlanForPurpose(providers []Provider, requestedModel str
 		if fallback.ContextWindow <= 0 {
 			fallback.ContextWindow = 32768
 		}
-		return RoutePlan{RequestedModel: requestedModel, Purpose: purpose, Candidates: []LLMRoute{fallback}, Reason: "startup fallback"}, nil
+		reason := "startup fallback"
+		if minContextWindow > 0 && fallback.ContextWindow < minContextWindow {
+			reason = "context window metadata fallback: " + reason
+		}
+		return RoutePlan{RequestedModel: requestedModel, Purpose: purpose, Candidates: []LLMRoute{fallback}, Reason: reason}, nil
 	}
 	out := RoutePlan{RequestedModel: requestedModel, Purpose: purpose, Reason: plan.Reason, PolicyRev: plan.PolicyRev}
 	for _, candidate := range plan.Candidates {
 		endpoint := candidate.Endpoint
 		_, driverName := mapChannelType(providersByID[endpoint.ProviderID].Type, endpoint.BaseURL)
+		metadata := metadataForEndpointModel(providersByID[endpoint.ProviderID], candidate.Model)
 		out.Candidates = append(out.Candidates, LLMRoute{
 			Model: candidate.Model, BaseURL: endpoint.BaseURL, Protocol: endpoint.Protocol,
 			ProviderName: driverName, APIKey: endpoint.Credential, ProviderID: endpoint.ProviderID,
 			ProviderLabel: endpoint.ProviderName, Priority: endpoint.Priority,
 			Weight: endpoint.Weight, IsDefault: endpoint.Default, EndpointID: endpoint.ID,
 			ContextWindow: endpoint.Capabilities.ContextWindow, QualityTier: endpoint.Capabilities.QualityTier,
-			CostPerMTok: endpoint.CostPerMTok, Purpose: purpose,
+			MaxInputTokens:  metadata.MaxInputTokens,
+			MaxOutputTokens: metadata.MaxOutputTokens,
+			MetadataSource:  metadata.EffectiveSource,
+			CostPerMTok:     endpoint.CostPerMTok, Purpose: purpose,
 		})
 	}
 	return out, nil
+}
+
+func providerModelMetadataFor(provider Provider, modelID string) ProviderModelMetadata {
+	for _, metadata := range provider.ModelMetadata {
+		if strings.EqualFold(strings.TrimSpace(metadata.ID), strings.TrimSpace(modelID)) {
+			resolveProviderModelMetadata(&metadata, provider.ContextWindow)
+			return metadata
+		}
+	}
+	metadata := ProviderModelMetadata{ID: modelID, MetadataSource: "provider_default"}
+	resolveProviderModelMetadata(&metadata, provider.ContextWindow)
+	return metadata
+}
+
+func metadataForEndpointModel(provider Provider, modelID string) ProviderModelMetadata {
+	return providerModelMetadataFor(provider, modelID)
 }
 
 func (r *ProviderRouter) Observe(providerID int, err error) {

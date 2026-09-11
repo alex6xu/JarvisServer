@@ -123,7 +123,11 @@ func bearerAuthMiddleware(svc *Service) rest.Middleware {
 			}
 			account, err := svc.authenticateRequest(r)
 			if err != nil {
-				writeErr(w, http.StatusUnauthorized, "unauthorized")
+				if r.URL.Path == "/v1/chat/completions" {
+					writeOpenAIError(w, http.StatusUnauthorized, "authentication_error", "invalid or missing API key")
+				} else {
+					writeErr(w, http.StatusUnauthorized, "unauthorized")
+				}
 				return
 			}
 			if strings.HasPrefix(r.URL.Path, "/v1/admin/") && account.Role != "admin" {

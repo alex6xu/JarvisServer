@@ -28,7 +28,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-4">
+    <div className="control-auth min-h-screen flex items-center justify-center bg-background px-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <div className="w-12 h-12 rounded-xl bg-primary flex items-center justify-center mx-auto mb-4">
@@ -37,14 +37,14 @@ export default function LoginPage() {
               <polyline points="8 6 2 12 8 18" />
             </svg>
           </div>
-          <h1 className="text-xl font-semibold text-foreground">登录 CodeGateway</h1>
+          <h1 className="text-xl font-semibold text-foreground">登录 JarvisServer</h1>
           <p className="text-[13px] text-muted-foreground mt-1">使用账号访问 Agent 与 API 网关</p>
         </div>
 
         <form onSubmit={onSubmit} className="bg-card border border-border rounded-xl p-6 space-y-4">
           <div>
-            <label className="block text-[13px] font-medium text-foreground mb-1.5">用户名</label>
-            <input
+            <label htmlFor="login-field-1" className="block text-[13px] font-medium text-foreground mb-1.5">用户名</label>
+            <input id="login-field-1"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               autoComplete="username"
@@ -53,8 +53,8 @@ export default function LoginPage() {
             />
           </div>
           <div>
-            <label className="block text-[13px] font-medium text-foreground mb-1.5">密码</label>
-            <input
+            <label htmlFor="login-field-2" className="block text-[13px] font-medium text-foreground mb-1.5">密码</label>
+            <input id="login-field-2"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -63,7 +63,7 @@ export default function LoginPage() {
               required
             />
           </div>
-          {error && <p className="text-[12px] text-red-500">{error}</p>}
+          {error && <p role="alert" className="text-[12px] text-red-500">{error}</p>}
           <button
             type="submit"
             disabled={submitting}

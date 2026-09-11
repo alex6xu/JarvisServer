@@ -1,7 +1,9 @@
 import { lazy, Suspense } from 'react'
+import './workbench.css'
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { AccountProvider } from './context/AccountContext'
+import { AppearanceProvider } from './context/AppearanceContext'
 import Layout from './components/Layout'
 import ChatPage from './pages/ChatPage'
 import CoderPage from './pages/CoderPage'
@@ -10,6 +12,7 @@ import StockPage from './pages/StockPage'
 import ChannelsPage from './pages/ChannelsPage'
 import SessionsPage from './pages/SessionsPage'
 import TagsPage from './pages/TagsPage'
+import ProjectsPage from './pages/ProjectsPage'
 import SettingsPage from './pages/SettingsPage'
 import AccountsPage from './pages/AccountsPage'
 import LoginPage from './pages/LoginPage'
@@ -34,6 +37,7 @@ function ProtectedApp() {
 
   return (
     <AccountProvider>
+      <AppearanceProvider>
       <Routes>
         <Route path="/" element={<Layout />}>
           <Route index element={<ChatPage />} />
@@ -49,6 +53,7 @@ function ProtectedApp() {
           <Route path="providers" element={<ChannelsPage />} />
           <Route path="channels" element={<Navigate to="/providers" replace />} />
           <Route path="sessions" element={<SessionsPage />} />
+          <Route path="projects" element={<ProjectsPage />} />
           <Route path="tags" element={<TagsPage />} />
           <Route path="agent-tasks" element={<Navigate to="/code" replace />} />
           <Route
@@ -59,6 +64,7 @@ function ProtectedApp() {
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      </AppearanceProvider>
     </AccountProvider>
   )
 }

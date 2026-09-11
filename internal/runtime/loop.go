@@ -14,7 +14,8 @@
 // context / model / thinkingLevel), shouldStopAfterTurn (true ⇒ agent_end +
 // exit). Two stop reasons are handled specially: length (the response was
 // truncated by the token cap) fails every tool call so the model resends
-// (failToolCallsFromTruncatedMessage); error / aborted end the run immediately.
+// (failToolCallsFromTruncatedMessage); context-overflow errors trigger one
+// compaction retry, while other errors / aborted end the run immediately.
 //
 // agentLoop starts a fresh run from a prompt already appended to the context.
 package runtime
@@ -23,6 +24,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/alex6xu/jarvisserver/internal/agentcore"
@@ -45,6 +47,8 @@ type TurnUpdate struct {
 	Tools         *[]agentcore.AgentTool
 	Model         *string
 	ThinkingLevel *agentcore.ThinkingLevel
+	ContextWindow *int
+	Compaction    *compaction.CompactionSettings
 }
 
 // StopDecision is the result of the OnStop seam. Block=true prevents the run
@@ -194,6 +198,10 @@ func runLoop(ctx context.Context, agentCtx *agentcore.AgentContext, cfg RunConfi
 		return
 	}
 
+	// overflowRecovered guards against retrying forever when a provider keeps
+	// rejecting the compacted request. It is reset as soon as a non-overflow
+	// response is received, so a later turn may still recover independently.
+	overflowRecovered := false
 	for { // outer loop: pending / follow-up messages
 		for { // inner loop: turns until no tool calls
 			if err := emit(agentcore.TurnStartEvent{}); err != nil {
@@ -222,12 +230,29 @@ func runLoop(ctx context.Context, agentCtx *agentcore.AgentContext, cfg RunConfi
 					return
 				}
 				continue
-			case agentcore.StopReasonError, agentcore.StopReasonAborted:
-				// Terminal failure: emit the turn end and stop.
+			case agentcore.StopReasonError:
+				// Provider context limits are authoritative and may be smaller than (or
+				// absent from) model metadata. Force one compaction and retry the turn.
+				// Other errors, and a repeated overflow after recovery, remain terminal.
+				overflow := isContextOverflowError(assistant.ErrorMessage)
+				if !overflowRecovered && overflow && recoverContextOverflow(ctx, agentCtx, &cfg, emit, tel) {
+					overflowRecovered = true
+					continue
+				}
+				// Failed recovery removes the rejected placeholder before attempting to
+				// summarize; restore it so persistence and final status retain the error.
+				if overflow && !lastAssistantHasError(agentCtx.Messages, assistant.ErrorMessage) {
+					agentCtx.Messages = append(agentCtx.Messages, assistant)
+				}
+				_ = emit(agentcore.TurnEndEvent{Message: assistant})
+				finish()
+				return
+			case agentcore.StopReasonAborted:
 				_ = emit(agentcore.TurnEndEvent{Message: assistant})
 				finish()
 				return
 			}
+			overflowRecovered = false
 
 			calls := toAgentToolCalls(assistant.ToolCalls())
 			if len(calls) == 0 {
@@ -329,7 +354,7 @@ func afterTurn(ctx context.Context, agentCtx *agentcore.AgentContext, cfg *RunCo
 	// figure. This runs even when auto-compaction is disabled so utilization is
 	// still observable whenever the context window is known.
 	if tel != nil && cfg.ContextWindow > 0 {
-		tokens := compaction.EstimateContextTokens(agentCtx.Messages).Tokens
+		tokens := compaction.EstimateContextTokensWithPrompt(agentCtx.SystemPrompt, agentCtx.Messages, agentCtx.Tools).Tokens
 		tel.recordContext(tokens, cfg.ContextWindow)
 	}
 	// Fresh user steering must receive at least one model turn. A stop hook may
@@ -340,17 +365,105 @@ func afterTurn(ctx context.Context, agentCtx *agentcore.AgentContext, cfg *RunCo
 	return false, steered
 }
 
+// lastAssistantHasError reports whether the provider error is still the final
+// context message (recovery removes it before attempting compaction).
+func lastAssistantHasError(messages agentcore.MessageList, errorMessage string) bool {
+	if len(messages) == 0 {
+		return false
+	}
+	last, ok := messages[len(messages)-1].(agentcore.AssistantMessage)
+	return ok && last.StopReason == agentcore.StopReasonError && last.ErrorMessage == errorMessage
+}
+
+// isContextOverflowError recognizes the common error codes/messages returned by
+// OpenAI-, Anthropic-, and gateway-compatible providers for oversized requests.
+func isContextOverflowError(message string) bool {
+	text := strings.ToLower(strings.TrimSpace(message))
+	if text == "" {
+		return false
+	}
+	markers := []string{
+		"context_length_exceeded",
+		"context length exceeded",
+		"maximum context length",
+		"max context length",
+		"context window exceeded",
+		"exceeds the context window",
+		"too many input tokens",
+		"input is too long",
+		"prompt is too long",
+		"上下文超限",
+		"上下文长度超过",
+	}
+	for _, marker := range markers {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// recoverContextOverflow removes the rejected assistant placeholder, compacts
+// the request more aggressively than routine threshold compaction, and reports
+// the operation. A successful rebuild lets the caller retry the same turn once.
+func recoverContextOverflow(ctx context.Context, agentCtx *agentcore.AgentContext, cfg *RunConfig, emit func(agentcore.AgentEvent) error, tel *telemetry) bool {
+	if !cfg.Compaction.Enabled || len(agentCtx.Messages) == 0 {
+		return false
+	}
+	if last, ok := agentCtx.Messages[len(agentCtx.Messages)-1].(agentcore.AssistantMessage); ok &&
+		last.StopReason == agentcore.StopReasonError && isContextOverflowError(last.ErrorMessage) {
+		agentCtx.Messages = agentCtx.Messages[:len(agentCtx.Messages)-1]
+	}
+	before := compaction.EstimateContextTokensWithPrompt(agentCtx.SystemPrompt, agentCtx.Messages, agentCtx.Tools).Tokens
+	if before <= 0 {
+		return false
+	}
+
+	recoveryCfg := *cfg
+	// Metadata can overstate the provider's real limit. Keeping at most half of
+	// the rejected request gives the summary and next response meaningful room.
+	keepRecent := before / 2
+	if recoveryCfg.Compaction.KeepRecentTokens <= 0 || recoveryCfg.Compaction.KeepRecentTokens > keepRecent {
+		recoveryCfg.Compaction.KeepRecentTokens = keepRecent
+	}
+	if recoveryCfg.Compaction.KeepRecentTokens < 1 {
+		recoveryCfg.Compaction.KeepRecentTokens = 1
+	}
+
+	_ = emit(agentcore.CompactionStartEvent{Reason: "overflow", TokensBefore: before})
+	res, err := runCompaction(ctx, agentCtx.Messages, &recoveryCfg)
+	if err != nil || res == nil {
+		message := "context overflow recovery could not compact the conversation"
+		if err != nil {
+			message = err.Error()
+		}
+		_ = emit(agentcore.CompactionEvent{Reason: "overflow", TokensBefore: before, TokensAfter: before,
+			KeptCount: len(agentCtx.Messages), ErrorMessage: message})
+		return false
+	}
+
+	writeCompactionCheckpoint(ctx, agentCtx.Messages, res, cfg)
+	rebuilt := res.RebuildContext(agentCtx.Messages, nowMillis())
+	summarized := len(agentCtx.Messages) - (len(rebuilt) - 1)
+	agentCtx.Messages = rebuilt
+	after := compaction.EstimateContextTokensWithPrompt(agentCtx.SystemPrompt, rebuilt, agentCtx.Tools).Tokens
+	_ = emit(agentcore.CompactionEvent{Reason: "overflow", TokensBefore: before, TokensAfter: after,
+		SummarizedCount: summarized, KeptCount: len(rebuilt) - 1})
+	if tel != nil && cfg.ContextWindow > 0 {
+		tel.recordContext(after, cfg.ContextWindow)
+	}
+	return after < before
+}
+
 // maybeAutoCompact checks whether the context has outgrown its usable window and,
 // if so, compacts it in place and emits a CompactionEvent. Compaction is a no-op
 // when disabled, when the context window is unknown (<= 0), or when usage is
-// under threshold. A compaction failure is non-fatal: the original context is
-// preserved and a CompactionEvent carrying ErrorMessage is emitted so the failure
-// is observable without aborting the run (US-004).
+// under threshold. A compaction failure is non-fatal and observable via the event.
 func maybeAutoCompact(ctx context.Context, agentCtx *agentcore.AgentContext, cfg *RunConfig, emit func(agentcore.AgentEvent) error, tel *telemetry) {
 	if !cfg.Compaction.Enabled || cfg.ContextWindow <= 0 {
 		return
 	}
-	before := compaction.EstimateContextTokens(agentCtx.Messages).Tokens
+	before := compaction.EstimateContextTokensWithPrompt(agentCtx.SystemPrompt, agentCtx.Messages, agentCtx.Tools).Tokens
 	// Record pre-compaction utilization so the ratio reflects the peak that
 	// triggered (or nearly triggered) compaction even when the summary is read
 	// mid-run. afterTurn overwrites it with the post-settle figure.
@@ -388,7 +501,7 @@ func maybeAutoCompact(ctx context.Context, agentCtx *agentcore.AgentContext, cfg
 	rebuilt := res.RebuildContext(agentCtx.Messages, now)
 	summarized := len(agentCtx.Messages) - (len(rebuilt) - 1)
 	agentCtx.Messages = rebuilt
-	after := compaction.EstimateContextTokens(rebuilt).Tokens
+	after := compaction.EstimateContextTokensWithPrompt(agentCtx.SystemPrompt, rebuilt, agentCtx.Tools).Tokens
 	_ = emit(agentcore.CompactionEvent{
 		Reason:          "threshold",
 		TokensBefore:    before,
@@ -476,6 +589,12 @@ func applyTurnUpdate(agentCtx *agentcore.AgentContext, cfg *RunConfig, upd *Turn
 	}
 	if upd.ThinkingLevel != nil {
 		cfg.ThinkingLevel = *upd.ThinkingLevel
+	}
+	if upd.ContextWindow != nil {
+		cfg.ContextWindow = *upd.ContextWindow
+	}
+	if upd.Compaction != nil {
+		cfg.Compaction = *upd.Compaction
 	}
 }
 

@@ -22,6 +22,21 @@ type SessionRepository interface {
 	AppendBranch(session.SessionHeader, string, agentcore.MessageList) (string, error)
 }
 
+// SessionHeaderForAccount reads only header_json and enforces tenant ownership
+// in SQL, avoiding a history payload read on metadata paths.
+func (s *GatewayStore) SessionHeaderForAccount(id string, accountID int) (session.SessionHeader, error) {
+	var raw string
+	err := s.db.QueryRow(`SELECT header_json FROM sessions WHERE id=? AND (json_extract(header_json,'$.accountId')=? OR (json_extract(header_json,'$.accountId')=0 AND ?=?))`, id, accountID, accountID, legacyWorkspaceAccountID).Scan(&raw)
+	if err != nil {
+		return session.SessionHeader{}, err
+	}
+	var h session.SessionHeader
+	if err := json.Unmarshal([]byte(raw), &h); err != nil {
+		return session.SessionHeader{}, err
+	}
+	return h, nil
+}
+
 // RealtimeSessionRepository adds single-entry operations used while an
 // assistant response is still streaming. Keeping these separate from
 // SessionRepository preserves compatibility with the legacy JSONL importer.
@@ -116,7 +131,14 @@ VALUES (?, ?, ?, ?, ?, ?)`, header.ID, entry.ID, entry.ParentID, seq+1, string(p
 			return err
 		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	// Coder sessions inherit a deterministic workspace-backed project. This is
+	// best-effort so session persistence remains authoritative if organization
+	// metadata is temporarily unavailable.
+	_ = s.EnsureWorkspaceProjectForSession(context.Background(), header)
+	return nil
 }
 
 // AppendSessionEntry adds one message without rewriting the rest of the
@@ -161,6 +183,13 @@ func (s *GatewayStore) AppendSessionEntry(header session.SessionHeader, parentID
 	}
 	if err := tx.Commit(); err != nil {
 		return session.Entry{}, err
+	}
+	// Classification is deliberately best-effort and runs only after the message
+	// transaction commits, so a local organizer failure can never lose or delay
+	// the user's durable message.
+	_ = s.EnsureWorkspaceProjectForSession(context.Background(), header)
+	if _, ok := message.(agentcore.UserMessage); ok {
+		_ = s.ClassifyStoredUserMessage(context.Background(), header, entry)
 	}
 	return entry, nil
 }
@@ -231,6 +260,126 @@ func (s *GatewayStore) LoadEntries(id string) (session.SessionHeader, []session.
 			return session.SessionHeader{}, nil, err
 		}
 		entries = append(entries, entry)
+	}
+	return header, entries, rows.Err()
+}
+
+// LoadEntriesPage returns an ordered bounded window without decoding the rest
+// of the transcript. beforeSeq is an exclusive upper bound; afterSeq is an
+// exclusive lower bound. The caller must enforce account ownership.
+func (s *GatewayStore) LoadEntriesPage(id string, limit, beforeSeq, afterSeq int) (session.SessionHeader, []session.Entry, int, bool, error) {
+	var raw string
+	if err := s.db.QueryRow(`SELECT header_json FROM sessions WHERE id=?`, id).Scan(&raw); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return session.SessionHeader{}, nil, 0, false, fmt.Errorf("%w: %s", os.ErrNotExist, id)
+		}
+		return session.SessionHeader{}, nil, 0, false, err
+	}
+	var header session.SessionHeader
+	if err := json.Unmarshal([]byte(raw), &header); err != nil {
+		return header, nil, 0, false, err
+	}
+	if limit <= 0 {
+		limit = 30
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	query := `SELECT seq,payload FROM session_entries WHERE session_id=? ORDER BY seq DESC LIMIT ?`
+	args := []any{id, limit + 1}
+	if beforeSeq > 0 {
+		query = `SELECT seq,payload FROM session_entries WHERE session_id=? AND seq<? ORDER BY seq DESC LIMIT ?`
+		args = []any{id, beforeSeq, limit + 1}
+	}
+	if afterSeq > 0 {
+		query = `SELECT seq,payload FROM session_entries WHERE session_id=? AND seq>? ORDER BY seq LIMIT ?`
+		args = []any{id, afterSeq, limit + 1}
+	}
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return header, nil, 0, false, err
+	}
+	defer rows.Close()
+	type pageRow struct {
+		seq     int
+		payload string
+	}
+	rawRows := []pageRow{}
+	for rows.Next() {
+		var x pageRow
+		if err := rows.Scan(&x.seq, &x.payload); err != nil {
+			return header, nil, 0, false, err
+		}
+		rawRows = append(rawRows, x)
+	}
+	if err := rows.Err(); err != nil {
+		return header, nil, 0, false, err
+	}
+	hasMore := len(rawRows) > limit
+	if hasMore {
+		rawRows = rawRows[:limit]
+	}
+	entries := make([]session.Entry, 0, len(rawRows))
+	for _, x := range rawRows {
+		var e session.Entry
+		if err := json.Unmarshal([]byte(x.payload), &e); err != nil {
+			return header, nil, 0, false, err
+		}
+		e.Seq = x.seq
+		entries = append(entries, e)
+	}
+	if afterSeq == 0 {
+		for i, j := 0, len(entries)-1; i < j; i, j = i+1, j-1 {
+			entries[i], entries[j] = entries[j], entries[i]
+		}
+	}
+	next := 0
+	if len(rawRows) > 0 {
+		next = rawRows[len(rawRows)-1].seq
+	}
+	return header, entries, next, hasMore, nil
+}
+
+// LoadEntriesAround returns a bounded ascending window centered on centerSeq.
+func (s *GatewayStore) LoadEntriesAround(id string, centerSeq, before, after int) (session.SessionHeader, []session.Entry, error) {
+	var raw string
+	if err := s.db.QueryRow(`SELECT header_json FROM sessions WHERE id=?`, id).Scan(&raw); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return session.SessionHeader{}, nil, fmt.Errorf("%w: %s", os.ErrNotExist, id)
+		}
+		return session.SessionHeader{}, nil, err
+	}
+	var header session.SessionHeader
+	if err := json.Unmarshal([]byte(raw), &header); err != nil {
+		return header, nil, err
+	}
+	if centerSeq < 1 {
+		return header, nil, fmt.Errorf("around_seq must be positive")
+	}
+	if before < 0 {
+		before = 0
+	}
+	if after < 0 {
+		after = 0
+	}
+	rows, err := s.db.Query(`SELECT seq,payload FROM session_entries WHERE session_id=? AND (seq=? OR seq IN (SELECT seq FROM session_entries WHERE session_id=? AND seq<? ORDER BY seq DESC LIMIT ?) OR seq IN (SELECT seq FROM session_entries WHERE session_id=? AND seq>? ORDER BY seq LIMIT ?)) ORDER BY seq`, id, centerSeq, id, centerSeq, before, id, centerSeq, after)
+	if err != nil {
+		return header, nil, err
+	}
+	defer rows.Close()
+	entries := make([]session.Entry, 0, before+after+1)
+	for rows.Next() {
+		var seq int
+		var payload string
+		if err := rows.Scan(&seq, &payload); err != nil {
+			return header, nil, err
+		}
+		var e session.Entry
+		if err := json.Unmarshal([]byte(payload), &e); err != nil {
+			return header, nil, err
+		}
+		e.Seq = seq
+		entries = append(entries, e)
 	}
 	return header, entries, rows.Err()
 }

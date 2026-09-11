@@ -23,16 +23,17 @@ type turnPlanner func(context.Context, RoutePurpose, provider.CompletionRequest)
 // failoverProvider replans before every completion call (one LLM turn), then
 // tries candidates until meaningful output commits the attempt.
 type failoverProvider struct {
-	candidates  []routedCandidate // fixed candidates are retained for focused tests.
-	planner     turnPlanner
-	router      *ProviderRouter
-	store       *GatewayStore
-	runID       string
-	sessionID   string
-	workspaceID string
-	mode        string
-	publish     func(StreamEvent)
-	turn        atomic.Int64
+	candidates      []routedCandidate // fixed candidates are retained for focused tests.
+	planner         turnPlanner
+	router          *ProviderRouter
+	store           *GatewayStore
+	runID           string
+	sessionID       string
+	workspaceID     string
+	mode            string
+	publish         func(StreamEvent)
+	onRouteSelected func(LLMRoute)
+	turn            atomic.Int64
 }
 
 func (p *failoverProvider) Name() string { return "router" }
@@ -98,6 +99,9 @@ func (p *failoverProvider) run(ctx context.Context, req provider.CompletionReque
 	defer out.Close()
 	var lastErr error
 	for ordinal, candidate := range candidates {
+		if p.onRouteSelected != nil {
+			p.onRouteSelected(candidate.route)
+		}
 		attempt := RunAttempt{ID: newID("attempt"), RunID: p.runID,
 			EndpointID: candidate.route.EndpointID, ProviderID: candidate.route.ProviderID,
 			Model: candidate.route.Model, Ordinal: ordinal + 1, Turn: turn, Status: "running",

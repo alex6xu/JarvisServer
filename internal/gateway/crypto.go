@@ -26,12 +26,14 @@ var (
 )
 
 type CryptoService struct {
-	binanceURL     string
-	okxURL         string
-	binanceRESTURL string
-	okxRESTURL     string
-	dialTimeout    time.Duration
-	httpClient     *http.Client
+	binanceURL            string
+	okxURL                string
+	binanceLiquidationURL string
+	okxLiquidationURL     string
+	binanceRESTURL        string
+	okxRESTURL            string
+	dialTimeout           time.Duration
+	httpClient            *http.Client
 }
 
 type CryptoTicker struct {
@@ -99,12 +101,14 @@ type okxTickerEnvelope struct {
 func NewCryptoService(opts Options) *CryptoService {
 	opts = opts.withDefaults()
 	return &CryptoService{
-		binanceURL:     opts.BinanceMarketWSURL,
-		okxURL:         opts.OKXMarketWSURL,
-		binanceRESTURL: strings.TrimRight(opts.BinanceMarketRESTURL, "/"),
-		okxRESTURL:     strings.TrimRight(opts.OKXMarketRESTURL, "/"),
-		dialTimeout:    10 * time.Second,
-		httpClient:     &http.Client{Timeout: 10 * time.Second},
+		binanceURL:            opts.BinanceMarketWSURL,
+		okxURL:                opts.OKXMarketWSURL,
+		binanceLiquidationURL: binanceFuturesWSURL,
+		okxLiquidationURL:     opts.OKXMarketWSURL,
+		binanceRESTURL:        strings.TrimRight(opts.BinanceMarketRESTURL, "/"),
+		okxRESTURL:            strings.TrimRight(opts.OKXMarketRESTURL, "/"),
+		dialTimeout:           10 * time.Second,
+		httpClient:            &http.Client{Timeout: 10 * time.Second},
 	}
 }
 

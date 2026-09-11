@@ -239,6 +239,89 @@ func TestGitHubImportAndPushAgainstLocalRemote(t *testing.T) {
 	}
 }
 
+func TestValidateWorkspaceDirectorySymlinks(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "workspace")
+	if err := os.MkdirAll(filepath.Join(root, "creates", "gpui"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "LICENSE-APACHE"), []byte("license\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	licenseLink := filepath.Join(root, "creates", "gpui", "license-apache")
+	if err := os.Symlink(filepath.Join("..", "..", "LICENSE-APACHE"), licenseLink); err != nil {
+		t.Skipf("symbolic links are unavailable: %v", err)
+	}
+	limits := workspaceUploadLimits{uncompressedBytes: 1 << 20, fileBytes: 1 << 20}
+	if err := validateWorkspaceDirectory(root, limits); err != nil {
+		t.Fatalf("internal symbolic link rejected: %v", err)
+	}
+
+	outside := filepath.Join(parent, "outside.txt")
+	if err := os.WriteFile(outside, []byte("secret\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	escapeLink := filepath.Join(root, "escape")
+	if err := os.Symlink(filepath.Join("..", "outside.txt"), escapeLink); err != nil {
+		t.Fatal(err)
+	}
+	err := validateWorkspaceDirectory(root, limits)
+	if err == nil || !strings.Contains(err.Error(), "points outside workspace") {
+		t.Fatalf("escaping symbolic link error = %v", err)
+	}
+}
+
+func TestValidateWorkspaceDirectoryAllowsDanglingInternalSymlink(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "workspace")
+	linkDir := filepath.Join(root, "crates", "gpui")
+	if err := os.MkdirAll(linkDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(linkDir, "LICENSE-APACHE")
+	if err := os.Symlink(filepath.Join("..", "..", "LICENSE-APACHE"), link); err != nil {
+		t.Skipf("symbolic links are unavailable: %v", err)
+	}
+	limits := workspaceUploadLimits{uncompressedBytes: 1 << 20, fileBytes: 1 << 20}
+	if err := validateWorkspaceDirectory(root, limits); err != nil {
+		t.Fatalf("dangling internal symbolic link rejected: %v", err)
+	}
+}
+
+func TestValidateWorkspaceDirectoryRejectsSymlinkLoop(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "workspace")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	first, second := filepath.Join(root, "first"), filepath.Join(root, "second")
+	if err := os.Symlink("second", first); err != nil {
+		t.Skipf("symbolic links are unavailable: %v", err)
+	}
+	if err := os.Symlink("first", second); err != nil {
+		t.Fatal(err)
+	}
+	limits := workspaceUploadLimits{uncompressedBytes: 1 << 20, fileBytes: 1 << 20}
+	if err := validateWorkspaceDirectory(root, limits); err == nil || !strings.Contains(err.Error(), "cannot be resolved") {
+		t.Fatalf("symlink loop error = %v", err)
+	}
+}
+
+func TestWorkspaceSymlinkTarget(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "workspace")
+	current := filepath.Join(root, "creates", "gpui", "license-apache")
+	got, err := workspaceSymlinkTarget(root, current, filepath.Join("..", "..", "LICENSE-APACHE"))
+	if err != nil || got != filepath.Join(root, "LICENSE-APACHE") {
+		t.Fatalf("internal target = %q, %v", got, err)
+	}
+	if _, err := workspaceSymlinkTarget(root, current, filepath.Join("..", "..", "..", "outside")); err == nil ||
+		!strings.Contains(err.Error(), "outside workspace") {
+		t.Fatalf("escaping target error = %v", err)
+	}
+	if _, err := workspaceSymlinkTarget(root, current, filepath.Join(string(filepath.Separator), "outside")); err == nil ||
+		!strings.Contains(err.Error(), "absolute symbolic links") {
+		t.Fatalf("absolute target error = %v", err)
+	}
+}
+
 func runTestGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)

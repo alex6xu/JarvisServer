@@ -3,11 +3,13 @@ package gateway
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/alex6xu/jarvisserver/internal/agentcore"
 	"github.com/alex6xu/jarvisserver/internal/session"
@@ -19,7 +21,39 @@ func (s *Service) GetSession(id string) (SessionDetailResponse, error) {
 }
 
 func (s *Service) getSessionForAccount(id string, accountID int) (SessionDetailResponse, error) {
-	h, entries, err := s.Store.LoadEntries(id)
+	return s.getSessionForAccountPage(id, accountID, 0, 0, 0)
+}
+
+func (s *Service) getSessionForAccountPage(id string, accountID, limit, beforeSeq, afterSeq int) (SessionDetailResponse, error) {
+	return s.getSessionForAccountWindow(id, accountID, limit, beforeSeq, afterSeq, 0)
+}
+
+func (s *Service) getSessionForAccountWindow(id string, accountID, limit, beforeSeq, afterSeq, aroundSeq int) (SessionDetailResponse, error) {
+	var h session.SessionHeader
+	var entries []session.Entry
+	var next int
+	var hasMore bool
+	var err error
+	paged, ok := s.Store.(*GatewayStore)
+	if aroundSeq > 0 {
+		if !ok {
+			return SessionDetailResponse{}, fmt.Errorf("pagination is unavailable")
+		}
+		h, entries, err = paged.LoadEntriesAround(id, aroundSeq, 15, 30)
+		if err == nil && len(entries) > 0 {
+			next = entries[0].Seq
+			var older []session.Entry
+			_, older, _, _, err = paged.LoadEntriesPage(id, 1, next, 0)
+			hasMore = len(older) > 0
+		}
+	} else if limit > 0 {
+		if !ok {
+			return SessionDetailResponse{}, fmt.Errorf("pagination is unavailable")
+		}
+		h, entries, next, hasMore, err = paged.LoadEntriesPage(id, limit, beforeSeq, afterSeq)
+	} else {
+		h, entries, err = s.Store.LoadEntries(id)
+	}
 	if err != nil {
 		return SessionDetailResponse{}, err
 	}
@@ -27,10 +61,23 @@ func (s *Service) getSessionForAccount(id string, accountID int) (SessionDetailR
 		return SessionDetailResponse{}, fmt.Errorf("session not found: %w", os.ErrNotExist)
 	}
 	msgs := entriesToRestored(entries, h.Model)
+	msgs, responseTruncated := projectRestoredMessages(msgs)
+	documentsByEntry, err := s.Audit.MessageDocuments(context.Background(), accountID, id)
+	if err != nil {
+		return SessionDetailResponse{}, err
+	}
+	for i := range msgs {
+		for _, document := range documentsByEntry[msgs[i].ID] {
+			msgs[i].Documents = append(msgs[i].Documents, MessageDocument{
+				ID: document.ID, ProjectID: document.ProjectID, Filename: document.Filename,
+				MIMEType: document.MIMEType, SizeBytes: document.SizeBytes, Status: document.Status,
+			})
+		}
+	}
 	meta := sessionMetaFromHeader(h, len(msgs))
 	meta.Title = sessionTitle(msgs)
 	meta.Preview = meta.Title
-	resp := SessionDetailResponse{Session: meta, Messages: msgs, WorkspaceID: h.WorkspaceID}
+	resp := SessionDetailResponse{Session: meta, Messages: msgs, WorkspaceID: h.WorkspaceID, HasMore: hasMore, NextCursor: next, Truncated: responseTruncated}
 	if active := s.Runs.ActiveForSession(id); active != nil {
 		info := active.Info()
 		resp.ActiveRun = &info
@@ -39,7 +86,32 @@ func (s *Service) getSessionForAccount(id string, accountID int) (SessionDetailR
 		resp.Session.WorkspaceID = info.WorkspaceID
 		resp.Session.ActiveRunStatus = info.Status
 	}
+	if err := boundHistoryResponse(&resp); err != nil {
+		return SessionDetailResponse{}, err
+	}
 	return resp, nil
+}
+
+func parseSessionPage(limitRaw, beforeRaw, afterRaw string) (int, int, int) {
+	limit, _ := strconv.Atoi(limitRaw)
+	before, _ := strconv.Atoi(beforeRaw)
+	after, _ := strconv.Atoi(afterRaw)
+	if limit < 1 {
+		limit = 30
+	}
+	if limit > 200 {
+		limit = 200
+	}
+	if before < 1 {
+		before = 0
+	}
+	if after < 1 {
+		after = 0
+	}
+	if before > 0 {
+		after = 0
+	}
+	return limit, before, after
 }
 
 func sessionOwnedByAccount(h session.SessionHeader, accountID int) bool {
@@ -136,7 +208,13 @@ func (s *Service) listSessionsForAccount(accountID int, requestedTypes ...string
 
 func (s *Service) sessionMeta(h session.SessionHeader) SessionMeta {
 	meta := sessionMetaFromHeader(h, 0)
-	if _, entries, err := s.Store.LoadEntries(h.ID); err == nil {
+	if summaries, ok := s.Store.(sessionSummaryRepository); ok {
+		if count, title, err := summaries.SessionSummary(h.ID); err == nil {
+			meta.MessageCount = count
+			meta.Title = title
+			meta.Preview = title
+		}
+	} else if _, entries, err := s.Store.LoadEntries(h.ID); err == nil {
 		msgs := entriesToRestored(entries, h.Model)
 		meta.MessageCount = len(msgs)
 		meta.Title = sessionTitle(msgs)
@@ -326,6 +404,103 @@ func (s *Service) recentSessionsForAccount(accountID int, mode, workspaceID stri
 	return SessionListResponse{Sessions: out}, nil
 }
 
+const (
+	maxHistoryResponseBytes = 512 * 1024
+	maxHistoryMessageBytes  = 64 * 1024
+	maxHistoryToolBytes     = 24 * 1024
+)
+
+// projectRestoredMessages is presentation-only: persisted entries and the
+// model's openSession path continue to use the unmodified transcript.
+func projectRestoredMessages(messages []RestoredMessage) ([]RestoredMessage, bool) {
+	out := make([]RestoredMessage, len(messages))
+	copy(out, messages)
+	truncated := false
+	for i := range out {
+		out[i].ToolSteps = append([]ToolStep(nil), out[i].ToolSteps...)
+		var changed bool
+		out[i].Content, changed = truncateHistoryText(out[i].Content, maxHistoryMessageBytes)
+		out[i].ContentTruncated = changed
+		out[i].Truncated = changed
+		truncated = truncated || changed
+		for j := range out[i].ToolSteps {
+			step := &out[i].ToolSteps[j]
+			step.Args, changed = truncateHistoryText(step.Args, maxHistoryToolBytes/3)
+			var changedResult bool
+			step.Result, changedResult = truncateHistoryText(step.Result, maxHistoryToolBytes)
+			step.ArgsTruncated = changed
+			step.ResultTruncated = changedResult
+			if changed || changedResult {
+				truncated = true
+			}
+		}
+	}
+
+	return out, truncated
+}
+
+// boundHistoryResponse measures the complete JSON envelope, including metadata,
+// escaping and attachments. It never drops entries or tool identities. An
+// irreducibly oversized structural envelope fails closed instead of looping.
+func boundHistoryResponse(resp *SessionDetailResponse) error {
+	for pass := 0; pass < 20; pass++ {
+		encoded, err := json.Marshal(resp)
+		if err != nil {
+			return err
+		}
+		if len(encoded)+1 <= maxHistoryResponseBytes {
+			return nil
+		}
+		changed := false
+		for i := range resp.Messages {
+			m := &resp.Messages[i]
+			if m.Content != "" {
+				m.Content, _ = truncateHistoryText(m.Content, len(m.Content)/2)
+				m.ContentTruncated = true
+				m.Truncated = true
+				changed = true
+			}
+			for j := range m.ToolSteps {
+				step := &m.ToolSteps[j]
+				if step.Args != "" {
+					step.Args, _ = truncateHistoryText(step.Args, len(step.Args)/2)
+					step.ArgsTruncated = true
+					changed = true
+				}
+				if step.Result != "" {
+					step.Result, _ = truncateHistoryText(step.Result, len(step.Result)/2)
+					step.ResultTruncated = true
+					changed = true
+				}
+			}
+		}
+		resp.Truncated = true
+		if !changed {
+			break
+		}
+	}
+	return fmt.Errorf("history response metadata exceeds presentation byte budget")
+}
+
+func truncateHistoryText(value string, maxBytes int) (string, bool) {
+	if len(value) <= maxBytes {
+		return value, false
+	}
+	if maxBytes <= 0 {
+		return "", value != ""
+	}
+	marker := "\n[…展示已截断，原始记录保留…]"
+	if maxBytes <= len(marker) {
+		return strings.Repeat(".", maxBytes), true
+	}
+	keep := maxBytes - len(marker)
+	value = value[:keep]
+	for len(value) > 0 && !utf8.ValidString(value) {
+		value = value[:len(value)-1]
+	}
+	return value + marker, true
+}
+
 func entriesToRestored(entries []session.Entry, model string) []RestoredMessage {
 	out := make([]RestoredMessage, 0, len(entries))
 	pendingArgs := map[string]string{}
@@ -334,6 +509,7 @@ func entriesToRestored(entries []session.Entry, model string) []RestoredMessage 
 		case agentcore.UserMessage:
 			out = append(out, RestoredMessage{
 				ID:        e.ID,
+				Seq:       e.Seq,
 				Role:      "user",
 				Content:   agentcore.ContentToText(m.Content),
 				CreatedAt: e.Timestamp.Format(time.RFC3339),
@@ -344,6 +520,7 @@ func entriesToRestored(entries []session.Entry, model string) []RestoredMessage 
 			}
 			out = append(out, RestoredMessage{
 				ID:        e.ID,
+				Seq:       e.Seq,
 				Role:      "assistant",
 				Content:   agentcore.ContentToText(m.Content),
 				Model:     model,

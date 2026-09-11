@@ -111,6 +111,8 @@ type SessionHeader struct {
 // what lets a session fork/clone later — PathToLeaf walks the ParentID chain to
 // reconstruct the linear conversation feeding any leaf.
 type Entry struct {
+	// Seq is the database ordering cursor. It is not persisted in JSONL files.
+	Seq int `json:"-"`
 	// ID is this entry's stable identifier (see newEntryID). Unique within a file.
 	ID string
 	// ParentID is the ID this entry descends from; empty for a root entry.

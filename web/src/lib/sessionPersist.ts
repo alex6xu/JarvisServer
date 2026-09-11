@@ -1,4 +1,5 @@
 /** Browser keys and helpers for restoring Chat / Coder sessions. */
+import type { MessageDocument } from '../types/documents'
 
 export function coderWorkspaceKey(accountId: number) {
   return `cg_coder_workspace_${accountId}`
@@ -10,6 +11,10 @@ export function coderSessionKey(accountId: number, workspaceId: string) {
 
 export function chatSessionKey(accountId: number) {
   return `cg_chat_session_${accountId}`
+}
+
+export function chatModelKey(accountId: number) {
+  return `cg_chat_model_${accountId}`
 }
 
 export function readLocal(key: string): string {
@@ -76,6 +81,8 @@ export type ToolStep = {
   tool: string
   args: string
   result: string
+  result_truncated?: boolean
+  args_truncated?: boolean
   id?: string
   status?: 'running' | 'done' | 'error' | string
 }
@@ -87,13 +94,17 @@ export type MessageSegment =
 
 export type UiMessage = {
   id: string
+  seq?: number
   role: ChatMessageRole
   content: string
   timestamp: Date
+  truncated?: boolean
+  contentTruncated?: boolean
   model?: string
   toolSteps?: ToolStep[]
   /** Preferred render path for assistants; falls back to content + toolSteps. */
   segments?: MessageSegment[]
+  documents?: MessageDocument[]
 }
 
 export function appendTextSegment(segments: MessageSegment[], text: string): MessageSegment[] {
@@ -172,12 +183,16 @@ export function syncToolResultsInSegments(segments: MessageSegment[], steps: Too
 
 export type RestoredSessionMessage = {
   id: string
+  seq?: number
   role: string
   content: string
+  truncated?: boolean
+  content_truncated?: boolean
   model?: string
   created_at?: string
   tool_steps?: ToolStep[]
   toolSteps?: ToolStep[]
+  documents?: MessageDocument[]
 }
 
 export type ActiveRunInfo = {
@@ -195,6 +210,7 @@ export type SessionRestorePayload = {
     type?: 'chat' | 'code'
     platform?: string
     message_count?: number
+    model?: string
     workspace_id?: string
   }
   messages: RestoredSessionMessage[]
@@ -204,6 +220,17 @@ export type SessionRestorePayload = {
   latest_run?: ActiveRunInfo
   latest_run_tool_steps?: ToolStep[]
   last_event_seq?: number
+  has_more?: boolean
+  next_cursor?: number
+}
+
+/** Merge history windows by stable entry id, preserving ascending sequence order. */
+export function mergeRestoredMessages<T extends { id: string; seq?: number }>(...windows: T[][]): T[] {
+  const byId = new Map<string, T>()
+  for (const window of windows) for (const message of window) {
+    if (!byId.has(message.id)) byId.set(message.id, message)
+  }
+  return [...byId.values()].sort((a, b) => (a.seq ?? Number.MAX_SAFE_INTEGER) - (b.seq ?? Number.MAX_SAFE_INTEGER))
 }
 
 export function mapRestoredMessages(messages: RestoredSessionMessage[] | undefined): UiMessage[] {
@@ -212,10 +239,14 @@ export function mapRestoredMessages(messages: RestoredSessionMessage[] | undefin
     const content = m.content || ''
     return {
       id: m.id,
+      seq: m.seq,
       role: (m.role as ChatMessageRole) || 'assistant',
       content,
+      truncated: m.truncated,
+      contentTruncated: m.content_truncated,
       timestamp: m.created_at ? new Date(m.created_at) : new Date(),
       model: m.model,
+      documents: m.documents,
       toolSteps,
       segments:
         m.role === 'assistant' || (!m.role && content)
@@ -256,4 +287,15 @@ export type AgentStreamEvent = {
   step?: ToolStep
   tool_steps?: ToolStep[]
   pinned?: boolean
+  queue_version?: number
+  queue_item?: {
+    id: string
+    event_type: 'enqueue' | 'pin' | 'steer'
+    status: string
+  }
+  queue_items?: Array<{
+    id: string
+    event_type: 'enqueue' | 'pin' | 'steer'
+    status: string
+  }>
 }

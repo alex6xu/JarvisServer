@@ -19,8 +19,11 @@ import (
 	"github.com/alex6xu/jarvisserver/internal/agentcore"
 )
 
-// bashDefaultTimeout bounds a command that does not specify one.
-const bashDefaultTimeout = 2 * time.Minute
+// bashDefaultTimeout bounds a command that does not specify one. Builds and
+// full test suites commonly exceed two minutes on small deployment hosts, so
+// keep the default below the ten-minute hard cap but leave enough room for a
+// normal verification command to finish.
+const bashDefaultTimeout = 5 * time.Minute
 
 // bashMaxTimeout caps any requested timeout.
 const bashMaxTimeout = 10 * time.Minute
@@ -204,6 +207,7 @@ func (t *BashTool) Execute(ctx context.Context, id string, args json.RawMessage,
 
 	shell, flag := resolveShell(t.Shell, runtime.GOOS, shellLookPath)
 	cmd := exec.CommandContext(runCtx, shell, flag, a.Command)
+	configureCommandCancellation(cmd)
 	if t.Dir != "" {
 		cmd.Dir = t.Dir
 	}
@@ -289,6 +293,7 @@ func (t *BashTool) startBackground(a bashToolArgs) (agentcore.AgentToolResult, e
 
 	shell, flag := resolveShell(t.Shell, runtime.GOOS, shellLookPath)
 	cmd := exec.CommandContext(jobCtx, shell, flag, a.Command)
+	configureCommandCancellation(cmd)
 	if t.Dir != "" {
 		cmd.Dir = t.Dir
 	}

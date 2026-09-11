@@ -11,6 +11,7 @@ import {
   coderSessionKey,
   coderWorkspaceKey,
   writeLocal,
+  mergeRestoredMessages,
   type ToolStep,
 } from '../lib/sessionPersist'
 
@@ -34,6 +35,7 @@ type SessionType = 'chat' | 'code'
 
 interface Message {
   id: string
+  seq?: number
   role: string
   content: string
   model?: string
@@ -47,6 +49,19 @@ interface PreviewMsg {
   content: string
 }
 
+interface ProjectOption {
+  id: string
+  name: string
+  source: 'user' | 'workspace'
+  linked_workspace_id?: string
+}
+
+interface SessionProjectAssignment {
+  project: ProjectOption
+  source: string
+  pinned: boolean
+}
+
 export default function SessionsPage() {
   const { currentAccount } = useAccount()
   const navigate = useNavigate()
@@ -55,6 +70,9 @@ export default function SessionsPage() {
   const [selectedSession, setSelectedSession] = useState<string | null>(null)
   const [selectedMeta, setSelectedMeta] = useState<Session | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
+  const [detailHasMore, setDetailHasMore] = useState(false)
+  const [detailCursor, setDetailCursor] = useState(0)
+  const [detailLoadingOlder, setDetailLoadingOlder] = useState(false)
   const [detailWorkspaceId, setDetailWorkspaceId] = useState('')
   const [loading, setLoading] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
@@ -68,9 +86,16 @@ export default function SessionsPage() {
   const [branchDiff, setBranchDiff] = useState('')
   const [detailRunId, setDetailRunId] = useState('')
   const [stoppingRun, setStoppingRun] = useState(false)
+  const [projects, setProjects] = useState<ProjectOption[]>([])
+  const [projectAssignment, setProjectAssignment] = useState<SessionProjectAssignment | null>(null)
+  const [projectBusy, setProjectBusy] = useState(false)
+  const detailGeneration = useRef(0)
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
+    detailGeneration.current++
+    setDetailHasMore(false)
+    setDetailCursor(0)
     if (currentAccount) {
       setSelectedSession(null)
       setSelectedMeta(null)
@@ -96,6 +121,11 @@ export default function SessionsPage() {
   }
 
   const fetchSessionDetail = async (session: Session) => {
+    const generation = ++detailGeneration.current
+    setMessages([])
+    setDetailHasMore(false)
+    setDetailCursor(0)
+    setDetailLoadingOlder(false)
     setLoading(true)
     setBranchError('')
     setBranchDiff('')
@@ -103,11 +133,28 @@ export default function SessionsPage() {
     setSelectedMeta(session)
     setDetailWorkspaceId(session.workspace_id || '')
     setDetailRunId('')
+    setProjectAssignment(null)
     try {
-      const response = await apiFetch(`/v1/agent/sessions/${session.id}`, {}, currentAccount?.id)
+      const [response, projectsResponse, assignmentResponse] = await Promise.all([
+        apiFetch(`/v1/agent/sessions/${session.id}`, {}, currentAccount?.id),
+        apiFetch('/v1/projects', {}, currentAccount?.id),
+        apiFetch(`/v1/agent/sessions/${encodeURIComponent(session.id)}/project`, {}, currentAccount?.id),
+      ])
+      if (generation !== detailGeneration.current) return
+      if (projectsResponse.ok) {
+        const projectData = await projectsResponse.json()
+        setProjects(projectData.projects || [])
+      }
+      if (assignmentResponse.ok) {
+        const assignmentData = await assignmentResponse.json()
+        setProjectAssignment(assignmentData.assignment || null)
+      }
       if (response.ok) {
         const data = await response.json()
-        setMessages(data.messages || [])
+        if (generation !== detailGeneration.current) return
+        setMessages(mergeRestoredMessages<Message>(data.messages || []))
+        setDetailHasMore(Boolean(data.has_more))
+        setDetailCursor(Number(data.next_cursor || 0))
         if (data.workspace_id) setDetailWorkspaceId(data.workspace_id)
         setDetailRunId(
           data.active_run && (data.active_run.status === 'running' || data.active_run.status === 'queued')
@@ -125,8 +172,26 @@ export default function SessionsPage() {
     } catch (error) {
       console.error('Failed to fetch session detail:', error)
     } finally {
-      setLoading(false)
+      if (generation === detailGeneration.current) setLoading(false)
     }
+  }
+
+  const loadOlderMessages = async () => {
+    if (!selectedSession || !currentAccount?.id || !detailHasMore || !detailCursor || detailLoadingOlder) return
+    const generation = detailGeneration.current
+    setDetailLoadingOlder(true)
+    try {
+      const response = await apiFetch(`/v1/agent/sessions/${encodeURIComponent(selectedSession)}?limit=30&before_seq=${detailCursor}`, {}, currentAccount.id)
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const data = await response.json()
+      if (generation !== detailGeneration.current) return
+      const older = (data.messages || []) as Message[]
+      setMessages((current) => mergeRestoredMessages(current, older))
+      setDetailHasMore(Boolean(data.has_more))
+      setDetailCursor(Number(data.next_cursor || 0))
+    } catch (error) {
+      if (generation === detailGeneration.current) setBranchError(error instanceof Error ? error.message : '加载更早消息失败')
+    } finally { if (generation === detailGeneration.current) setDetailLoadingOlder(false) }
   }
 
   const forkSession = async (entryId?: string) => {
@@ -219,6 +284,44 @@ export default function SessionsPage() {
     navigate(`/?session=${encodeURIComponent(session.id)}`)
   }
 
+  const setSessionProject = async (projectId: string) => {
+    if (!selectedSession || !currentAccount?.id) return
+    setProjectBusy(true)
+    setBranchError('')
+    try {
+      if (!projectId) {
+        const response = await apiFetch(
+          `/v1/agent/sessions/${encodeURIComponent(selectedSession)}/project`,
+          { method: 'DELETE' },
+          currentAccount.id,
+        )
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}))
+          throw new Error(data.error || '移出项目失败')
+        }
+        setProjectAssignment(null)
+        window.dispatchEvent(new Event('jarvis:sessions-changed'))
+        return
+      }
+      const response = await apiFetch(
+        `/v1/agent/sessions/${encodeURIComponent(selectedSession)}/project`,
+        {
+          method: 'PUT',
+          body: JSON.stringify({ project_id: projectId, pinned: true }),
+        },
+        currentAccount.id,
+      )
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) throw new Error(data.error || '项目归属更新失败')
+      setProjectAssignment(data.assignment || null)
+      window.dispatchEvent(new Event('jarvis:sessions-changed'))
+    } catch (projectError) {
+      setBranchError(projectError instanceof Error ? projectError.message : '项目归属更新失败')
+    } finally {
+      setProjectBusy(false)
+    }
+  }
+
   const stopDetailRun = async () => {
     if (!detailRunId || stoppingRun) return
     setStoppingRun(true)
@@ -303,6 +406,7 @@ export default function SessionsPage() {
         setImportError(data.error || '导入失败')
         return
       }
+      window.dispatchEvent(new Event('jarvis:sessions-changed'))
       setImportOpen(false)
       setImportText('')
       setImportTitle('')
@@ -353,7 +457,7 @@ export default function SessionsPage() {
   }
 
   return (
-    <div className="flex h-full">
+    <div className="control-sessions flex h-full">
       <div className={`border-r border-border ${selectedSession ? 'w-80' : 'flex-1'} overflow-auto`}>
         <div className="p-4 border-b border-border">
           <div className="flex items-start justify-between gap-2">
@@ -576,6 +680,38 @@ export default function SessionsPage() {
             </div>
           </div>
 
+          <div className="flex flex-wrap items-center gap-2 border-b border-border bg-card/40 px-4 py-3">
+            <span className="text-[11px] text-muted-foreground">所属项目</span>
+            <select
+              value={projectAssignment?.project.id || ''}
+              disabled={projectBusy}
+              onChange={(event) => void setSessionProject(event.target.value)}
+              className="h-8 min-w-48 rounded-md border border-border bg-background px-2 text-[12px] text-foreground disabled:opacity-50"
+            >
+              <option value="">未归档</option>
+              {projects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.name}{project.source === 'workspace' ? '（Workspace）' : ''}
+                </option>
+              ))}
+            </select>
+            {projectAssignment && (
+              <>
+                <span className="text-[10px] text-muted-foreground">
+                  {projectAssignment.source === 'workspace' ? '自动归档' : '手动归档'}
+                  {projectAssignment.pinned ? ' · 已锁定' : ''}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => navigate('/projects')}
+                  className="h-8 rounded-md border border-border px-3 text-[11px] text-primary hover:bg-accent"
+                >
+                  查看项目
+                </button>
+              </>
+            )}
+          </div>
+
           {(branchError || branchDiff) && (
             <div className="border-b border-border px-4 py-3 bg-card/40">
               {branchError && <p className="text-[12px] text-red-500">{branchError}</p>}
@@ -588,6 +724,11 @@ export default function SessionsPage() {
           )}
 
           <div className="flex-1 overflow-auto p-4 space-y-3">
+            {detailHasMore && (
+              <button type="button" onClick={() => void loadOlderMessages()} disabled={detailLoadingOlder} className="w-full rounded border border-border py-2 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50">
+                {detailLoadingOlder ? 'Loading older messages…' : 'Load older messages'}
+              </button>
+            )}
             {loading ? (
               <div className="flex items-center justify-center h-full">
                 <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />

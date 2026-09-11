@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Loader2,
   MessageCircle,
+  QrCode,
   Save,
   Send,
   Trash2,
@@ -42,6 +43,16 @@ interface ChannelDraft {
   runFailed: boolean
   stockDigest: boolean
   config: ChannelConfig
+}
+
+interface WeChatQRSession {
+  session_id: string
+  status: 'waiting' | 'scanned' | 'confirmed' | 'connected' | 'expired' | 'cancelled'
+  qr_code_url?: string
+  qr_code?: string
+  expires_at?: string
+  message?: string
+  channel?: NotificationChannel
 }
 
 interface ChannelDefinition {
@@ -116,6 +127,23 @@ function formatTestTime(value?: string): string {
   return date.toLocaleString('zh-CN', { hour12: false })
 }
 
+function wechatQRImage(session: WeChatQRSession | null): string {
+  const value = session?.qr_code_url || session?.qr_code || ''
+  if (/^(https:\/\/|data:image\/)/i.test(value)) return value
+  return ''
+}
+
+function wechatQRStatusText(status: WeChatQRSession['status']): string {
+  switch (status) {
+    case 'scanned': return '已扫码，请在手机微信确认'
+    case 'confirmed': return '已确认，正在完成绑定'
+    case 'connected': return '微信已连接'
+    case 'expired': return '二维码已过期，请重新获取'
+    case 'cancelled': return '扫码登录已取消'
+    default: return '请使用手机微信扫描二维码'
+  }
+}
+
 export default function NotificationSettings({ accountId }: { accountId?: number }) {
   const [channels, setChannels] = useState<Partial<Record<ChannelKind, NotificationChannel>>>({})
   const [drafts, setDrafts] = useState<Record<ChannelKind, ChannelDraft>>(initialDrafts)
@@ -123,6 +151,8 @@ export default function NotificationSettings({ accountId }: { accountId?: number
   const [busyKind, setBusyKind] = useState<ChannelKind | null>(null)
   const [errors, setErrors] = useState<Partial<Record<ChannelKind | 'list', string>>>({})
   const [messages, setMessages] = useState<Partial<Record<ChannelKind, string>>>({})
+  const [wechatQR, setWechatQR] = useState<WeChatQRSession | null>(null)
+  const [wechatQRBusy, setWechatQRBusy] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -130,6 +160,7 @@ export default function NotificationSettings({ accountId }: { accountId?: number
     setDrafts(initialDrafts())
     setErrors({})
     setMessages({})
+    setWechatQR(null)
 
     if (!accountId) {
       setLoading(false)
@@ -171,6 +202,80 @@ export default function NotificationSettings({ accountId }: { accountId?: number
       active = false
     }
   }, [accountId])
+
+  useEffect(() => {
+    if (!accountId || !wechatQR?.session_id || ['connected', 'expired', 'cancelled'].includes(wechatQR.status)) return
+    let active = true
+    const poll = async () => {
+      try {
+        const response = await apiFetch(
+          `/v1/notifications/channels/wechat/qr/${encodeURIComponent(wechatQR.session_id)}`,
+          {},
+          accountId,
+        )
+        if (!response.ok) throw new Error(await responseError(response, '无法读取扫码状态'))
+        const body = await response.json() as WeChatQRSession
+        if (!active) return
+        setWechatQR((current) => current?.session_id === body.session_id ? { ...current, ...body } : current)
+        if (body.status === 'connected' && body.channel) {
+          setChannels((current) => ({ ...current, wechat: body.channel }))
+          setDrafts((current) => ({
+            ...current,
+            wechat: {
+              ...current.wechat,
+              enabled: body.channel!.enabled,
+              runDone: body.channel!.events.includes('run_done'),
+              runFailed: body.channel!.events.includes('run_failed'),
+              stockDigest: body.channel!.events.includes('stock_digest'),
+              config: {},
+            },
+          }))
+          setMessages((current) => ({ ...current, wechat: '微信扫码接入成功' }))
+        }
+      } catch (error) {
+        if (active) setErrors((current) => ({
+          ...current,
+          wechat: error instanceof Error ? error.message : '无法读取扫码状态',
+        }))
+      }
+    }
+    const timer = window.setInterval(() => void poll(), 2_000)
+    void poll()
+    return () => {
+      active = false
+      window.clearInterval(timer)
+    }
+  }, [accountId, wechatQR?.session_id, wechatQR?.status])
+
+  const startWeChatQR = async () => {
+    const config = drafts.wechat.config
+    setWechatQRBusy(true)
+    setWechatQR(null)
+    setErrors((current) => ({ ...current, wechat: '' }))
+    setMessages((current) => ({ ...current, wechat: '' }))
+    try {
+      const response = await apiFetch(
+        '/v1/notifications/channels/wechat/qr/start',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            bridge_url: config.bridge_url?.trim() || '',
+            access_token: config.access_token?.trim() || '',
+          }),
+        },
+        accountId,
+      )
+      if (!response.ok) throw new Error(await responseError(response, '无法获取微信二维码'))
+      setWechatQR(await response.json() as WeChatQRSession)
+    } catch (error) {
+      setErrors((current) => ({
+        ...current,
+        wechat: error instanceof Error ? error.message : '无法获取微信二维码',
+      }))
+    } finally {
+      setWechatQRBusy(false)
+    }
+  }
 
   const updateDraft = (kind: ChannelKind, update: (draft: ChannelDraft) => ChannelDraft) => {
     setDrafts((current) => ({ ...current, [kind]: update(current[kind]) }))
@@ -340,6 +445,53 @@ export default function NotificationSettings({ accountId }: { accountId?: number
                 </label>
               ))}
             </div>
+
+            {kind === 'wechat' && (
+              <div className="rounded-lg border border-green-500/20 bg-green-500/5 p-4">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <QrCode className="h-4 w-4 text-green-500" />
+                      <p className="text-[13px] font-medium text-foreground">微信扫码接入</p>
+                    </div>
+                    <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
+                      填写 OpenClaw Bridge URL（Token 可选），点击获取二维码后使用手机微信扫码。扫码成功会自动保存微信账号和接收目标。
+                    </p>
+                    <button
+                      type="button"
+                      disabled={wechatQRBusy || !accountId || (!channel && !draft.config.bridge_url?.trim())}
+                      onClick={() => void startWeChatQR()}
+                      className="mt-3 inline-flex h-9 items-center gap-2 rounded-lg bg-green-600 px-3 text-[12px] font-medium text-white hover:bg-green-600/90 disabled:opacity-50"
+                    >
+                      {wechatQRBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <QrCode className="h-3.5 w-3.5" />}
+                      {wechatQR ? '刷新二维码' : '获取微信登录二维码'}
+                    </button>
+                  </div>
+                  {wechatQR && (
+                    <div className="flex min-w-[180px] flex-col items-center rounded-lg border border-border bg-background p-3">
+                      {wechatQRImage(wechatQR) ? (
+                        <img
+                          src={wechatQRImage(wechatQR)}
+                          alt="微信登录二维码"
+                          referrerPolicy="no-referrer"
+                          className="h-40 w-40 rounded bg-white object-contain p-1"
+                        />
+                      ) : (
+                        <div className="flex h-40 w-40 items-center justify-center rounded bg-muted text-center text-[10px] text-muted-foreground">
+                          Bridge 未返回可显示的二维码图片
+                        </div>
+                      )}
+                      <p className={`mt-2 text-center text-[11px] ${wechatQR.status === 'connected' ? 'text-green-500' : 'text-muted-foreground'}`}>
+                        {wechatQRStatusText(wechatQR.status)}
+                      </p>
+                      {wechatQR.expires_at && !['connected', 'expired', 'cancelled'].includes(wechatQR.status) && (
+                        <p className="mt-1 text-[9px] text-muted-foreground">有效期至 {formatTestTime(wechatQR.expires_at)}</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
               <span className="text-[12px] text-muted-foreground">订阅事件</span>
