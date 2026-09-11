@@ -85,9 +85,6 @@ func (s *GatewayStore) CreateProject(ctx context.Context, accountID int, name, d
 }
 
 func (s *GatewayStore) ListProjects(ctx context.Context, accountID int) ([]Project, error) {
-	if err := s.refreshProjectStats(ctx, accountID); err != nil {
-		return nil, err
-	}
 	rows, err := s.db.QueryContext(ctx, `SELECT id,name,slug,description,source,status,linked_workspace_id,session_count,message_count,created_at,updated_at FROM projects WHERE account_id=? ORDER BY updated_at DESC,name`, accountID)
 	if err != nil {
 		return nil, err
@@ -108,9 +105,6 @@ func (s *GatewayStore) ListProjects(ctx context.Context, accountID int) ([]Proje
 }
 
 func (s *GatewayStore) ProjectByID(ctx context.Context, accountID int, id string) (Project, error) {
-	if err := s.refreshProjectStats(ctx, accountID); err != nil {
-		return Project{}, err
-	}
 	var project Project
 	project.AccountID = accountID
 	err := s.db.QueryRowContext(ctx, `SELECT id,name,slug,description,source,status,linked_workspace_id,session_count,message_count,created_at,updated_at FROM projects WHERE account_id=? AND id=?`, accountID, id).Scan(

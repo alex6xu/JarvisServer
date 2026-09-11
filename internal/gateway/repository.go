@@ -22,6 +22,21 @@ type SessionRepository interface {
 	AppendBranch(session.SessionHeader, string, agentcore.MessageList) (string, error)
 }
 
+// SessionHeaderForAccount reads only header_json and enforces tenant ownership
+// in SQL, avoiding a history payload read on metadata paths.
+func (s *GatewayStore) SessionHeaderForAccount(id string, accountID int) (session.SessionHeader, error) {
+	var raw string
+	err := s.db.QueryRow(`SELECT header_json FROM sessions WHERE id=? AND (json_extract(header_json,'$.accountId')=? OR (json_extract(header_json,'$.accountId')=0 AND ?=?))`, id, accountID, accountID, legacyWorkspaceAccountID).Scan(&raw)
+	if err != nil {
+		return session.SessionHeader{}, err
+	}
+	var h session.SessionHeader
+	if err := json.Unmarshal([]byte(raw), &h); err != nil {
+		return session.SessionHeader{}, err
+	}
+	return h, nil
+}
+
 // RealtimeSessionRepository adds single-entry operations used while an
 // assistant response is still streaming. Keeping these separate from
 // SessionRepository preserves compatibility with the legacy JSONL importer.
@@ -247,6 +262,75 @@ func (s *GatewayStore) LoadEntries(id string) (session.SessionHeader, []session.
 		entries = append(entries, entry)
 	}
 	return header, entries, rows.Err()
+}
+
+// LoadEntriesPage returns an ordered bounded window without decoding the rest
+// of the transcript. beforeSeq is an exclusive upper bound; afterSeq is an
+// exclusive lower bound. The caller must enforce account ownership.
+func (s *GatewayStore) LoadEntriesPage(id string, limit, beforeSeq, afterSeq int) (session.SessionHeader, []session.Entry, int, bool, error) {
+	var raw string
+	if err := s.db.QueryRow(`SELECT header_json FROM sessions WHERE id=?`, id).Scan(&raw); err != nil {
+		return session.SessionHeader{}, nil, 0, false, err
+	}
+	var header session.SessionHeader
+	if err := json.Unmarshal([]byte(raw), &header); err != nil {
+		return header, nil, 0, false, err
+	}
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	query := `SELECT seq,payload FROM session_entries WHERE session_id=? ORDER BY seq DESC LIMIT ?`
+	args := []any{id, limit + 1}
+	if beforeSeq > 0 {
+		query = `SELECT seq,payload FROM session_entries WHERE session_id=? AND seq<? ORDER BY seq DESC LIMIT ?`
+		args = []any{id, beforeSeq, limit + 1}
+	}
+	if afterSeq > 0 {
+		query = `SELECT seq,payload FROM session_entries WHERE session_id=? AND seq>? ORDER BY seq LIMIT ?`
+		args = []any{id, afterSeq, limit + 1}
+	}
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return header, nil, 0, false, err
+	}
+	defer rows.Close()
+	type pageRow struct {
+		seq     int
+		payload string
+	}
+	rawRows := []pageRow{}
+	for rows.Next() {
+		var x pageRow
+		if err := rows.Scan(&x.seq, &x.payload); err != nil {
+			return header, nil, 0, false, err
+		}
+		rawRows = append(rawRows, x)
+	}
+	if err := rows.Err(); err != nil {
+		return header, nil, 0, false, err
+	}
+	hasMore := len(rawRows) > limit
+	if hasMore {
+		rawRows = rawRows[:limit]
+	}
+	entries := make([]session.Entry, 0, len(rawRows))
+	for _, x := range rawRows {
+		var e session.Entry
+		if err := json.Unmarshal([]byte(x.payload), &e); err != nil {
+			return header, nil, 0, false, err
+		}
+		entries = append(entries, e)
+	}
+	if beforeSeq > 0 {
+		for i, j := 0, len(entries)-1; i < j; i, j = i+1, j-1 {
+			entries[i], entries[j] = entries[j], entries[i]
+		}
+	}
+	next := 0
+	if len(rawRows) > 0 {
+		next = rawRows[len(rawRows)-1].seq
+	}
+	return header, entries, next, hasMore, nil
 }
 
 func (s *GatewayStore) List() ([]session.SessionHeader, error) {

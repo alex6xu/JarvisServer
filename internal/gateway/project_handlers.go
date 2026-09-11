@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+
+	"github.com/alex6xu/jarvisserver/internal/session"
 )
 
 type createProjectBody struct {
@@ -22,7 +24,6 @@ func (s *Service) handleListProjects(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "account context is required")
 		return
 	}
-	_, _ = s.Audit.ReconcileWorkspaceProjects(r.Context(), accountID)
 	projects, err := s.Audit.ListProjects(r.Context(), accountID)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
@@ -68,7 +69,7 @@ func (s *Service) handleGetProject(w http.ResponseWriter, r *http.Request) {
 	}
 	sessions := make([]SessionMeta, 0, len(ids))
 	for _, id := range ids {
-		header, _, err := s.Store.LoadEntries(id)
+		header, err := sessionHeaderForAccount(s.Store, id, accountID)
 		if err != nil || !sessionOwnedByAccount(header, accountID) {
 			continue
 		}
@@ -80,6 +81,18 @@ func (s *Service) handleGetProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, ProjectDetail{Project: project, Sessions: sessions, Tags: tags})
+}
+
+type sessionHeaderRepository interface {
+	SessionHeaderForAccount(string, int) (session.SessionHeader, error)
+}
+
+func sessionHeaderForAccount(store SessionRepository, id string, accountID int) (session.SessionHeader, error) {
+	if headers, ok := store.(sessionHeaderRepository); ok {
+		return headers.SessionHeaderForAccount(id, accountID)
+	}
+	header, _, err := store.LoadEntries(id)
+	return header, err
 }
 
 func (s *Service) handleGetSessionProject(w http.ResponseWriter, r *http.Request) {

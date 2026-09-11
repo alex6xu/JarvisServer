@@ -19,7 +19,24 @@ func (s *Service) GetSession(id string) (SessionDetailResponse, error) {
 }
 
 func (s *Service) getSessionForAccount(id string, accountID int) (SessionDetailResponse, error) {
-	h, entries, err := s.Store.LoadEntries(id)
+	return s.getSessionForAccountPage(id, accountID, 0, 0, 0)
+}
+
+func (s *Service) getSessionForAccountPage(id string, accountID, limit, beforeSeq, afterSeq int) (SessionDetailResponse, error) {
+	var h session.SessionHeader
+	var entries []session.Entry
+	var next int
+	var hasMore bool
+	var err error
+	if limit > 0 {
+		paged, ok := s.Store.(*GatewayStore)
+		if !ok {
+			return SessionDetailResponse{}, fmt.Errorf("pagination is unavailable")
+		}
+		h, entries, next, hasMore, err = paged.LoadEntriesPage(id, limit, beforeSeq, afterSeq)
+	} else {
+		h, entries, err = s.Store.LoadEntries(id)
+	}
 	if err != nil {
 		return SessionDetailResponse{}, err
 	}
@@ -42,7 +59,7 @@ func (s *Service) getSessionForAccount(id string, accountID int) (SessionDetailR
 	meta := sessionMetaFromHeader(h, len(msgs))
 	meta.Title = sessionTitle(msgs)
 	meta.Preview = meta.Title
-	resp := SessionDetailResponse{Session: meta, Messages: msgs, WorkspaceID: h.WorkspaceID}
+	resp := SessionDetailResponse{Session: meta, Messages: msgs, WorkspaceID: h.WorkspaceID, HasMore: hasMore, NextCursor: next}
 	if active := s.Runs.ActiveForSession(id); active != nil {
 		info := active.Info()
 		resp.ActiveRun = &info
@@ -52,6 +69,25 @@ func (s *Service) getSessionForAccount(id string, accountID int) (SessionDetailR
 		resp.Session.ActiveRunStatus = info.Status
 	}
 	return resp, nil
+}
+
+func parseSessionPage(limitRaw, beforeRaw, afterRaw string) (int, int, int) {
+	limit, _ := strconv.Atoi(limitRaw)
+	before, _ := strconv.Atoi(beforeRaw)
+	after, _ := strconv.Atoi(afterRaw)
+	if limit < 1 {
+		limit = 0
+	}
+	if before < 1 {
+		before = 0
+	}
+	if after < 1 {
+		after = 0
+	}
+	if before > 0 {
+		after = 0
+	}
+	return limit, before, after
 }
 
 func sessionOwnedByAccount(h session.SessionHeader, accountID int) bool {

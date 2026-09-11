@@ -155,6 +155,8 @@ type SessionDetailResponse struct {
 	WorkspaceID  string            `json:"workspace_id,omitempty"`
 	ActiveRun    *ActiveRunInfo    `json:"active_run,omitempty"`
 	LastEventSeq int64             `json:"last_event_seq,omitempty"`
+	HasMore      bool              `json:"has_more,omitempty"`
+	NextCursor   int               `json:"next_cursor,omitempty"`
 }
 
 // SessionListResponse is GET /v1/agent/sessions.
