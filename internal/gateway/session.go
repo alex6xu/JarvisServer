@@ -3,11 +3,13 @@ package gateway
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/alex6xu/jarvisserver/internal/agentcore"
 	"github.com/alex6xu/jarvisserver/internal/session"
@@ -53,6 +55,7 @@ func (s *Service) getSessionForAccountWindow(id string, accountID, limit, before
 		return SessionDetailResponse{}, fmt.Errorf("session not found: %w", os.ErrNotExist)
 	}
 	msgs := entriesToRestored(entries, h.Model)
+	msgs, responseTruncated := projectRestoredMessages(msgs)
 	documentsByEntry, err := s.Audit.MessageDocuments(context.Background(), accountID, id)
 	if err != nil {
 		return SessionDetailResponse{}, err
@@ -68,7 +71,7 @@ func (s *Service) getSessionForAccountWindow(id string, accountID, limit, before
 	meta := sessionMetaFromHeader(h, len(msgs))
 	meta.Title = sessionTitle(msgs)
 	meta.Preview = meta.Title
-	resp := SessionDetailResponse{Session: meta, Messages: msgs, WorkspaceID: h.WorkspaceID, HasMore: hasMore, NextCursor: next}
+	resp := SessionDetailResponse{Session: meta, Messages: msgs, WorkspaceID: h.WorkspaceID, HasMore: hasMore, NextCursor: next, Truncated: responseTruncated}
 	if active := s.Runs.ActiveForSession(id); active != nil {
 		info := active.Info()
 		resp.ActiveRun = &info
@@ -390,6 +393,93 @@ func (s *Service) recentSessionsForAccount(accountID int, mode, workspaceID stri
 		}
 	}
 	return SessionListResponse{Sessions: out}, nil
+}
+
+const (
+	maxHistoryResponseBytes = 512 * 1024
+	maxHistoryMessageBytes  = 64 * 1024
+	maxHistoryToolBytes     = 24 * 1024
+)
+
+// projectRestoredMessages is presentation-only: persisted entries and the
+// model's openSession path continue to use the unmodified transcript.
+func projectRestoredMessages(messages []RestoredMessage) ([]RestoredMessage, bool) {
+	out := make([]RestoredMessage, len(messages))
+	copy(out, messages)
+	truncated := false
+	for i := range out {
+		var changed bool
+		out[i].Content, changed = truncateHistoryText(out[i].Content, maxHistoryMessageBytes)
+		out[i].ContentTruncated = changed
+		out[i].Truncated = changed
+		truncated = truncated || changed
+		for j := range out[i].ToolSteps {
+			step := &out[i].ToolSteps[j]
+			step.Args, changed = truncateHistoryText(step.Args, maxHistoryToolBytes/3)
+			var changedResult bool
+			step.Result, changedResult = truncateHistoryText(step.Result, maxHistoryToolBytes)
+			step.ResultTruncated = changedResult
+			if changed || changedResult {
+				truncated = true
+			}
+		}
+	}
+	// Enforce a byte ceiling without dropping entries or their identifiers.
+	if len(out) > 0 {
+		perMessage := maxHistoryResponseBytes / len(out)
+		for i := range out {
+			if len(out[i].Content) > perMessage {
+				out[i].Content, _ = truncateHistoryText(out[i].Content, perMessage)
+				out[i].ContentTruncated, out[i].Truncated, truncated = true, true, true
+			}
+			for j := range out[i].ToolSteps {
+				if len(out[i].ToolSteps[j].Result) > perMessage/2 {
+					out[i].ToolSteps[j].Result, _ = truncateHistoryText(out[i].ToolSteps[j].Result, perMessage/2)
+					out[i].ToolSteps[j].ResultTruncated, truncated = true, true
+				}
+			}
+		}
+	}
+	for len(out) > 0 {
+		encoded, err := json.Marshal(out)
+		if err != nil || len(encoded) <= maxHistoryResponseBytes {
+			break
+		}
+		idx := len(out) - 1
+		if out[idx].Content == "" && len(out[idx].ToolSteps) == 0 {
+			break
+		}
+		contentLimit := len(out[idx].Content) / 2
+		if contentLimit > 0 {
+			out[idx].Content, _ = truncateHistoryText(out[idx].Content, contentLimit)
+		}
+		for j := range out[idx].ToolSteps {
+			resultLimit := len(out[idx].ToolSteps[j].Result) / 2
+			if resultLimit > 0 {
+				out[idx].ToolSteps[j].Result, _ = truncateHistoryText(out[idx].ToolSteps[j].Result, resultLimit)
+			}
+		}
+		out[idx].ContentTruncated = true
+		out[idx].Truncated = true
+		truncated = true
+	}
+	return out, truncated
+}
+
+func truncateHistoryText(value string, maxBytes int) (string, bool) {
+	if maxBytes < 1 || len(value) <= maxBytes {
+		return value, false
+	}
+	marker := "\n[…内容已截断，可通过分页继续查看…]"
+	if maxBytes <= len(marker) {
+		return marker[:maxBytes], true
+	}
+	keep := maxBytes - len(marker)
+	value = value[:keep]
+	for len(value) > 0 && !utf8.ValidString(value) {
+		value = value[:len(value)-1]
+	}
+	return value + marker, true
 }
 
 func entriesToRestored(entries []session.Entry, model string) []RestoredMessage {

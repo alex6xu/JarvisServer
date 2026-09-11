@@ -69,6 +69,9 @@ export default function SessionsPage() {
   const [selectedSession, setSelectedSession] = useState<string | null>(null)
   const [selectedMeta, setSelectedMeta] = useState<Session | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
+  const [detailHasMore, setDetailHasMore] = useState(false)
+  const [detailCursor, setDetailCursor] = useState(0)
+  const [detailLoadingOlder, setDetailLoadingOlder] = useState(false)
   const [detailWorkspaceId, setDetailWorkspaceId] = useState('')
   const [loading, setLoading] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
@@ -138,6 +141,8 @@ export default function SessionsPage() {
       if (response.ok) {
         const data = await response.json()
         setMessages((data.messages || []).slice().sort((a: Message, b: Message) => (a.seq ?? Number.MAX_SAFE_INTEGER) - (b.seq ?? Number.MAX_SAFE_INTEGER)))
+        setDetailHasMore(Boolean(data.has_more))
+        setDetailCursor(Number(data.next_cursor || 0))
         if (data.workspace_id) setDetailWorkspaceId(data.workspace_id)
         setDetailRunId(
           data.active_run && (data.active_run.status === 'running' || data.active_run.status === 'queued')
@@ -157,6 +162,26 @@ export default function SessionsPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  const loadOlderMessages = async () => {
+    if (!selectedSession || !currentAccount?.id || !detailHasMore || !detailCursor || detailLoadingOlder) return
+    setDetailLoadingOlder(true)
+    try {
+      const response = await apiFetch(`/v1/agent/sessions/${encodeURIComponent(selectedSession)}?limit=30&before_seq=${detailCursor}`, {}, currentAccount.id)
+      if (!response.ok) throw new Error(`HTTP ${response.status}`)
+      const data = await response.json()
+      const older = (data.messages || []) as Message[]
+      setMessages((current) => {
+        const byId = new Map(current.map((message) => [message.id, message]))
+        for (const message of older) if (!byId.has(message.id)) byId.set(message.id, message)
+        return [...byId.values()].sort((a, b) => (a.seq ?? Number.MAX_SAFE_INTEGER) - (b.seq ?? Number.MAX_SAFE_INTEGER))
+      })
+      setDetailHasMore(Boolean(data.has_more))
+      setDetailCursor(Number(data.next_cursor || 0))
+    } catch (error) {
+      setBranchError(error instanceof Error ? error.message : '加载更早消息失败')
+    } finally { setDetailLoadingOlder(false) }
   }
 
   const forkSession = async (entryId?: string) => {
@@ -689,6 +714,11 @@ export default function SessionsPage() {
           )}
 
           <div className="flex-1 overflow-auto p-4 space-y-3">
+            {detailHasMore && (
+              <button type="button" onClick={() => void loadOlderMessages()} disabled={detailLoadingOlder} className="w-full rounded border border-border py-2 text-xs text-muted-foreground hover:text-foreground disabled:opacity-50">
+                {detailLoadingOlder ? 'Loading older messages…' : 'Load older messages'}
+              </button>
+            )}
             {loading ? (
               <div className="flex items-center justify-center h-full">
                 <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />

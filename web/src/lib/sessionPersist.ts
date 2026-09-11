@@ -81,6 +81,7 @@ export type ToolStep = {
   tool: string
   args: string
   result: string
+  result_truncated?: boolean
   id?: string
   status?: 'running' | 'done' | 'error' | string
 }
@@ -96,6 +97,8 @@ export type UiMessage = {
   role: ChatMessageRole
   content: string
   timestamp: Date
+  truncated?: boolean
+  contentTruncated?: boolean
   model?: string
   toolSteps?: ToolStep[]
   /** Preferred render path for assistants; falls back to content + toolSteps. */
@@ -182,6 +185,8 @@ export type RestoredSessionMessage = {
   seq?: number
   role: string
   content: string
+  truncated?: boolean
+  content_truncated?: boolean
   model?: string
   created_at?: string
   tool_steps?: ToolStep[]
@@ -236,6 +241,8 @@ export function mapRestoredMessages(messages: RestoredSessionMessage[] | undefin
       seq: m.seq,
       role: (m.role as ChatMessageRole) || 'assistant',
       content,
+      truncated: m.truncated,
+      contentTruncated: m.content_truncated,
       timestamp: m.created_at ? new Date(m.created_at) : new Date(),
       model: m.model,
       documents: m.documents,

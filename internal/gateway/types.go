@@ -52,11 +52,12 @@ type RunMessageQueueSnapshot struct {
 
 // ToolStep matches web/src/lib/sessionPersist.ts ToolStep.
 type ToolStep struct {
-	Tool   string `json:"tool"`
-	Args   string `json:"args"`
-	Result string `json:"result"`
-	ID     string `json:"id,omitempty"`
-	Status string `json:"status,omitempty"` // running | done | error
+	Tool            string `json:"tool"`
+	Args            string `json:"args"`
+	Result          string `json:"result"`
+	ResultTruncated bool   `json:"result_truncated,omitempty"`
+	ID              string `json:"id,omitempty"`
+	Status          string `json:"status,omitempty"` // running | done | error
 }
 
 // StreamEvent matches web AgentStreamEvent (SSE payload).
@@ -95,14 +96,16 @@ type ActiveRunInfo struct {
 
 // RestoredMessage matches web RestoredSessionMessage.
 type RestoredMessage struct {
-	ID        string
-	Seq       int               `json:"id"`
-	Role      string            `json:"role"`
-	Content   string            `json:"content"`
-	Model     string            `json:"model,omitempty"`
-	CreatedAt string            `json:"created_at,omitempty"`
-	ToolSteps []ToolStep        `json:"tool_steps,omitempty"`
-	Documents []MessageDocument `json:"documents,omitempty"`
+	ID               string            `json:"id"`
+	Seq              int               `json:"seq"`
+	Role             string            `json:"role"`
+	Content          string            `json:"content"`
+	Truncated        bool              `json:"truncated,omitempty"`
+	ContentTruncated bool              `json:"content_truncated,omitempty"`
+	Model            string            `json:"model,omitempty"`
+	CreatedAt        string            `json:"created_at,omitempty"`
+	ToolSteps        []ToolStep        `json:"tool_steps,omitempty"`
+	Documents        []MessageDocument `json:"documents,omitempty"`
 }
 
 // MessageDocument is the safe attachment metadata returned with a restored
@@ -158,6 +161,7 @@ type SessionDetailResponse struct {
 	LastEventSeq int64             `json:"last_event_seq,omitempty"`
 	HasMore      bool              `json:"has_more,omitempty"`
 	NextCursor   int               `json:"next_cursor,omitempty"`
+	Truncated    bool              `json:"truncated,omitempty"`
 }
 
 // SessionListResponse is GET /v1/agent/sessions.
