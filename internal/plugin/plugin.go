@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/alex6xu/jarvisserver/internal/agentcore"
@@ -30,24 +31,49 @@ const eventTimeout = 2 * time.Second
 // Plugin is a running plugin: its JSON-RPC client plus the manifest it declared
 // during initialize.
 type Plugin struct {
-	Manifest Manifest
-	client   *jsonrpc.Client
+	ID             string
+	Path           string
+	Manifest       Manifest
+	client         *jsonrpc.Client
+	callTimeout    time.Duration
+	maxOutputBytes int
 }
 
-// Load starts the plugin executable at path (with optional args) and performs
-// the initialize handshake. stderr, when non-nil, receives the plugin's stderr
-// for logging. The caller must Close the returned Plugin.
+// LoadOptions constrains one plugin process. Env is explicit: nil inherits the
+// parent for CLI compatibility; a non-nil slice is used verbatim by os/exec.
+type LoadOptions struct {
+	ID             string
+	Dir            string
+	Env            []string
+	InitTimeout    time.Duration
+	CallTimeout    time.Duration
+	MaxOutputBytes int
+}
+
+// Load preserves the CLI's legacy environment behavior. Gateway uses
+// LoadWithOptions with a cleaned environment and independent call deadline.
 func Load(command string, args []string, stderr io.Writer) (*Plugin, error) {
+	return LoadWithOptions(command, args, stderr, LoadOptions{})
+}
+
+// LoadWithOptions starts and initializes one JSON-RPC plugin process.
+func LoadWithOptions(command string, args []string, stderr io.Writer, opts LoadOptions) (*Plugin, error) {
 	client, err := jsonrpc.NewClient(jsonrpc.Config{
 		Command: command,
 		Args:    args,
+		Env:     opts.Env,
+		Dir:     opts.Dir,
 		Stderr:  stderr,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("plugin: launch %q: %w", command, err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), initTimeout)
+	initializeTimeout := opts.InitTimeout
+	if initializeTimeout <= 0 {
+		initializeTimeout = initTimeout
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), initializeTimeout)
 	defer cancel()
 
 	raw, err := client.Call(ctx, "initialize", nil)
@@ -64,7 +90,51 @@ func Load(command string, args []string, stderr io.Writer) (*Plugin, error) {
 		_ = client.Close()
 		return nil, fmt.Errorf("plugin %q: manifest has empty name", command)
 	}
-	return &Plugin{Manifest: m, client: client}, nil
+	if err := validateManifest(m); err != nil {
+		_ = client.Close()
+		return nil, fmt.Errorf("plugin %q: %w", command, err)
+	}
+	callTimeout := opts.CallTimeout
+	if callTimeout <= 0 {
+		callTimeout = 60 * time.Second
+	}
+	maxOutputBytes := opts.MaxOutputBytes
+	if maxOutputBytes <= 0 {
+		maxOutputBytes = 1 << 20
+	}
+	return &Plugin{
+		ID: opts.ID, Path: command, Manifest: m, client: client,
+		callTimeout: callTimeout, maxOutputBytes: maxOutputBytes,
+	}, nil
+}
+
+func validateManifest(manifest Manifest) error {
+	seenTools := make(map[string]bool, len(manifest.Tools))
+	for _, tool := range manifest.Tools {
+		name := strings.TrimSpace(tool.Name)
+		if name == "" {
+			return fmt.Errorf("manifest contains an empty tool name")
+		}
+		if seenTools[name] {
+			return fmt.Errorf("manifest contains duplicate tool %q", name)
+		}
+		seenTools[name] = true
+		if len(tool.Schema) > 0 && !json.Valid(tool.Schema) {
+			return fmt.Errorf("tool %q has invalid JSON schema", name)
+		}
+	}
+	seenCommands := make(map[string]bool, len(manifest.Commands))
+	for _, command := range manifest.Commands {
+		name := strings.TrimSpace(command.Name)
+		if name == "" {
+			return fmt.Errorf("manifest contains an empty command name")
+		}
+		if seenCommands[name] {
+			return fmt.Errorf("manifest contains duplicate command %q", name)
+		}
+		seenCommands[name] = true
+	}
+	return nil
 }
 
 // Tools adapts each tool the plugin declared into an agentcore.AgentTool that
@@ -94,13 +164,20 @@ func (p *Plugin) Close() error {
 
 // call forwards a tool invocation to the plugin and returns its result.
 func (p *Plugin) call(ctx context.Context, name string, args json.RawMessage) (CallResult, error) {
-	raw, err := p.client.Call(ctx, "tools/call", CallParams{Name: name, Arguments: args})
+	callCtx, cancel := context.WithTimeout(ctx, p.callTimeout)
+	defer cancel()
+	raw, err := p.client.Call(callCtx, "tools/call", CallParams{Name: name, Arguments: args})
 	if err != nil {
 		return CallResult{}, err
 	}
 	var res CallResult
 	if err := json.Unmarshal(raw, &res); err != nil {
 		return CallResult{}, fmt.Errorf("plugin %q: decode result for %q: %w", p.Manifest.Name, name, err)
+	}
+	if len(res.Content) > p.maxOutputBytes {
+		originalBytes := len(res.Content)
+		res.Content = strings.ToValidUTF8(res.Content[:p.maxOutputBytes], "") +
+			fmt.Sprintf("\n[plugin output truncated from %d bytes]", originalBytes)
 	}
 	return res, nil
 }

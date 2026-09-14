@@ -30,6 +30,34 @@ func TestParseCryptoTickers(t *testing.T) {
 	}
 }
 
+func TestParseCryptoLiquidations(t *testing.T) {
+	received := time.Date(2026, 8, 24, 12, 0, 1, 0, time.UTC)
+	binance, ok := parseBinanceLiquidation([]byte(`{"data":{"E":1787572800000,"o":{"s":"BTCUSDT","S":"SELL","p":"64900","ap":"65000","q":"2","z":"1.5","T":1787572800000}}}`), map[string]string{"BTCUSDT": "BTC-USDT-SWAP"}, received)
+	if !ok || binance.Side != "long" || binance.Notional != 97500 || binance.Symbol != "BTC-USDT-SWAP" {
+		t.Fatalf("binance liquidation=%+v ok=%v", binance, ok)
+	}
+
+	okx, err := parseOKXLiquidations([]byte(`{"data":[{"instId":"ETH-USDT-SWAP","details":[{"side":"buy","sz":"3","bkPx":"3200","ts":"1787572800000"},{"side":"sell","sz":"2","bkPx":"3190","ts":"1787572801000"}]}]}`), map[string]bool{"ETH-USDT-SWAP": true}, received)
+	if err != nil || len(okx) != 2 || okx[0].Side != "short" || okx[1].Side != "long" || okx[0].Notional != 9600 || !okx[0].NotionalEstimated {
+		t.Fatalf("okx liquidations=%+v err=%v", okx, err)
+	}
+	if okx[0].ID == okx[1].ID || okx[0].ID == "" {
+		t.Fatalf("liquidation ids=%q %q", okx[0].ID, okx[1].ID)
+	}
+}
+
+func TestNormalizeLiquidationSymbols(t *testing.T) {
+	symbols, err := normalizeLiquidationSymbols([]string{"btc-usdt", "ETH-USDT-SWAP", "BTC-USDT-SWAP"})
+	if err != nil || strings.Join(symbols, ",") != "BTC-USDT-SWAP,ETH-USDT-SWAP" {
+		t.Fatalf("symbols=%v err=%v", symbols, err)
+	}
+	for _, invalid := range []string{"", "ETC-USDT-SWAP", "BTCUSDT"} {
+		if _, err := normalizeLiquidationSymbols([]string{invalid}); err == nil {
+			t.Fatalf("expected %q to be rejected", invalid)
+		}
+	}
+}
+
 func TestNormalizeCryptoSymbols(t *testing.T) {
 	symbols, err := normalizeCryptoSymbols([]string{" btc-usdt ", "ETH-USDT", "BTC-USDT"})
 	if err != nil {
@@ -42,6 +70,24 @@ func TestNormalizeCryptoSymbols(t *testing.T) {
 		if _, err := normalizeCryptoSymbols([]string{invalid}); err == nil {
 			t.Fatalf("expected %q to be rejected", invalid)
 		}
+	}
+}
+
+func TestCryptoLiquidationStreamHandlerRequiresAccountAndValidSymbols(t *testing.T) {
+	svc := &Service{Crypto: NewCryptoService(Options{})}
+
+	unauthorized := httptest.NewRecorder()
+	svc.handleCryptoLiquidationStream(unauthorized, httptest.NewRequest(http.MethodGet, "/v1/crypto/liquidations/stream?symbols=BTC-USDT-SWAP", nil))
+	if unauthorized.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthorized status=%d", unauthorized.Code)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/crypto/liquidations/stream?symbols=ETC-USDT-SWAP", nil)
+	req = req.WithContext(context.WithValue(req.Context(), accountContextKey{}, Account{ID: 1}))
+	invalid := httptest.NewRecorder()
+	svc.handleCryptoLiquidationStream(invalid, req)
+	if invalid.Code != http.StatusBadRequest {
+		t.Fatalf("invalid status=%d body=%s", invalid.Code, invalid.Body.String())
 	}
 }
 

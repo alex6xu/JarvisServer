@@ -130,6 +130,20 @@ func encodeOpenAIRequest(req CompletionRequest) ([]byte, error) {
 	if effort := openAIReasoningEffort(req.Config.ThinkingLevel); effort != "" {
 		body["reasoning_effort"] = effort
 	}
+	// The public OpenAI-compatible gateway passes these standard generation
+	// controls through StreamConfig.Extra. Keep the allowlist explicit so
+	// internal routing hints can never leak onto an upstream wire request.
+	for _, key := range []string{
+		"temperature", "top_p", "max_tokens", "max_completion_tokens", "stop",
+		"presence_penalty", "frequency_penalty", "seed", "response_format",
+		"tool_choice", "parallel_tool_calls",
+	} {
+		if req.Config.Extra != nil {
+			if value, ok := req.Config.Extra[key]; ok {
+				body[key] = value
+			}
+		}
+	}
 	if tools := encodeOpenAITools(req.Context.Tools); len(tools) > 0 {
 		body["tools"] = tools
 	}

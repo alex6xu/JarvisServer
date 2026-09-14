@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { Activity, AlertCircle, ArrowLeft, Bitcoin, Coins, RefreshCw, Radio } from 'lucide-react'
+import { Activity, AlertCircle, ArrowLeft, Bitcoin, Coins, RefreshCw, Radio, Waves } from 'lucide-react'
 import CryptoCandlestickChart from '../components/CryptoCandlestickChart'
+import CryptoLiquidationChart, { formatCompact, type LiquidationExchangeFilter } from '../components/CryptoLiquidationChart'
 import { apiFetch, useAccount } from '../context/AccountContext'
+import { useCryptoLiquidationStream } from '../hooks/useCryptoLiquidationStream'
 import { useCryptoTickerStream } from '../hooks/useCryptoTickerStream'
 import {
   CRYPTO_ASSETS,
@@ -59,10 +61,40 @@ export default function CryptoDetailPage() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
+  const [liquidationExchange, setLiquidationExchange] = useState<LiquidationExchangeFilter>('all')
+  const [liquidationRange, setLiquidationRange] = useState(60)
   const requestSequence = useRef(0)
   const streamSymbols = useMemo(() => selectedAsset ? [selectedAsset.symbol] : [], [selectedAsset])
+  const liquidationSymbols = useMemo(
+    () => selectedAsset && (selectedAsset.short === 'BTC' || selectedAsset.short === 'ETH')
+      ? [`${selectedAsset.short}-USDT-SWAP`]
+      : [],
+    [selectedAsset],
+  )
   const { tickers, providers, streamError } = useCryptoTickerStream(currentAccount?.id, streamSymbols)
+  const {
+    events: liquidationEvents,
+    providers: liquidationProviders,
+    streamError: liquidationError,
+    lastUpdated: liquidationUpdatedAt,
+  } = useCryptoLiquidationStream(currentAccount?.id, liquidationSymbols)
   const ticker = selectedAsset ? tickers[`${exchange}:${selectedAsset.symbol}`] : undefined
+  const filteredLiquidations = useMemo(() => {
+    const cutoff = Date.now() - liquidationRange * 60_000
+    return liquidationEvents.filter((item) =>
+      (liquidationExchange === 'all' || item.exchange === liquidationExchange) &&
+      Date.parse(item.occurred_at) >= cutoff,
+    )
+  }, [liquidationEvents, liquidationExchange, liquidationRange])
+  const liquidationSummary = useMemo(() => filteredLiquidations.reduce(
+    (summary, item) => {
+      summary.total += item.notional
+      summary[item.side] += item.notional
+      summary.largest = Math.max(summary.largest, item.notional)
+      return summary
+    },
+    { total: 0, long: 0, short: 0, largest: 0 },
+  ), [filteredLiquidations])
 
   const loadCandles = useCallback(async (background = false) => {
     if (!currentAccount?.id || !selectedAsset) return
@@ -240,6 +272,105 @@ export default function CryptoDetailPage() {
           <span>更新时间 {displayDateTime(fetchedAt)}{refreshing ? ' · 同步中' : ''}</span>
         </div>
       </section>
+
+      {liquidationSymbols.length > 0 && (
+        <section aria-labelledby="crypto-liquidation-title" className="mt-5 overflow-hidden rounded-md border border-border bg-card">
+          <div className="flex flex-col gap-3 border-b border-border px-3 py-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <Waves className="h-4 w-4 text-orange-400" />
+                <h3 id="crypto-liquidation-title" className="text-[13px] font-semibold text-foreground">
+                  {selectedAsset.short} 永续合约实时清算
+                </h3>
+              </div>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-[9px] text-muted-foreground">
+                {(['binance', 'okx'] as CryptoExchange[]).map((item) => (
+                  <span key={item} className="inline-flex items-center gap-1">
+                    <span className={`h-1.5 w-1.5 rounded-full ${liquidationProviders[item].state === 'connected' ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+                    {item.toUpperCase()} {liquidationProviders[item].state === 'connected' ? '在线' : '连接中'}
+                  </span>
+                ))}
+                <span>· 多单清算向下，空单清算向上</span>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex rounded-md border border-border p-0.5">
+                {(['all', 'binance', 'okx'] as LiquidationExchangeFilter[]).map((item) => (
+                  <button key={item} type="button" onClick={() => setLiquidationExchange(item)} className={`h-7 rounded px-2.5 text-[10px] font-medium uppercase ${liquidationExchange === item ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
+                    {item === 'all' ? '合并' : item}
+                  </button>
+                ))}
+              </div>
+              <div className="flex rounded-md border border-border p-0.5">
+                {[
+                  { value: 60, label: '1h' },
+                  { value: 240, label: '4h' },
+                  { value: 720, label: '12h' },
+                  { value: 1440, label: '24h' },
+                ].map((item) => (
+                  <button key={item.value} type="button" onClick={() => setLiquidationRange(item.value)} className={`h-7 rounded px-2 text-[10px] ${liquidationRange === item.value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {(liquidationError || liquidationProviders.binance.message || liquidationProviders.okx.message) && (
+            <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-[10px] text-amber-400">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+              <span>{liquidationError || liquidationProviders.binance.message || liquidationProviders.okx.message}</span>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 border-b border-border sm:grid-cols-4">
+            <div className="border-r border-border px-3 py-3">
+              <p className="text-[9px] text-muted-foreground">总清算</p>
+              <p className="mt-1 text-sm font-semibold tabular-nums text-foreground">${formatCompact(liquidationSummary.total)}</p>
+            </div>
+            <div className="border-r border-border px-3 py-3">
+              <p className="text-[9px] text-orange-400">多单清算</p>
+              <p className="mt-1 text-sm font-semibold tabular-nums text-orange-400">${formatCompact(liquidationSummary.long)}</p>
+            </div>
+            <div className="border-r border-border px-3 py-3">
+              <p className="text-[9px] text-sky-400">空单清算</p>
+              <p className="mt-1 text-sm font-semibold tabular-nums text-sky-400">${formatCompact(liquidationSummary.short)}</p>
+            </div>
+            <div className="px-3 py-3">
+              <p className="text-[9px] text-muted-foreground">最大单笔 / 事件</p>
+              <p className="mt-1 text-sm font-semibold tabular-nums text-foreground">${formatCompact(liquidationSummary.largest)} · {filteredLiquidations.length}</p>
+            </div>
+          </div>
+
+          <CryptoLiquidationChart events={liquidationEvents} exchange={liquidationExchange} rangeMinutes={liquidationRange} />
+
+          <div className="overflow-x-auto border-t border-border">
+            <table className="w-full min-w-[620px] text-left text-[10px]">
+              <thead className="text-muted-foreground">
+                <tr className="border-b border-border">
+                  <th className="px-3 py-2 font-medium">时间</th><th className="px-3 py-2 font-medium">交易所</th><th className="px-3 py-2 font-medium">方向</th><th className="px-3 py-2 text-right font-medium">价格</th><th className="px-3 py-2 text-right font-medium">数量</th><th className="px-3 py-2 text-right font-medium">金额</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...filteredLiquidations].reverse().slice(0, 8).map((item) => (
+                  <tr key={item.id} className="border-b border-border/60 last:border-b-0">
+                    <td className="px-3 py-2 text-muted-foreground">{displayDateTime(item.occurred_at)}</td>
+                    <td className="px-3 py-2 uppercase text-foreground">{item.exchange}</td>
+                    <td className={`px-3 py-2 font-medium ${item.side === 'long' ? 'text-orange-400' : 'text-sky-400'}`}>{item.side === 'long' ? '多单被清算' : '空单被清算'}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-foreground">{formatCryptoPrice(item.price)}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{item.quantity.toLocaleString('en-US', { maximumFractionDigits: 4 })}</td>
+                    <td className="px-3 py-2 text-right font-medium tabular-nums text-foreground">${formatCompact(item.notional)}{item.notional_estimated ? '*' : ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-3 py-2 text-[9px] text-muted-foreground">
+            <span>仅展示启用页面后的历史实际清算；OKX 合约张数按标的数量估算并标记 *</span>
+            <span>最后更新 {displayDateTime(liquidationUpdatedAt)} · 非投资建议</span>
+          </div>
+        </section>
+      )}
     </div>
   )
 }

@@ -101,14 +101,27 @@ func (s *GatewayStore) SaveRunCheckpoint(ctx context.Context, checkpoint RunChec
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, `
 INSERT INTO run_checkpoints(run_id, turn, session_id, workspace_id, mode, model, system_prompt, messages_json, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(run_id, turn) DO UPDATE SET messages_json=excluded.messages_json,
 system_prompt=excluded.system_prompt, created_at=excluded.created_at`, checkpoint.RunID, checkpoint.Turn,
 		checkpoint.SessionID, checkpoint.WorkspaceID, checkpoint.Mode, checkpoint.Model,
-		checkpoint.SystemPrompt, string(raw), checkpoint.CreatedAt.UTC().Format(time.RFC3339Nano))
-	return err
+		checkpoint.SystemPrompt, string(raw), checkpoint.CreatedAt.UTC().Format(time.RFC3339Nano)); err != nil {
+		return err
+	}
+	// Only the latest checkpoint is used for recovery. Keeping every full context
+	// snapshot made long tool-heavy sessions grow SQLite by gigabytes, exhausting
+	// disk and memory and causing otherwise unrelated tool calls to abort.
+	if _, err = tx.ExecContext(ctx, `DELETE FROM run_checkpoints WHERE run_id=? AND turn<>?`, checkpoint.RunID, checkpoint.Turn); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *GatewayStore) LoadLatestRunCheckpoint(ctx context.Context, runID string) (RunCheckpoint, error) {

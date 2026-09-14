@@ -13,6 +13,7 @@ type Props = {
   mode: 'chat' | 'coder'
   workspaceId?: string
   currentSessionId?: string
+  variant?: 'default' | 'context'
 }
 
 export default function RecentSessionSelect({
@@ -20,6 +21,7 @@ export default function RecentSessionSelect({
   mode,
   workspaceId,
   currentSessionId,
+  variant = 'default',
 }: Props) {
   const [sessions, setSessions] = useState<RecentSession[]>([])
 
@@ -46,7 +48,7 @@ export default function RecentSessionSelect({
     }
   }, [accountId, currentSessionId, mode, workspaceId])
 
-  if (!sessions.length) return null
+  if (!sessions.length && variant !== 'context') return null
 
   const openSession = (sessionId: string) => {
     if (!sessionId || sessionId === currentSessionId) return
@@ -63,9 +65,14 @@ export default function RecentSessionSelect({
       title="最近 10 个会话"
       value={currentSessionId || ''}
       onChange={(event) => openSession(event.target.value)}
-      className="h-8 w-[180px] max-w-[32vw] px-2 bg-card border border-border rounded-md text-[12px] text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+      className={variant === 'context'
+        ? 'workbench-context-select workbench-session-select'
+        : 'h-8 w-[180px] max-w-[32vw] px-2 bg-card border border-border rounded-md text-[12px] text-foreground focus:outline-none focus:ring-2 focus:ring-ring'}
     >
-      {!currentSessionId && <option value="">最近会话</option>}
+      {!currentSessionId && <option value="">{variant === 'context' ? '新会话' : '最近会话'}</option>}
+      {currentSessionId && !sessions.some((session) => session.id === currentSessionId) && (
+        <option value={currentSessionId}>当前会话 · {currentSessionId.slice(0, 8)}</option>
+      )}
       {sessions.map((session) => (
         <option key={session.id} value={session.id}>
           {session.active_run_status === 'running' || session.active_run_status === 'queued' ? '运行中 · ' : ''}

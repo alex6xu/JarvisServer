@@ -50,7 +50,7 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-4">
+    <div className="control-auth min-h-screen flex items-center justify-center bg-background px-4">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <div className="w-12 h-12 rounded-xl bg-primary flex items-center justify-center mx-auto mb-4">
@@ -65,8 +65,8 @@ export default function RegisterPage() {
 
         <form onSubmit={onSubmit} className="bg-card border border-border rounded-xl p-6 space-y-4">
           <div>
-            <label className="block text-[13px] font-medium text-foreground mb-1.5">用户名</label>
-            <input
+            <label htmlFor="register-field-1" className="block text-[13px] font-medium text-foreground mb-1.5">用户名</label>
+            <input id="register-field-1"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               autoComplete="username"
@@ -75,8 +75,8 @@ export default function RegisterPage() {
             />
           </div>
           <div>
-            <label className="block text-[13px] font-medium text-foreground mb-1.5">邮箱（可选）</label>
-            <input
+            <label htmlFor="register-field-2" className="block text-[13px] font-medium text-foreground mb-1.5">邮箱（可选）</label>
+            <input id="register-field-2"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -85,8 +85,8 @@ export default function RegisterPage() {
             />
           </div>
           <div>
-            <label className="block text-[13px] font-medium text-foreground mb-1.5">密码</label>
-            <input
+            <label htmlFor="register-field-3" className="block text-[13px] font-medium text-foreground mb-1.5">密码</label>
+            <input id="register-field-3"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -97,8 +97,8 @@ export default function RegisterPage() {
             />
           </div>
           <div>
-            <label className="block text-[13px] font-medium text-foreground mb-1.5">确认密码</label>
-            <input
+            <label htmlFor="register-field-4" className="block text-[13px] font-medium text-foreground mb-1.5">确认密码</label>
+            <input id="register-field-4"
               type="password"
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
@@ -108,7 +108,7 @@ export default function RegisterPage() {
               minLength={6}
             />
           </div>
-          {error && <p className="text-[12px] text-red-500">{error}</p>}
+          {error && <p role="alert" className="text-[12px] text-red-500">{error}</p>}
           <button
             type="submit"
             disabled={submitting}

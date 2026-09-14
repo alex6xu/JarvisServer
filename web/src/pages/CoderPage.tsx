@@ -1,14 +1,20 @@
 import { useState, useEffect, useRef, ChangeEvent, useCallback } from 'react'
-import { Pin } from 'lucide-react'
 import { apiFetch, useAccount } from '../context/AccountContext'
 import VoiceInputButton from '../components/VoiceInputButton'
 import MessageBubble from '../components/MessageBubble'
-import RecentSessionSelect from '../components/RecentSessionSelect'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { resolveWorkspace } from '../lib/codeWorkspace'
 import StopRunButton from '../components/StopRunButton'
+import RunMessageQueue, { QueueModeControl } from '../components/RunMessageQueue'
+import ConversationOutline from '../components/ConversationOutline'
 import { useVoiceInput } from '../hooks/useVoiceInput'
 import { useRunEventStream } from '../hooks/useRunEventStream'
 import { useRunStop } from '../hooks/useRunStop'
+import { isQueueUnavailableError, useRunMessageQueue } from '../hooks/useRunMessageQueue'
 import { useSessionRestore } from '../hooks/useSessionRestore'
+import DocumentPicker from '../components/DocumentPicker'
+import DocumentChips from '../components/DocumentChips'
+import type { ProjectDocument, ProjectSummary } from '../types/documents'
 import {
   coderSessionKey,
   coderWorkspaceKey,
@@ -88,6 +94,18 @@ function formatBytes(n: number) {
 }
 
 export default function CoderPage() {
+  const location = useLocation()
+  const { currentAccount } = useAccount()
+  return <CodeWorkspace key={`${currentAccount?.id}:${location.key}`} />
+}
+
+function CodeWorkspace() {
+  const navigate = useNavigate()
+  const params = new URLSearchParams(window.location.search)
+  const requestedProject = params.get('project') || ''
+  const blankProject = params.get('new') === '1'
+  const [initializing, setInitializing] = useState(true)
+  const [restoring, setRestoring] = useState(false)
   const { currentAccount } = useAccount()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
@@ -97,6 +115,9 @@ export default function CoderPage() {
   const [selectedModel, setSelectedModel] = useState('')
   const [workspaces, setWorkspaces] = useState<WorkspaceInfo[]>([])
   const [workspaceId, setWorkspaceId] = useState('')
+  const [restoredProjectId, setRestoredProjectId] = useState('')
+  const [projects, setProjects] = useState<ProjectSummary[]>([])
+  const [selectedDocuments, setSelectedDocuments] = useState<ProjectDocument[]>([])
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState('')
   const [ghConfigured, setGhConfigured] = useState(false)
@@ -113,9 +134,10 @@ export default function CoderPage() {
   const dirInputRef = useRef<HTMLInputElement>(null)
 
   const activeWorkspace = workspaces.find((w) => w.id === workspaceId) || null
+  const activeProject = projects.find((project) => (restoredProjectId || requestedProject) ? project.id === (restoredProjectId || requestedProject) : !!workspaceId && project.linked_workspace_id === workspaceId) || null
 
   const [runId, setRunId] = useState('')
-  const [pinNextMessage, setPinNextMessage] = useState(false)
+  const queue = useRunMessageQueue(currentAccount?.id, runId, sessionId)
   const { consumeRunEvents, abortRunStream } = useRunEventStream()
   const { isStopping, stopRun } = useRunStop({
     accountId: currentAccount?.id,
@@ -124,33 +146,9 @@ export default function CoderPage() {
     setRunId,
     setIsLoading,
     setMessages,
-    onStopped: () => setPinNextMessage(false),
   })
   const { restoreSession, persistSessionId, clearPersistedSession, clearServerActiveSession } =
     useSessionRestore()
-
-  const markQueuedMessageInjected = useCallback((content: string, pinned: boolean) => {
-    setMessages((prev) => {
-      const next = [...prev]
-      for (let i = next.length - 1; i >= 0; i--) {
-        const queuedLabel = pinned ? `已置顶：${content}` : `已排队：${content}`
-        if (next[i].role === 'system' && next[i].content === queuedLabel) {
-          next[i] = { ...next[i], content: `${pinned ? '置顶指令' : '排队消息'}已加入当前执行：${content}` }
-          return next
-        }
-      }
-      if (prev.some((m) => m.content === content && m.role === 'user')) return prev
-      return [
-        ...prev,
-        {
-          id: `inj-${Date.now()}`,
-          role: 'system',
-          content: `${pinned ? '置顶指令' : '排队消息'}已加入当前执行：${content}`,
-          timestamp: new Date(),
-        },
-      ]
-    })
-  }, [])
 
   const sessionStorageKey =
     currentAccount?.id && workspaceId ? coderSessionKey(currentAccount.id, workspaceId) : ''
@@ -164,6 +162,7 @@ export default function CoderPage() {
     const gh = params.get('github')
     if (gh === 'connected') {
       setGhPanelOpen(true)
+      void loadGitHubRepos()
       setMessages((prev) => [
         ...prev,
         {
@@ -188,7 +187,7 @@ export default function CoderPage() {
 
   // Restore session + active run after workspace is known (?session= preferred).
   useEffect(() => {
-    if (!currentAccount?.id || !workspaceId || !sessionStorageKey) {
+    if (initializing || !currentAccount?.id || !workspaceId || !sessionStorageKey) {
       setMessages([])
       setSessionId('')
       setRunId('')
@@ -197,24 +196,33 @@ export default function CoderPage() {
     }
 
     let cancelled = false
+    setRestoring(true)
     ;(async () => {
       try {
         const result = await restoreSession({
           accountId: currentAccount.id,
           storageKey: sessionStorageKey,
           mode: 'coder',
+          projectId: requestedProject || undefined,
           workspaceId,
         })
         if (cancelled) return
         if (!result) {
+          if (readSessionQueryParam()) setUploadError('指定会话无法在此项目恢复，请从左侧或全部会话重新选择')
           setMessages([])
           setSessionId('')
           setRunId('')
           setIsLoading(false)
           return
         }
+        const assignmentResponse = await apiFetch(`/v1/agent/sessions/${encodeURIComponent(result.sessionId)}/project`, {}, currentAccount.id)
+        if (!assignmentResponse.ok) throw new Error('会话项目关联加载失败')
+        const assignment = await assignmentResponse.json()
+        if (cancelled) return
+        setRestoredProjectId(assignment.assignment?.project?.id || '')
         setSessionId(result.sessionId)
         setMessages(result.messages)
+        setRestoring(false)
         if (result.activeRunId) {
           setRunId(result.activeRunId)
           setIsLoading(true)
@@ -223,7 +231,7 @@ export default function CoderPage() {
             afterSeq: result.afterSeq,
             fallbackModel: result.activeModel || selectedModel,
             onSessionId: setSessionId,
-            onUserInjected: markQueuedMessageInjected,
+            onQueueChanged: () => void queue.refresh(result.activeRunId),
             setMessages,
             setIsLoading,
             setRunId,
@@ -233,23 +241,23 @@ export default function CoderPage() {
           setIsLoading(false)
         }
       } catch (e) {
-        if (!cancelled) console.error('restore session failed', e)
-      }
+        if (!cancelled) { setWorkspaceId(''); setUploadError(e instanceof Error ? e.message : '会话恢复失败') }
+      } finally { if (!cancelled) setRestoring(false) }
     })()
     return () => {
       cancelled = true
       abortRunStream()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentAccount?.id, workspaceId, sessionStorageKey, markQueuedMessageInjected])
+  }, [currentAccount?.id, workspaceId, sessionStorageKey, initializing])
 
   useEffect(() => {
     if (sessionId && sessionStorageKey) persistSessionId(sessionStorageKey, sessionId)
   }, [sessionId, sessionStorageKey, persistSessionId])
 
   useEffect(() => {
-    if (!runId) setPinNextMessage(false)
-  }, [runId])
+    setSelectedDocuments([])
+  }, [workspaceId])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -273,83 +281,62 @@ export default function CoderPage() {
     }
   }
 
+  const fetchProjects = async () => {
+    try {
+      const response = await apiFetch('/v1/projects', {}, currentAccount?.id)
+      if (!response.ok) throw new Error('项目加载失败')
+      const data = await response.json().catch(() => ({}))
+      const list: ProjectSummary[] = Array.isArray(data.projects) ? data.projects : []
+      setProjects(list)
+      return list
+    } catch (error) {
+      throw error
+    }
+  }
+
   const fetchWorkspaces = async () => {
     try {
       const response = await apiFetch('/v1/workspaces', {}, currentAccount?.id)
-      if (!response.ok) return
+      if (!response.ok) throw new Error('工作目录加载失败')
       const data = await response.json()
       const list: WorkspaceInfo[] = data.workspaces || []
       setWorkspaces(list)
-      if (list.length > 0) {
-        const params = new URLSearchParams(window.location.search)
-        const requestedWorkspaceID = params.get('workspace')
-        const sessionFromUrl = readSessionQueryParam()
-        let workspaceFromSession = ''
-        if (sessionFromUrl && currentAccount?.id) {
-          try {
-            const sessRes = await apiFetch(
-              `/v1/agent/sessions/${encodeURIComponent(sessionFromUrl)}`,
-              {},
-              currentAccount.id,
-            )
-            if (sessRes.ok) {
-              const sessData = await sessRes.json()
-              workspaceFromSession =
-                sessData.workspace_id ||
-                sessData.active_run?.workspace_id ||
-                sessData.latest_run?.workspace_id ||
-                ''
-            } else if (sessRes.status === 404) {
-              // Drop stale ?session= so Chat/Coder stop refetching a missing id.
-              const url = new URL(window.location.href)
-              url.searchParams.delete('session')
-              url.searchParams.delete('resume')
-              window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`)
-            }
-          } catch {
-            /* ignore */
-          }
-        }
-        const savedWorkspaceID = currentAccount?.id ? readLocal(coderWorkspaceKey(currentAccount.id)) : ''
-        let serverWorkspaceID = ''
-        if (
-          currentAccount?.id &&
-          !requestedWorkspaceID &&
-          !workspaceFromSession &&
-          !list.some((workspace) => workspace.id === savedWorkspaceID)
-        ) {
-          try {
-            const activeRes = await apiFetch('/v1/agent/sessions/active?mode=coder', {}, currentAccount.id)
-            if (activeRes.ok) {
-              const activeData = await activeRes.json()
-              serverWorkspaceID = activeData.session?.workspace_id || ''
-            }
-          } catch {
-            /* use the first available workspace */
-          }
-        }
-        setWorkspaceId((prev) => {
-          if (requestedWorkspaceID && list.some((workspace) => workspace.id === requestedWorkspaceID)) {
-            return requestedWorkspaceID
-          }
-          if (workspaceFromSession && list.some((workspace) => workspace.id === workspaceFromSession)) {
-            return workspaceFromSession
-          }
-          if (prev && list.some((workspace) => workspace.id === prev)) return prev
-          if (savedWorkspaceID && list.some((workspace) => workspace.id === savedWorkspaceID)) {
-            return savedWorkspaceID
-          }
-          if (serverWorkspaceID && list.some((workspace) => workspace.id === serverWorkspaceID)) {
-            return serverWorkspaceID
-          }
-          return list[0].id
-        })
-      } else {
-        setWorkspaceId('')
+      const projectList = await fetchProjects() || []
+      const sessionFromUrl = readSessionQueryParam()
+      let sessionWorkspace = ''
+      if (sessionFromUrl && !blankProject) {
+        const response = await apiFetch(`/v1/agent/sessions/${encodeURIComponent(sessionFromUrl)}`, {}, currentAccount?.id)
+        if (!response.ok) throw new Error('无法加载指定会话，请从左侧重新选择')
+        const data = await response.json()
+        sessionWorkspace = data.workspace_id || data.session?.workspace_id || data.active_run?.workspace_id || data.latest_run?.workspace_id || ''
+        if (!sessionWorkspace) throw new Error('该历史会话没有可用工作目录，请在全部会话中查看')
       }
+      if (requestedProject && !sessionFromUrl && !blankProject && !params.get('workspace')) {
+        const project = projectList.find((item) => item.id === requestedProject)
+        if (project && !project.linked_workspace_id) {
+          const response = await apiFetch(`/v1/projects/${encodeURIComponent(requestedProject)}`, {}, currentAccount?.id)
+          if (!response.ok) throw new Error('项目历史加载失败')
+          const detail = await response.json()
+          sessionWorkspace = (detail.sessions || []).find((item: { type?: string; workspace_id?: string }) => item.type === 'code' && list.some((workspace) => workspace.id === item.workspace_id))?.workspace_id || ''
+        }
+      }
+      const resolved = resolveWorkspace({
+        blank: blankProject, projectId: requestedProject,
+        workspaceId: params.get('workspace') || '', sessionWorkspace,
+        savedWorkspace: currentAccount?.id ? readLocal(coderWorkspaceKey(currentAccount.id)) : '',
+        projects: projectList, workspaces: list,
+      })
+      setWorkspaceId(resolved)
+
     } catch (error) {
-      console.error('Failed to fetch workspaces:', error)
-    }
+      setUploadError(error instanceof Error ? error.message : '工作目录加载失败')
+    } finally { setInitializing(false) }
+  }
+
+  const workspaceHref = (id: string) => {
+    const query = new URLSearchParams({ workspace: id })
+    if (requestedProject && activeProject && !activeProject.linked_workspace_id) query.set('project', requestedProject)
+    return `/code?${query}`
   }
 
   const fetchGitHubStatus = async (): Promise<{ configured: boolean; connected: boolean }> => {
@@ -387,7 +374,8 @@ export default function CoderPage() {
   const disconnectGitHub = async () => {
     setGhError('')
     try {
-      await apiFetch('/v1/github/disconnect', { method: 'DELETE' }, currentAccount?.id)
+      const response = await apiFetch('/v1/github/disconnect', { method: 'DELETE' }, currentAccount?.id)
+      if (!response.ok) throw new Error('断开失败')
       setGhConnected(false)
       setGhLogin('')
       setGhRepos([])
@@ -446,9 +434,11 @@ export default function CoderPage() {
         setGhError(data.error || '导入失败')
         return
       }
+      if (!data.workspace?.id) throw new Error('服务器未返回工作目录，请刷新项目列表确认')
+      window.dispatchEvent(new Event('jarvis:sessions-changed'))
       await fetchWorkspaces()
       if (data.workspace?.id) {
-        setWorkspaceId(data.workspace.id)
+        navigate(workspaceHref(data.workspace.id))
         setGhPanelOpen(false)
         setMessages((prev) => [
           ...prev,
@@ -584,9 +574,11 @@ export default function CoderPage() {
         setUploadError(requestId ? `${detail}（请求 ID：${requestId}）` : detail)
         return
       }
+      if (!data.workspace?.id) throw new Error('服务器未返回工作目录，请刷新项目列表确认')
+      window.dispatchEvent(new Event('jarvis:sessions-changed'))
       await fetchWorkspaces()
       if (data.workspace?.id) {
-        setWorkspaceId(data.workspace.id)
+        navigate(workspaceHref(data.workspace.id))
         const skipHint = upload.formatUploadSkipSummary(built, limits)
         setMessages((prev) => [
           ...prev,
@@ -634,18 +626,19 @@ export default function CoderPage() {
   })
 
   const sendMessage = async () => {
-    if (!input.trim()) return
+    if (!input.trim() || !workspaceId || initializing || restoring || uploading || !!ghImporting) return
+    if (isLoading && runId && selectedDocuments.length > 0) return
     if (voice.listening) {
       await voice.stop()
     }
 
     const content = input
-    const pinned = isLoading && !!runId && pinNextMessage
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
       content,
       timestamp: new Date(),
+      documents: selectedDocuments,
     }
 
     setMessages((prev) => [...prev, userMessage])
@@ -654,51 +647,27 @@ export default function CoderPage() {
     // While a run is active, enqueue into inbox (no new assistant bubble / stream).
     if (isLoading && runId) {
       try {
-        const response = await apiFetch(
-          '/v1/agent/chat',
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              message: content,
-              session_id: sessionId,
-              mode: 'coder',
-              model: selectedModel || undefined,
-              workspace_id: workspaceId || undefined,
-              stream: false,
-              pinned,
-            }),
-          },
-          currentAccount?.id,
-        )
-        const data = await response.json().catch(() => ({}))
-        if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`)
-        if (!data.queued || data.run_id !== runId) {
-          throw new Error('活动任务未接受排队消息')
-        }
-        if (data.session_id) setSessionId(data.session_id)
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `queued-${userMessage.id}`,
-            role: 'system',
-            content: `${data.pinned ? '已置顶' : '已排队'}：${content}`,
-            timestamp: new Date(),
-          },
-        ])
-        setPinNextMessage(false)
+        await queue.submit(content)
+        return
       } catch (err) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: Date.now().toString(),
-            role: 'system',
-            content: err instanceof Error ? `排队失败: ${err.message}` : '排队失败',
-            timestamp: new Date(),
-          },
-        ])
+        if (isQueueUnavailableError(err)) {
+          // The previous run ended while Send was being pressed. Continue below
+          // as a normal follow-up instead of surfacing a misleading queue 404.
+          setRunId('')
+          setIsLoading(false)
+        } else {
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: Date.now().toString(),
+              role: 'system',
+              content: err instanceof Error ? `排队失败: ${err.message}` : '排队失败',
+              timestamp: new Date(),
+            },
+          ])
+          return
+        }
       }
-      return
     }
 
     setIsLoading(true)
@@ -728,6 +697,8 @@ export default function CoderPage() {
             mode: 'coder',
             model: selectedModel || undefined,
             workspace_id: workspaceId || undefined,
+            project_id: activeProject?.id || undefined,
+            document_ids: selectedDocuments.map((document) => document.id),
             stream: false,
           }),
         },
@@ -735,7 +706,9 @@ export default function CoderPage() {
       )
       const data = await response.json().catch(() => ({}))
       if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`)
+      setSelectedDocuments([])
       if (data.session_id) {
+        window.dispatchEvent(new Event('jarvis:sessions-changed'))
         setSessionId(data.session_id)
         if (sessionStorageKey) persistSessionId(sessionStorageKey, data.session_id)
       }
@@ -751,7 +724,7 @@ export default function CoderPage() {
           accountId: currentAccount?.id,
           fallbackModel: selectedModel,
           onSessionId: setSessionId,
-          onUserInjected: markQueuedMessageInjected,
+          onQueueChanged: () => void queue.refresh(data.run_id),
           setMessages,
           setIsLoading,
           setRunId,
@@ -783,6 +756,7 @@ export default function CoderPage() {
   }
 
   const clearChat = () => {
+    setRestoredProjectId('')
     const clearedSessionId = sessionId
     abortRunStream()
     setMessages([])
@@ -855,6 +829,7 @@ export default function CoderPage() {
       setRunId('')
       setIsLoading(false)
       abortRunStream()
+      window.dispatchEvent(new Event('jarvis:sessions-changed'))
       await fetchWorkspaces()
       setMessages([
         {
@@ -870,54 +845,13 @@ export default function CoderPage() {
   }
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault()
-      sendMessage()
+      void sendMessage()
     }
   }
 
-  return (
-    <div className="flex flex-col h-full">
-      <header className="h-14 flex items-center justify-between px-6 border-b border-border gap-3">
-        <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-foreground">Code</h2>
-          <p className="text-[11px] text-muted-foreground truncate">
-            上传本地目录或授权 GitHub 仓库到云端，用自然语言让 Agent 改代码
-            {sessionId && <span className="ml-2">Session: {sessionId.substring(0, 8)}...</span>}
-          </p>
-        </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <RecentSessionSelect
-            accountId={currentAccount?.id}
-            mode="coder"
-            workspaceId={workspaceId}
-            currentSessionId={sessionId}
-          />
-          {runId && <StopRunButton stopping={isStopping} onStop={() => void stopRun()} />}
-          <select
-            value={selectedModel}
-            onChange={(e) => setSelectedModel(e.target.value)}
-            className="h-8 max-w-[180px] px-2 bg-card border border-border rounded-md text-[12px] text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-          >
-            {models.length === 0 ? (
-              <option value="">默认模型</option>
-            ) : (
-              models.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.id === 'auto' ? '智能路由' : m.id}
-                </option>
-              ))
-            )}
-          </select>
-          <button
-            onClick={clearChat}
-            className="h-8 px-3 text-[12px] text-muted-foreground hover:text-foreground border border-border rounded-md hover:bg-accent transition-colors"
-          >
-            New Task
-          </button>
-        </div>
-      </header>
-
+  const workspaceControls = (
       <div className="px-6 py-3 border-b border-border bg-card/40 flex flex-wrap items-center gap-2">
         <input
           ref={dirInputRef}
@@ -952,7 +886,9 @@ export default function CoderPage() {
         </button>
         <select
           value={workspaceId}
-          onChange={(e) => setWorkspaceId(e.target.value)}
+          aria-label="选择工作目录"
+          disabled={initializing || restoring || uploading || !!ghImporting}
+          onChange={(e) => { if (e.target.value) navigate(workspaceHref(e.target.value)) }}
           className="h-8 min-w-[180px] px-2 bg-card border border-border rounded-md text-[12px]"
         >
           <option value="">未选择工作区</option>
@@ -1006,8 +942,25 @@ export default function CoderPage() {
             {activeWorkspace.source === 'github' ? ' · GitHub' : ''}
           </span>
         )}
-        {uploadError && <span className="text-[12px] text-red-500">{uploadError}</span>}
+
       </div>
+  )
+
+  return (
+    <div className="control-chat control-coder flex flex-col h-full">
+      <header className="h-14 flex items-center justify-between px-6 border-b border-border gap-3">
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-foreground">{activeProject?.name || activeWorkspace?.name || '新建代码项目'}</h2>
+          <p className="text-[11px] text-muted-foreground truncate">
+            上传本地目录或授权 GitHub 仓库到云端，用自然语言让 Agent 改代码
+            {sessionId && <span className="ml-2">Session: {sessionId.substring(0, 8)}...</span>}
+          </p>
+        </div>
+        <Link to="/projects" className="text-[12px] text-muted-foreground">项目资料与管理</Link>
+      </header>
+
+      {uploadError && <p role="alert" className="px-6 py-2 text-[12px] text-red-500">{uploadError}</p>}
+      {!workspaceId && workspaceControls}
 
       {ghPanelOpen && (
         <div className="px-6 py-4 border-b border-border bg-background">
@@ -1097,7 +1050,9 @@ export default function CoderPage() {
         </div>
       )}
 
-      <div className="flex-1 overflow-auto p-6 space-y-4">
+      <div className="flex min-h-0 flex-1">
+        <ConversationOutline messages={messages} />
+        <div className="min-w-0 flex-1 overflow-auto p-6 space-y-4">
         {messages.length === 0 ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-center animate-fade-in max-w-2xl w-full">
@@ -1107,7 +1062,7 @@ export default function CoderPage() {
                   <polyline points="8 6 2 12 8 18" />
                 </svg>
               </div>
-              <h3 className="text-base font-semibold text-foreground mb-1.5">AI 编码工作流</h3>
+              <h3 className="text-base font-semibold text-foreground mb-1.5">{workspaceId ? 'AI 编码工作流' : '选择工作目录，开始代码项目'}</h3>
               <p className="text-[13px] text-muted-foreground mb-4 text-left leading-relaxed">
                 1. 上传本地目录，或连接 GitHub 并导入仓库到云端工作区<br />
                 2. 用快捷任务或自然语言描述需求（例如：给 user 模块加分页 API）<br />
@@ -1115,7 +1070,7 @@ export default function CoderPage() {
                 4. GitHub 工作区可用 Pull 同步远端、Push 推回仓库，或下载 zip
               </p>
               {!workspaceId && (
-                <p className="text-[12px] text-amber-600 mb-4">尚未选择工作区：仍可聊天要代码片段，但无法直接改你的项目文件。</p>
+                <p className="text-[12px] text-amber-600 mb-4">先选择已有云端工作目录、上传本地目录或从 GitHub 导入项目，准备完成后即可对话。本地目录会上传为云端副本，不直接挂载本机路径。</p>
               )}
               <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-left">
                 {quickTasks.map((task) => (
@@ -1146,7 +1101,8 @@ export default function CoderPage() {
           </div>
         )}
 
-        <div ref={messagesEndRef} />
+          <div ref={messagesEndRef} />
+        </div>
       </div>
 
       {messages.length > 0 && (
@@ -1164,6 +1120,44 @@ export default function CoderPage() {
       )}
 
       <div className="p-4 border-t border-border">
+        {workspaceId && <details className="mb-2"><summary className="cursor-pointer text-[12px] text-muted-foreground">工作目录与文件 · {activeWorkspace?.name}</summary>{workspaceControls}</details>}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {runId && <StopRunButton stopping={isStopping} onStop={() => void stopRun()} />}
+          <select
+            aria-label="当前模型"
+            disabled={isLoading}
+            value={selectedModel}
+            onChange={(e) => setSelectedModel(e.target.value)}
+            className="h-8 max-w-[180px] px-2 bg-card border border-border rounded-md text-[12px] text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            {models.length === 0 ? (
+              <option value="">默认模型</option>
+            ) : (
+              models.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.id === 'auto' ? '智能路由' : m.id}
+                </option>
+              ))
+            )}
+          </select>
+          <button
+            onClick={clearChat}
+            disabled={initializing || restoring}
+            className="h-8 px-3 text-[12px] text-muted-foreground hover:text-foreground border border-border rounded-md hover:bg-accent transition-colors"
+          >
+            新任务
+          </button>
+        </div>
+        {runId && (
+          <RunMessageQueue
+            snapshot={queue.snapshot}
+            busy={queue.busy}
+            error={queue.error}
+            onPin={(id) => void queue.pin(id)}
+            onMove={(id, direction) => void queue.move(id, direction)}
+            onCancel={(id) => void queue.cancel(id)}
+          />
+        )}
         {(voice.interim || voice.error) && (
           <div className="mb-2 text-[11px]">
             {voice.listening && voice.interim && (
@@ -1172,18 +1166,32 @@ export default function CoderPage() {
             {voice.error && <span className="text-red-500">{voice.error}</span>}
           </div>
         )}
-        <div className="flex gap-2 items-end">
+        {isLoading && runId && (
+          <div className="mb-2">
+            <QueueModeControl value={queue.mode} onChange={queue.setMode} disabled={queue.busy} />
+          </div>
+        )}
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          {activeProject ? (
+            <><span className="text-[11px] text-muted-foreground">项目：{activeProject.name}</span><DocumentPicker accountId={currentAccount?.id} projectId={activeProject.id} selected={selectedDocuments} onChange={setSelectedDocuments} /></>
+          ) : workspaceId ? <span className="text-[11px] text-muted-foreground">当前 Workspace 尚未匹配到项目，暂不能附加文档。</span> : null}
+        </div>
+        {selectedDocuments.length > 0 && <div className="mb-2"><DocumentChips documents={selectedDocuments} onRemove={(id) => setSelectedDocuments((current) => current.filter((document) => document.id !== id))} /></div>}
+        {isLoading && runId && selectedDocuments.length > 0 && <p className="mb-2 text-[11px] text-amber-600">运行中不能发送附件。</p>}
+        <div className="control-composer flex gap-2 items-end">
           <textarea
             ref={textareaRef}
+            aria-label="代码任务消息"
+            disabled={!workspaceId || initializing || restoring || uploading || !!ghImporting}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={onKeyDown}
             placeholder={
               isLoading
-                ? '生成中也可继续输入，将排队注入本轮…'
+                ? '生成中也可继续输入，将排队注入本轮…（Enter 换行，Shift+Enter 发送）'
                 : workspaceId
-                  ? '描述要改的功能，或点麦克风口述…（Enter 发送）'
-                  : '先上传/导入项目，或直接粘贴代码提问…'
+                  ? '描述要改的功能，或点麦克风口述…（Enter 换行，Shift+Enter 发送）'
+                  : '请先选择工作目录或导入项目'
             }
             rows={3}
             className="flex-1 px-4 py-2.5 bg-card border border-border rounded-lg text-[13px] text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent transition-colors resize-none font-mono"
@@ -1191,7 +1199,7 @@ export default function CoderPage() {
           <VoiceInputButton
             listening={voice.listening}
             supported={voice.supported}
-            disabled={false}
+            disabled={!workspaceId || initializing}
             title={
               voice.engine === 'server'
                 ? '语音输入（服务端 ASR）'
@@ -1199,27 +1207,18 @@ export default function CoderPage() {
             }
             onClick={() => void voice.toggle()}
           />
-          {isLoading && runId && (
-            <button
-              type="button"
-              onClick={() => setPinNextMessage((value) => !value)}
-              aria-pressed={pinNextMessage}
-              title={pinNextMessage ? '取消置顶发送' : '置顶到当前任务'}
-              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border transition-colors ${
-                pinNextMessage
-                  ? 'border-primary bg-primary/10 text-primary'
-                  : 'border-border text-muted-foreground hover:bg-accent hover:text-foreground'
-              }`}
-            >
-              <Pin className="h-4 w-4" />
-            </button>
-          )}
           <button
             onClick={sendMessage}
-            disabled={!input.trim()}
+            disabled={!workspaceId || initializing || restoring || uploading || !!ghImporting || !input.trim() || queue.busy || Boolean(isLoading && runId && selectedDocuments.length)}
             className="h-10 px-4 bg-primary text-primary-foreground rounded-lg text-[13px] font-medium hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
           >
-            {isLoading ? (pinNextMessage ? 'Pin' : 'Queue') : 'Run'}
+            {isLoading && runId
+              ? queue.mode === 'pin'
+                ? '置顶'
+                : queue.mode === 'steer'
+                  ? '立即加入'
+                  : '排队'
+              : 'Run'}
           </button>
         </div>
       </div>

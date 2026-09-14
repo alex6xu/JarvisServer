@@ -30,6 +30,13 @@ type Options struct {
 	NoTools bool
 	// NoSkills disables skill discovery.
 	NoSkills bool
+	// PluginsEnabled controls external JSON-RPC plugins for Gateway runs.
+	PluginsEnabled       *bool
+	PluginsDir           string
+	PluginStatePath      string
+	PluginInitTimeout    time.Duration
+	PluginCallTimeout    time.Duration
+	PluginMaxOutputBytes int
 	// AuthMode is "none" (accept any bearer / auto-issue on login) or "token"
 	// (require Authorization matching APIKey when set).
 	AuthMode string
@@ -49,6 +56,12 @@ type Options struct {
 	WorkspaceMaxBytes int64
 	// WorkspaceMaxFileBytes bounds one uncompressed workspace file.
 	WorkspaceMaxFileBytes int64
+	// DocumentsRoot stores project document originals and extracted text.
+	DocumentsRoot                 string
+	DocumentUploadMaxBytes        int64
+	DocumentProjectMaxBytes       int64
+	DocumentExtractedTextMaxBytes int64
+	DocumentParserTimeout         time.Duration
 	// DatabasePath is the SQLite file used for chat and provider audit records.
 	// The default is <cwd>/.jarvis/gateway.db.
 	DatabasePath       string
@@ -89,6 +102,8 @@ type Options struct {
 	Logger *distributedlog.Logger
 }
 
+func boolPtr(value bool) *bool { return &value }
+
 func (o Options) withDefaults() Options {
 	if o.Addr == "" {
 		o.Addr = ":8080"
@@ -96,11 +111,23 @@ func (o Options) withDefaults() Options {
 	if o.AuthMode == "" {
 		o.AuthMode = "token"
 	}
+	if o.PluginsEnabled == nil {
+		o.PluginsEnabled = boolPtr(true)
+	}
+	if o.PluginInitTimeout <= 0 {
+		o.PluginInitTimeout = 10 * time.Second
+	}
+	if o.PluginCallTimeout <= 0 {
+		o.PluginCallTimeout = 60 * time.Second
+	}
+	if o.PluginMaxOutputBytes <= 0 {
+		o.PluginMaxOutputBytes = 1 << 20
+	}
 	if o.AuditRetentionDays == 0 {
 		o.AuditRetentionDays = 30
 	}
 	if o.AuditMaxBodyBytes <= 0 {
-		o.AuditMaxBodyBytes = 1 << 20
+		o.AuditMaxBodyBytes = 64 << 10
 	}
 	if o.WorkspaceUploadMaxBytes <= 0 {
 		o.WorkspaceUploadMaxBytes = defaultWorkspaceArchiveBytes
@@ -111,8 +138,20 @@ func (o Options) withDefaults() Options {
 	if o.WorkspaceMaxFileBytes <= 0 {
 		o.WorkspaceMaxFileBytes = defaultWorkspaceFileBytes
 	}
+	if o.DocumentUploadMaxBytes <= 0 {
+		o.DocumentUploadMaxBytes = 10 << 20
+	}
+	if o.DocumentProjectMaxBytes <= 0 {
+		o.DocumentProjectMaxBytes = 500 << 20
+	}
+	if o.DocumentExtractedTextMaxBytes <= 0 {
+		o.DocumentExtractedTextMaxBytes = 2 << 20
+	}
+	if o.DocumentParserTimeout <= 0 {
+		o.DocumentParserTimeout = 30 * time.Second
+	}
 	if o.RunTimeout == 0 {
-		o.RunTimeout = 30 * time.Minute
+		o.RunTimeout = 2 * time.Hour
 	}
 	if o.GitHubClientID == "" {
 		o.GitHubClientID = os.Getenv("GITHUB_CLIENT_ID")

@@ -172,6 +172,28 @@ export interface CryptoCandleResponse {
   fetched_at: string
 }
 
+export interface CryptoLiquidation {
+  id: string
+  exchange: CryptoExchange
+  symbol: 'BTC-USDT-SWAP' | 'ETH-USDT-SWAP'
+  side: 'long' | 'short'
+  price: number
+  quantity: number
+  notional: number
+  currency: 'USDT'
+  notional_estimated?: boolean
+  occurred_at: string
+  received_at: string
+}
+
+export interface CryptoLiquidationStreamEvent {
+  type: 'status' | 'liquidation'
+  exchange: CryptoExchange
+  state?: 'connecting' | 'connected' | 'disconnected'
+  message?: string
+  liquidation?: CryptoLiquidation
+}
+
 export const MARKET_OVERVIEW: WatchlistItem[] = [
   { symbol: '1.000001', code: '000001', name: '上证指数', market: '沪市' },
   { symbol: '0.399001', code: '399001', name: '深证成指', market: '深市' },

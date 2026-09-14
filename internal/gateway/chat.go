@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/alex6xu/jarvisserver/internal/agentcore"
@@ -24,23 +26,27 @@ import (
 
 // Service owns shared gateway state and starts agent runs.
 type Service struct {
-	Opts          Options
-	Runs          *RunManager
-	Store         SessionRepository
-	Control       ControlRepository
-	Audit         *GatewayStore
-	Router        *ProviderRouter
-	Trust         *trust.Manager
-	Mem           *MemStore
-	GitHub        *GitHubService
-	Stocks        *StockService
-	Sentiment     *StockSentimentService
-	NewsSentiment *StockNewsSentimentService
-	Crypto        *CryptoService
-	Notifications *NotificationService
-	Digest        *StockDigestService
-	Skills        *SkillRegistryService
-	Logger        *distributedlog.Logger
+	Opts           Options
+	Runs           *RunManager
+	Store          SessionRepository
+	Control        ControlRepository
+	Audit          *GatewayStore
+	Router         *ProviderRouter
+	Trust          *trust.Manager
+	Mem            *MemStore
+	GitHub         *GitHubService
+	Stocks         *StockService
+	Sentiment      *StockSentimentService
+	NewsSentiment  *StockNewsSentimentService
+	Crypto         *CryptoService
+	Notifications  *NotificationService
+	Digest         *StockDigestService
+	Skills         *SkillRegistryService
+	Plugins        *PluginRegistry
+	Logger         *distributedlog.Logger
+	metadataCancel context.CancelFunc
+	metadataDone   chan struct{}
+	closeOnce      sync.Once
 }
 
 // gatewayToolPolicy keeps conversational runs read-only and lightweight. The
@@ -106,6 +112,12 @@ func NewService(opts Options) (*Service, error) {
 		opts.Cwd = cwd
 	}
 	stateRoot := filepath.Join(opts.Cwd, ".jarvis")
+	if opts.DocumentsRoot == "" {
+		opts.DocumentsRoot = filepath.Join(stateRoot, "documents")
+	}
+	if err := os.MkdirAll(opts.DocumentsRoot, 0o700); err != nil {
+		return nil, fmt.Errorf("documents root: %w", err)
+	}
 	legacyStore, err := session.NewStore(filepath.Join(stateRoot, "sessions"))
 	if err != nil {
 		return nil, fmt.Errorf("session store: %w", err)
@@ -216,6 +228,10 @@ func NewService(opts Options) (*Service, error) {
 		_ = audit.Close()
 		return nil, fmt.Errorf("initialize notifications: %w", err)
 	}
+	if _, err := audit.db.Exec(`UPDATE project_tip_runs SET launch_status='failed', error='launch interrupted by server restart' WHERE launch_status='starting'`); err != nil {
+		_ = audit.Close()
+		return nil, err
+	}
 	runs := newRunManager(opts.Logger, audit)
 	service := &Service{
 		Opts:          opts,
@@ -235,6 +251,11 @@ func NewService(opts Options) (*Service, error) {
 		Logger:        opts.Logger,
 	}
 	service.Digest = NewStockDigestService(service.Stocks, service.Crypto, service.NewsSentiment, service.Sentiment, service.Notifications, audit)
+	service.Plugins, err = NewPluginRegistry(opts)
+	if err != nil {
+		_ = service.Close()
+		return nil, fmt.Errorf("initialize plugin registry: %w", err)
+	}
 	if !opts.NoSkills {
 		_, _ = run.LoadSkills(false)
 		knownTools := []string{"stock_latest_digest", "skill_load", "memory_search"}
@@ -246,6 +267,7 @@ func NewService(opts Options) (*Service, error) {
 			opts.Logger.Error(context.Background(), "skill registry reload failed", distributedlog.Err(reloadErr))
 		}
 	}
+	service.startProviderMetadataReconciler()
 	return service, nil
 }
 
@@ -254,7 +276,17 @@ func (s *Service) Close() error {
 	if s == nil {
 		return nil
 	}
-	return s.Audit.Close()
+	var closeErr error
+	s.closeOnce.Do(func() {
+		if s.metadataCancel != nil {
+			s.metadataCancel()
+		}
+		if s.metadataDone != nil {
+			<-s.metadataDone
+		}
+		closeErr = s.Audit.Close()
+	})
+	return closeErr
 }
 
 // StartChat begins an async agent run and returns session/run ids immediately.
@@ -294,9 +326,16 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 	if err != nil {
 		return ChatResponse{}, err
 	}
+	messageDocuments, documentContext, err := s.prepareMessageDocuments(ctx, req)
+	if err != nil {
+		return ChatResponse{}, err
+	}
 
 	if req.SessionID != "" {
 		if active := s.Runs.ActiveForSession(req.SessionID); active != nil {
+			if len(messageDocuments.Documents) > 0 {
+				return ChatResponse{}, errors.New("messages with documents cannot be queued while a run is active")
+			}
 			_, hs, _, err := s.openSession(req.SessionID, "", runCwd, req.WorkspaceID, sessionTypeForMode(req.Mode), req.AccountID)
 			if err != nil {
 				return ChatResponse{}, err
@@ -309,8 +348,15 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 					return ChatResponse{}, fmt.Errorf("set active session: %w", err)
 				}
 			}
-			queued := queuedUserMessage(content, req.Pinned)
-			if err := active.EnqueueMessage(msg, queued, req.Pinned); err != nil {
+			eventType, err := normalizeQueueEventType(req.QueueEventType, req.Pinned)
+			if err != nil {
+				return ChatResponse{}, err
+			}
+			item, _, err := active.QueueMessage(QueueMessageInput{
+				AccountID: req.AccountID, Content: msg, EventType: eventType,
+				IdempotencyKey: req.IdempotencyKey,
+			})
+			if err != nil {
 				return ChatResponse{}, err
 			}
 			return ChatResponse{
@@ -318,7 +364,8 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 				RunID:     active.ID,
 				Model:     active.Model,
 				Queued:    true,
-				Pinned:    req.Pinned,
+				Pinned:    item.EventType == queueEventPin,
+				QueueItem: &item,
 			}, nil
 		}
 	}
@@ -338,8 +385,12 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 		return ChatResponse{}, err
 	}
 
-	noTools := s.Opts.NoTools || (strings.EqualFold(req.Mode, "coder") && req.WorkspaceID == "")
-	env, err := run.SetupEnvAt(
+	noTools := req.ReadOnly || s.Opts.NoTools || (strings.EqualFold(req.Mode, "coder") && req.WorkspaceID == "")
+	pluginOptions := run.PluginLoadOptions{Disabled: true}
+	if s.Plugins != nil && !req.ReadOnly {
+		pluginOptions = s.Plugins.LoadOptions(runCwd)
+	}
+	env, err := run.SetupEnvAtWithPlugins(
 		runCwd,
 		model,
 		route.BaseURL,
@@ -352,6 +403,7 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 		nil,
 		true,
 		run.ToolPolicy{},
+		pluginOptions,
 	)
 	if err != nil {
 		return ChatResponse{}, err
@@ -364,6 +416,10 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 		env.Tools = append(env.Tools, &SkillLoadTool{Snapshot: skillSnapshot})
 	}
 	env.Tools = applyGatewayToolPolicy(req.Mode, noTools, env.Tools, skillSnapshot)
+	if req.ReadOnly {
+		// Deliberately no tools, plugins, delegation or shell hooks in analysis.
+		env.Tools = nil
+	}
 
 	sysPrompt := hs.header.SystemPrompt
 	if sysPrompt == "" {
@@ -394,6 +450,9 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 		source = "resume"
 	}
 	set, herr := run.ResolveHookSet(env.Cwd, run.Trusted(env.Cwd))
+	if req.ReadOnly {
+		set, herr = nil, nil
+	}
 	if herr != nil {
 		closeEnv(env)
 		return ChatResponse{}, herr
@@ -455,7 +514,7 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 		_ = s.Audit.FinishChat(context.Background(), state.ID, "", runStatusError, err.Error(), time.Now().UTC())
 		return ChatResponse{}, fmt.Errorf("initialize realtime session persistence: %w", err)
 	}
-	if err := liveSession.PersistInitial(messages[hs.persisted]); err != nil {
+	if err := liveSession.PersistInitialWithDocuments(messages[hs.persisted], messageDocuments); err != nil {
 		cancel()
 		state.Finish(err)
 		closeEnv(env)
@@ -478,13 +537,31 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 	runCfg := run.NewConfig(model, env.ProviderName, thinking, routedProvider, creds, run.ToolRegistry(env.Tools), run.TodoReminders(env.Tools))
 	runCfg.SessionID = hs.header.ID
 	runCfg.MemoryRoot = run.MemoryRootFromTools(env.Tools)
+	if documentContext != "" {
+		targetIndex := hs.persisted
+		runCfg.TransformContext = func(_ context.Context, input agentcore.MessageList) agentcore.MessageList {
+			if targetIndex < 0 || targetIndex >= len(input) {
+				return input
+			}
+			user, ok := input[targetIndex].(agentcore.UserMessage)
+			if !ok {
+				return input
+			}
+			// Transform only a copy used for the provider request. The durable Agent
+			// context and chat audit retain the user's original question.
+			output := append(agentcore.MessageList(nil), input...)
+			user.Content = append(append(agentcore.ContentList(nil), user.Content...), agentcore.NewTextContent(documentContext))
+			output[targetIndex] = user
+			return output
+		}
+	}
 	baseSteering := runCfg.GetSteeringMessages
 	runCfg.GetSteeringMessages = func(ctx context.Context) []agentcore.AgentMessage {
 		var messages []agentcore.AgentMessage
 		if baseSteering != nil {
 			messages = append(messages, baseSteering(ctx)...)
 		}
-		messages = append(messages, state.DrainMessages()...)
+		messages = append(messages, state.DrainSteeringMessages()...)
 		liveSession.QueueMessages(messages)
 		return messages
 	}
@@ -494,7 +571,7 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 		if baseFollowUp != nil {
 			messages = append(messages, baseFollowUp(ctx, agentCtx)...)
 		}
-		messages = append(messages, state.DrainMessages()...)
+		messages = append(messages, state.DrainFollowUpMessages()...)
 		liveSession.QueueMessages(messages)
 		return messages
 	}
@@ -503,8 +580,39 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 		liveSession.QueueMessages(messages)
 		return messages
 	}
-	runCfg.ContextWindow = s.adaptiveContextWindow(req.Model, req.Mode)
+	runCfg.ContextWindow = route.ContextWindow
+	if runCfg.ContextWindow <= 0 {
+		runCfg.ContextWindow = s.adaptiveContextWindow(req.Model, req.Mode)
+	}
 	runCfg.Compaction = smartCompactionSettings(runCfg.ContextWindow)
+	var selectedContextWindow atomic.Int64
+	selectedContextWindow.Store(int64(runCfg.ContextWindow))
+	var appliedContextWindow atomic.Int64
+	appliedContextWindow.Store(int64(runCfg.ContextWindow))
+	routedProvider.onRouteSelected = func(selected LLMRoute) {
+		if selected.ContextWindow > 0 {
+			selectedContextWindow.Store(int64(selected.ContextWindow))
+		}
+	}
+	basePrepareNextTurn := runCfg.PrepareNextTurn
+	runCfg.PrepareNextTurn = func(ctx context.Context, agentCtx *agentcore.AgentContext) *runtime.TurnUpdate {
+		var update *runtime.TurnUpdate
+		if basePrepareNextTurn != nil {
+			update = basePrepareNextTurn(ctx, agentCtx)
+		}
+		window := int(selectedContextWindow.Load())
+		if window <= 0 || window == int(appliedContextWindow.Load()) {
+			return update
+		}
+		if update == nil {
+			update = &runtime.TurnUpdate{}
+		}
+		settings := smartCompactionSettings(window)
+		update.ContextWindow = &window
+		update.Compaction = &settings
+		appliedContextWindow.Store(int64(window))
+		return update
+	}
 	baseSummaryStream := runCfg.Stream
 	runCfg.SummaryStream = func(ctx context.Context, model string, llm provider.LlmContext, cfg provider.StreamConfig) (*provider.AssistantMessageEventStream, error) {
 		extra := make(map[string]any, len(cfg.Extra)+1)
@@ -519,6 +627,13 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 	_, onEvent := run.InstallDriverHooks(runCtx, &runCfg, set, hookDeps, source, baseOnEvent)
 	pub := func(ev StreamEvent) { state.Publish(ev) }
 	persistOnEvent := func(event agentcore.AgentEvent) {
+		if turn, ok := event.(agentcore.TurnEndEvent); ok && len(turn.Message.ToolCalls()) == 0 {
+			var turnErr error
+			if turn.Message.StopReason == agentcore.StopReasonError || turn.Message.StopReason == agentcore.StopReasonAborted {
+				turnErr = errors.New(strings.TrimSpace(turn.Message.ErrorMessage + " " + turn.Message.StopReason))
+			}
+			state.FinishExecutingQueue(turnErr)
+		}
 		if err := liveSession.HandleEvent(event); err != nil {
 			s.Logger.Error(runCtx, "persist live session event failed",
 				distributedlog.F("event_type", event.EventType()), distributedlog.Err(err))
@@ -534,6 +649,16 @@ func (s *Service) StartChat(ctx context.Context, req ChatRequest) (ChatResponse,
 		distributedlog.F("model", model),
 		distributedlog.F("workspace_id", req.WorkspaceID),
 	)
+
+	if req.BeforeLaunch != nil {
+		if err := req.BeforeLaunch(ChatResponse{SessionID: hs.header.ID, RunID: state.ID, Model: model}); err != nil {
+			cancel()
+			state.Finish(err)
+			closeEnv(env)
+			_ = s.Audit.FinishChat(context.Background(), state.ID, "", runStatusError, err.Error(), time.Now().UTC())
+			return ChatResponse{}, err
+		}
+	}
 
 	go func() {
 		defer cancel()
@@ -644,7 +769,8 @@ func (s *Service) buildRoutedProvider(requestedModel string, initial RoutePlan, 
 		sessionID: sessionID, workspaceID: workspaceID, mode: mode, publish: publish,
 		planner: func(ctx context.Context, purpose RoutePurpose, req provider.CompletionRequest) (RoutePlan, []routedCandidate, error) {
 			model := requestedModel
-			minContextWindow := compaction.EstimateContextTokens(req.Context.Messages).Tokens + 2048
+			minContextWindow := compaction.EstimateContextTokensWithPrompt(
+				req.Context.SystemPrompt, req.Context.Messages, req.Context.Tools).Tokens + 2048
 			if purpose == RoutePurposeCompaction {
 				model = ""
 			}
@@ -687,8 +813,16 @@ func (s *Service) adaptiveContextWindow(requestedModel, mode string) int {
 				((provider.Capabilities.Reasoning && provider.QualityTier >= 3) ||
 					(provider.Capabilities.Coding && provider.QualityTier >= 2))
 		}
-		if eligible && (minimum == 0 || provider.ContextWindow < minimum) {
-			minimum = provider.ContextWindow
+		if eligible {
+			for _, modelID := range parseProviderModels(provider.Models) {
+				if model != "" && !strings.EqualFold(modelID, model) {
+					continue
+				}
+				window := providerModelMetadataFor(provider, modelID).EffectiveContextWindow
+				if window > 0 && (minimum == 0 || window < minimum) {
+					minimum = window
+				}
+			}
 		}
 	}
 	if minimum <= 0 {

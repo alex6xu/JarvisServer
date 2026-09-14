@@ -188,12 +188,21 @@ func (s *Service) handleFetchProviderModels(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if p, ok := s.Mem.getProvider(id); ok {
-		models, err := fetchProviderModels(r.Context(), *p, s.Opts.AllowPrivateProviderURLs)
+		metadata, err := fetchProviderModelMetadata(r.Context(), *p, s.Opts.AllowPrivateProviderURLs)
 		if err != nil {
 			writeErr(w, http.StatusBadGateway, err.Error())
 			return
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"models": models})
+		responseMetadata, ok := s.Mem.mergeDiscoveredProviderMetadata(id, metadata)
+		if !ok {
+			writeErr(w, http.StatusNotFound, "provider was deleted while fetching models")
+			return
+		}
+		if err := s.persistProviders(r.Context()); err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, providerModelsResponse(responseMetadata))
 		return
 	}
 	writeErr(w, http.StatusNotFound, "provider not found")
@@ -210,14 +219,23 @@ func (s *Service) handleFetchModelsBody(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	models, err := fetchProviderModels(r.Context(), Provider{
+	p := Provider{
 		Type: body.Type, Key: body.Key, BaseURL: body.BaseURL, AuthMode: body.AuthMode,
-	}, s.Opts.AllowPrivateProviderURLs)
+	}
+	metadata, err := fetchProviderModelMetadata(r.Context(), p, s.Opts.AllowPrivateProviderURLs)
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"models": models})
+	writeJSON(w, http.StatusOK, providerModelsResponse(metadata))
+}
+
+func providerModelsResponse(metadata []ProviderModelMetadata) map[string]any {
+	models := make([]string, 0, len(metadata))
+	for _, model := range metadata {
+		models = append(models, model.ID)
+	}
+	return map[string]any{"models": models, "model_metadata": metadata}
 }
 
 func (s *Service) handleProbeProvider(w http.ResponseWriter, r *http.Request) {
@@ -232,7 +250,7 @@ func (s *Service) handleProbeProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	started := time.Now()
-	models, probeErr := fetchProviderModels(r.Context(), *configured, s.Opts.AllowPrivateProviderURLs)
+	metadata, probeErr := fetchProviderModelMetadata(r.Context(), *configured, s.Opts.AllowPrivateProviderURLs)
 	result := corerouter.AttemptResult{
 		EndpointID: "provider_" + strconv.Itoa(id), AttemptID: newID("probe"),
 		Success: probeErr == nil, Latency: time.Since(started), OccurredAt: time.Now().UTC(),
@@ -249,7 +267,19 @@ func (s *Service) handleProbeProvider(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadGateway, probeErr.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "models": models, "latency_ms": result.Latency.Milliseconds()})
+	responseMetadata, ok := s.Mem.mergeDiscoveredProviderMetadata(id, metadata)
+	if !ok {
+		writeErr(w, http.StatusNotFound, "provider was deleted while probing")
+		return
+	}
+	if err := s.persistProviders(r.Context()); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response := providerModelsResponse(responseMetadata)
+	response["status"] = "ok"
+	response["latency_ms"] = result.Latency.Milliseconds()
+	writeJSON(w, http.StatusOK, response)
 }
 
 func (s *Service) handleListRoutePolicies(w http.ResponseWriter, r *http.Request) {

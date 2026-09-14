@@ -33,6 +33,7 @@
 
 - **两种模式**：无头 `-p` 一次性执行（适合脚本 / CI），或直接进入交互式 REPL。
 - **多 Provider**：OpenRouter（默认）、本地 Ollama、NVIDIA NIM、Anthropic、任意 OpenAI 兼容端点。
+- **OpenAI 兼容网关**：对外提供 `POST /v1/chat/completions`（支持普通 JSON 和 SSE 流式响应），可直接接入 OpenAI SDK 及兼容客户端。
 - **内置工具集**：`read` / `write` / `edit` / `grep` / `find` / `bash`（支持 `run_in_background` 后台执行，配套 `bash_output` / `kill_bash`）/ `todo` / `webfetch`。
 - **会话续跑**：`--list-sessions` / `--resume` / `--continue`，无头与 REPL 均可续跑。
 - **stream-json 输出**：逐行 JSON 事件，首个事件携带 `session_id`，便于调用方关联。
@@ -126,6 +127,41 @@ JARVIS_VERSION=v0.2.0 JARVIS_INSTALL_DIR="$HOME/bin" \
 生产环境推荐使用 Nginx 托管 `web/dist`，并将 `/v1` 和 `/healthz` 反向代理到
 仅监听回环地址的 Gateway。完整的构建、systemd、Nginx、HTTPS、SQLite 备份、升级与
 安全检查步骤见 [`docs/deployment.md`](docs/deployment.md)。
+
+---
+
+### OpenAI 兼容 API
+
+Gateway 对外提供标准 Chat Completions 接口，复用已配置的 Provider 路由、健康检查和故障转移，但不会进入 Jarvis Agent 工具循环，也不会创建 Jarvis Session：
+
+```bash
+curl http://localhost:8080/v1/chat/completions \
+  -H "Authorization: Bearer $JARVIS_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "auto",
+    "messages": [
+      {"role": "system", "content": "You are a concise assistant."},
+      {"role": "user", "content": "Hello"}
+    ]
+  }'
+```
+
+流式调用：
+
+```bash
+curl -N http://localhost:8080/v1/chat/completions \
+  -H "Authorization: Bearer $JARVIS_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "auto",
+    "messages": [{"role": "user", "content": "Hello"}],
+    "stream": true,
+    "stream_options": {"include_usage": true}
+  }'
+```
+
+OpenAI SDK 可将 `base_url` 设置为 `http://localhost:8080/v1`。接口支持文本与 base64 data URL 图片消息、调用方定义的 function tools，以及常用生成参数。当前仅支持 `n=1`；工具只会转发给模型，由调用方负责执行。
 
 ---
 

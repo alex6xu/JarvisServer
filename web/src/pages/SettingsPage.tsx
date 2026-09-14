@@ -3,6 +3,8 @@ import { apiFetch, useAccount } from '../context/AccountContext'
 import { useAuth } from '../context/AuthContext'
 import NotificationSettings from '../components/NotificationSettings'
 import SkillSettings from '../components/SkillSettings'
+import PluginSettings from '../components/PluginSettings'
+import AppearanceSettings from '../components/AppearanceSettings'
 
 export default function SettingsPage() {
   const { user, changePassword, isAdmin } = useAuth()
@@ -231,13 +233,14 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="p-6">
+    <div className="control-page p-6">
       <div className="mb-6">
         <h2 className="text-base font-semibold text-foreground">Settings</h2>
         <p className="text-[13px] text-muted-foreground mt-0.5">账号与实例配置</p>
       </div>
 
       <div className="space-y-4 max-w-2xl">
+        {isAdmin && <AppearanceSettings />}
         <div className="bg-card border border-border rounded-xl p-5">
           <h3 className="text-sm font-semibold text-foreground mb-4">当前账号</h3>
           <div className="space-y-2 text-[13px]">
@@ -417,6 +420,8 @@ export default function SettingsPage() {
         </div>
 
         <NotificationSettings accountId={currentAccount?.id} />
+
+        <PluginSettings accountId={currentAccount?.id} isAdmin={isAdmin} />
 
         <SkillSettings accountId={currentAccount?.id} isAdmin={isAdmin} />
 

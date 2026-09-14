@@ -1,0 +1,11 @@
+[Unit]
+Description=Run JarvisServer data backup every day
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+RandomizedDelaySec=30m
+Persistent=true
+Unit=jarvis-backup.service
+
+[Install]
+WantedBy=timers.target

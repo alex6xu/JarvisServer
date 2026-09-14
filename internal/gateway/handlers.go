@@ -47,13 +47,16 @@ func (s *Service) handleModels(w http.ResponseWriter, _ *http.Request) {
 			add(m)
 		}
 	}
-	data := make([]map[string]string, 0, len(ids))
+	data := make([]map[string]any, 0, len(ids))
 	models := make([]map[string]string, 0, len(ids))
 	for _, id := range ids {
-		data = append(data, map[string]string{"id": id})
+		data = append(data, map[string]any{
+			"id": id, "object": "model", "created": 0, "owned_by": "jarvis",
+		})
 		models = append(models, map[string]string{"id": id, "name": id})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
+		"object":  "list",
 		"data":    data,
 		"models":  models,
 		"default": "auto",
@@ -85,10 +88,8 @@ func (s *Service) handleChat(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Service) handleRunEvents(w http.ResponseWriter, r *http.Request) {
-	runID := pathParam(r, "runId")
-	st, ok := s.Runs.Get(runID)
+	st, _, ok := s.ownedRunFromRequest(w, r)
 	if !ok {
-		writeErr(w, http.StatusNotFound, "run not found")
 		return
 	}
 	afterSeq := parseAfterSeq(r.URL.Query().Get("after_seq"))
@@ -176,7 +177,25 @@ func (s *Service) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := pathParam(r, "sessionId")
-	resp, err := s.getSessionForAccount(id, accountID)
+	q := r.URL.Query()
+	cursorCount := 0
+	for _, key := range []string{"before_seq", "after_seq", "around_seq"} {
+		if raw, exists := q[key]; exists {
+			value, err := strconv.Atoi(q.Get(key))
+			if len(raw) != 1 || err != nil || value <= 0 {
+				writeErr(w, http.StatusBadRequest, "cursor must be a positive integer")
+				return
+			}
+			cursorCount++
+		}
+	}
+	if cursorCount > 1 {
+		writeErr(w, http.StatusBadRequest, "history cursors are mutually exclusive")
+		return
+	}
+	limit, beforeSeq, afterSeq := parseSessionPage(q.Get("limit"), q.Get("before_seq"), q.Get("after_seq"))
+	aroundSeq, _ := strconv.Atoi(q.Get("around_seq"))
+	resp, err := s.getSessionForAccountWindow(id, accountID, limit, beforeSeq, afterSeq, aroundSeq)
 	if err != nil {
 		if isNotFound(err) {
 			writeErr(w, http.StatusNotFound, err.Error())

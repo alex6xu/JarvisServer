@@ -33,11 +33,15 @@ Agent:
   AuthMode: token
   AllowRegistration: false
   AuditRetentionDays: 30
-  AuditMaxBodyBytes: 1048576
-  RunTimeoutSeconds: 1800
+  AuditMaxBodyBytes: 65536
+  RunTimeoutSeconds: 7200
   WorkspaceUploadMaxBytes: 104857600
   WorkspaceMaxBytes: 104857600
   WorkspaceMaxFileBytes: 10485760
+  DocumentUploadMaxBytes: 10485760
+  DocumentProjectMaxBytes: 524288000
+  DocumentExtractedTextMaxBytes: 2097152
+  DocumentParserTimeoutSeconds: 30
   AllowPrivateProviderURLs: false
   AllowPrivateNotificationURLs: false
   # Cwd: .
@@ -49,6 +53,13 @@ Agent:
   # ThinkingLevel: ""
   # NoTools: false
   # NoSkills: false # Skill directory defaults to ~/.agents/skills; override with JARVIS_SKILLS_DIR.
+  Plugins:
+    Enabled: true
+    # Dir: /path/to/JARVIS_HOME/plugins
+    # StatePath: /path/to/JARVIS_HOME/plugins-state.json
+    InitTimeoutSeconds: 10
+    CallTimeoutSeconds: 60
+    MaxOutputBytes: 1048576
   # WorkspacesRoot: ./workspaces
   # DatabasePath: ./.jarvis/gateway.db
   # APIToken: ""

@@ -12,6 +12,9 @@ WorkingDirectory=/var/lib/jarvis
 Environment=JARVIS_HOME=/var/lib/jarvis/home
 Environment=JARVIS_SKILLS_DIR=/var/lib/jarvis/skills
 Environment=JARVIS_ADMIN_PASSWORD=__REPLACE_WITH_LONG_RANDOM_PASSWORD__
+# Prefer a native Go toolchain. Snap's launcher cannot switch AppArmor profiles
+# under the hardened service and makes every `go` tool call fail.
+Environment=PATH=/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/bin
 # 可选：启用 Reddit / X / Polymarket 美股舆情。
 # Environment=SOCIAL_SENTIMENT_API_KEY=__REPLACE_WITH_SENTIMENT_API_KEY__
 # 可选：至少配置一个新闻舆情 Provider。

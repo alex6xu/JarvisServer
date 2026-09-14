@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -107,6 +109,26 @@ func TestBashToolTimeout(t *testing.T) {
 		t.Errorf("timeout took too long: %s (process not killed?)", elapsed)
 	}
 	_ = res
+}
+
+func TestBashToolTimeoutKillsChildProcessGroup(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("process groups are Unix-specific")
+	}
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "orphan-marker")
+	tool := &BashTool{}
+	_, gerr := runBash(t, tool, map[string]any{
+		"command":    fmt.Sprintf("(sleep 1; touch %q) & wait", marker),
+		"timeout_ms": 100,
+	}, nil)
+	if gerr == nil || !strings.Contains(gerr.Error(), "timed out") {
+		t.Fatalf("expected timeout, got %v", gerr)
+	}
+	time.Sleep(1200 * time.Millisecond)
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("child survived timeout and created %s: %v", marker, err)
+	}
 }
 
 func TestBashToolCancel(t *testing.T) {
@@ -269,4 +291,3 @@ func TestResolveShell(t *testing.T) {
 		})
 	}
 }
-

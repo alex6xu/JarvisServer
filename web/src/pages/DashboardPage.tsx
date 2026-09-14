@@ -46,7 +46,7 @@ export default function DashboardPage() {
   ]
 
   return (
-    <div className="p-6">
+    <div className="control-page p-6">
       <div className="mb-6">
         <h2 className="text-base font-semibold text-foreground">Dashboard</h2>
         <p className="text-[13px] text-muted-foreground mt-0.5">
@@ -72,22 +72,6 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      {/* Charts placeholder */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="bg-card border border-border rounded-xl p-5">
-          <h3 className="text-sm font-semibold text-foreground mb-4">Usage Over Time</h3>
-          <div className="h-56 flex items-center justify-center text-muted-foreground text-[13px] border border-dashed border-border rounded-lg">
-            Chart placeholder
-          </div>
-        </div>
-
-        <div className="bg-card border border-border rounded-xl p-5">
-          <h3 className="text-sm font-semibold text-foreground mb-4">Model Distribution</h3>
-          <div className="h-56 flex items-center justify-center text-muted-foreground text-[13px] border border-dashed border-border rounded-lg">
-            Chart placeholder
-          </div>
-        </div>
-      </div>
     </div>
   )
 }

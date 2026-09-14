@@ -27,6 +27,31 @@ func TestReplaceProvidersSynchronizesEndpointsAndModels(t *testing.T) {
 	}
 }
 
+func TestReplaceProvidersPreservesModelMetadata(t *testing.T) {
+	store := newTestGatewayStore(t)
+	provider := Provider{ID: 7, Name: "custom", Type: 3, Key: "secret", BaseURL: "https://example.com/v1",
+		Models: "m1", Status: 1, ContextWindow: 32768}
+	if err := store.ReplaceProviders(context.Background(), []Provider{provider}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec(`UPDATE provider_models SET context_window=131072,
+manual_context_window=200000, metadata_source='auto:discovery' WHERE endpoint_id='provider_7' AND model_id='m1'`); err != nil {
+		t.Fatal(err)
+	}
+	provider.Status = 0
+	if err := store.ReplaceProviders(context.Background(), []Provider{provider}); err != nil {
+		t.Fatal(err)
+	}
+	var detected, manual int
+	if err := store.db.QueryRow(`SELECT context_window, manual_context_window FROM provider_models
+WHERE endpoint_id='provider_7' AND model_id='m1'`).Scan(&detected, &manual); err != nil {
+		t.Fatal(err)
+	}
+	if detected != 131072 || manual != 200000 {
+		t.Fatalf("detected=%d manual=%d", detected, manual)
+	}
+}
+
 func TestRoutePolicyPublishesImmutableRevisions(t *testing.T) {
 	store := newTestGatewayStore(t)
 	ctx := context.Background()

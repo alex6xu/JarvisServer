@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -31,6 +32,8 @@ type NotificationService struct {
 	box          cipher.AEAD
 	httpClient   *http.Client
 	allowPrivate bool
+	wechatQRMu   sync.Mutex
+	wechatQR     map[string]wechatQRSession
 }
 
 type NotificationChannel struct {
@@ -98,7 +101,8 @@ func NewNotificationService(opts Options, store *GatewayStore, stateRoot string)
 	}
 	client := &http.Client{Timeout: 10 * time.Second}
 	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
-	return &NotificationService{store: store, box: box, httpClient: client, allowPrivate: opts.AllowPrivateNotificationURLs}, nil
+	return &NotificationService{store: store, box: box, httpClient: client,
+		allowPrivate: opts.AllowPrivateNotificationURLs, wechatQR: make(map[string]wechatQRSession)}, nil
 }
 
 func validNotificationKind(kind string) bool {
